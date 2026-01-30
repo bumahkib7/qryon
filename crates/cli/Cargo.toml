@@ -1,0 +1,28 @@
+[package]
+name = "rma-cli"
+description = "Command-line interface for Rust Monorepo Analyzer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rma"
+path = "src/main.rs"
+
+[dependencies]
+rma-common = { path = "../common" }
+rma-parser = { path = "../parser" }
+rma-analyzer = { path = "../analyzer" }
+rma-indexer = { path = "../indexer" }
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+colored.workspace = true
+indicatif.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
