@@ -41,7 +41,10 @@ impl Rule for DynamicExecutionRule {
                             &parsed.path,
                             &parsed.content,
                             Severity::Critical,
-                            &format!("AST detected {} call - review for code injection risk", text),
+                            &format!(
+                                "AST detected {} call - review for code injection risk",
+                                text
+                            ),
                             Language::Python,
                         ));
                     }
@@ -116,8 +119,14 @@ impl Rule for HardcodedSecretRule {
         let mut cursor = parsed.tree.walk();
 
         let secret_keywords = [
-            "password", "passwd", "secret", "api_key", "apikey",
-            "access_token", "auth_token", "private_key",
+            "password",
+            "passwd",
+            "secret",
+            "api_key",
+            "apikey",
+            "access_token",
+            "auth_token",
+            "private_key",
         ];
 
         find_assignments(&mut cursor, |node: Node| {

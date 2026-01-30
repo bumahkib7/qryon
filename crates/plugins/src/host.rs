@@ -41,9 +41,11 @@ pub fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
     let mut linker = Linker::new(engine);
 
     // Host function: get input length
-    linker.func_wrap("env", "rma_get_input_len", |caller: Caller<'_, HostState>| -> i32 {
-        caller.data().input_buffer.len() as i32
-    })?;
+    linker.func_wrap(
+        "env",
+        "rma_get_input_len",
+        |caller: Caller<'_, HostState>| -> i32 { caller.data().input_buffer.len() as i32 },
+    )?;
 
     // Host function: read input into plugin memory
     linker.func_wrap(
@@ -60,7 +62,10 @@ pub fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
             let len = (len as usize).min(input_len);
             let input_data: Vec<u8> = caller.data().input_buffer[..len].to_vec();
 
-            if memory.write(&mut caller, ptr as usize, &input_data).is_err() {
+            if memory
+                .write(&mut caller, ptr as usize, &input_data)
+                .is_err()
+            {
                 return -1;
             }
 
@@ -79,7 +84,7 @@ pub fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
             };
 
             let mut buffer = vec![0u8; len as usize];
-            if let Err(_) = memory.read(&caller, ptr as usize, &mut buffer) {
+            if memory.read(&caller, ptr as usize, &mut buffer).is_err() {
                 return -1;
             }
 
@@ -162,7 +167,10 @@ pub fn call_analyze(
     let result = analyze.call(&mut *store, ())?;
 
     if result != 0 {
-        return Err(anyhow::anyhow!("Plugin analysis returned error code: {}", result));
+        return Err(anyhow::anyhow!(
+            "Plugin analysis returned error code: {}",
+            result
+        ));
     }
 
     // Parse output

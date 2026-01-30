@@ -25,7 +25,6 @@ use anyhow::Result;
 use rma_common::{Finding, Language};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -104,7 +103,10 @@ pub struct PluginFinding {
 impl From<PluginFinding> for Finding {
     fn from(pf: PluginFinding) -> Self {
         Finding {
-            id: format!("plugin-{}-{}-{}", pf.rule_id, pf.start_line, pf.start_column),
+            id: format!(
+                "plugin-{}-{}-{}",
+                pf.rule_id, pf.start_line, pf.start_column
+            ),
             rule_id: pf.rule_id,
             message: pf.message,
             severity: match pf.severity.to_lowercase().as_str() {

@@ -6,7 +6,6 @@ use axum::{
     Json,
 };
 use rma_analyzer::FileAnalysis;
-use rma_common::Language;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,7 +82,7 @@ pub async fn scan_endpoint(
         .parse_directory(&request.path)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let (results, summary) = state
+    let (_results, summary) = state
         .analyzer
         .analyze_files(&parsed_files)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -128,9 +127,7 @@ pub async fn search_endpoint(
     // For now, return empty results - full implementation would use the indexer
     info!("Search query: {}", query.q);
 
-    Ok(Json(SearchResponse {
-        results: vec![],
-    }))
+    Ok(Json(SearchResponse { results: vec![] }))
 }
 
 /// GET /api/v1/stats - Get daemon statistics

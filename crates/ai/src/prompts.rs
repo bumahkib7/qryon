@@ -1,6 +1,6 @@
 //! Prompts for AI security analysis
 
-use crate::{AiError, AiFinding, AnalysisRequest, AnalysisResponse};
+use crate::{AiError, AnalysisRequest, AnalysisResponse};
 
 /// System prompt for security analysis
 pub fn security_analysis_system_prompt() -> String {
@@ -78,7 +78,10 @@ pub fn parse_analysis_response(text: &str) -> Result<AnalysisResponse, AiError> 
     let json_str = extract_json(text);
 
     serde_json::from_str(&json_str).map_err(|e| {
-        AiError::ParseError(format!("Failed to parse AI response: {} - Response: {}", e, text))
+        AiError::ParseError(format!(
+            "Failed to parse AI response: {} - Response: {}",
+            e, text
+        ))
     })
 }
 

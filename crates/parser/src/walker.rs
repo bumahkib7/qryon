@@ -11,8 +11,8 @@ pub fn collect_files(root: &Path, config: &RmaConfig) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
     let walker = WalkBuilder::new(root)
-        .hidden(true)  // Skip hidden files by default
-        .git_ignore(true)  // Respect .gitignore
+        .hidden(true) // Skip hidden files by default
+        .git_ignore(true) // Respect .gitignore
         .git_global(true)
         .git_exclude(true)
         .follow_links(false)
@@ -20,7 +20,9 @@ pub fn collect_files(root: &Path, config: &RmaConfig) -> Result<Vec<PathBuf>> {
 
     let supported_extensions: Vec<&str> = if config.languages.is_empty() {
         // All supported languages
-        vec!["rs", "js", "mjs", "cjs", "ts", "tsx", "py", "pyi", "go", "java"]
+        vec![
+            "rs", "js", "mjs", "cjs", "ts", "tsx", "py", "pyi", "go", "java",
+        ]
     } else {
         config
             .languages
@@ -38,10 +40,7 @@ pub fn collect_files(root: &Path, config: &RmaConfig) -> Result<Vec<PathBuf>> {
         }
 
         // Check extension
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         if !supported_extensions.contains(&ext) {
             trace!("Skipping unsupported extension: {}", path.display());
@@ -85,10 +84,7 @@ pub fn language_stats(files: &[PathBuf]) -> std::collections::HashMap<Language, 
     let mut stats = std::collections::HashMap::new();
 
     for file in files {
-        let ext = file
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
         let lang = Language::from_extension(ext);
         *stats.entry(lang).or_insert(0) += 1;
     }
@@ -99,8 +95,8 @@ pub fn language_stats(files: &[PathBuf]) -> std::collections::HashMap<Language, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_collect_files() {

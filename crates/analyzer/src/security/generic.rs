@@ -28,7 +28,11 @@ impl Rule for TodoFixmeRule {
 
         for (line_num, line) in parsed.content.lines().enumerate() {
             let upper = line.to_uppercase();
-            if upper.contains("TODO") || upper.contains("FIXME") || upper.contains("HACK") || upper.contains("XXX") {
+            if upper.contains("TODO")
+                || upper.contains("FIXME")
+                || upper.contains("HACK")
+                || upper.contains("XXX")
+            {
                 findings.push(Finding {
                     id: format!("{}-{}", self.id(), line_num),
                     rule_id: self.id().to_string(),
@@ -99,7 +103,10 @@ impl Rule for LongFunctionRule {
                     &parsed.path,
                     &parsed.content,
                     Severity::Warning,
-                    &format!("Function has {} lines (max: {}) - consider refactoring", lines, self.max_lines),
+                    &format!(
+                        "Function has {} lines (max: {}) - consider refactoring",
+                        lines, self.max_lines
+                    ),
                     parsed.language,
                 ));
             }
@@ -190,11 +197,31 @@ where
 
 fn count_branches(node: &Node, lang: Language) -> usize {
     let branch_kinds: &[&str] = match lang {
-        Language::Rust => &["if_expression", "match_expression", "while_expression", "for_expression"],
-        Language::JavaScript | Language::TypeScript => &["if_statement", "switch_statement", "for_statement", "while_statement"],
-        Language::Python => &["if_statement", "for_statement", "while_statement", "try_statement"],
+        Language::Rust => &[
+            "if_expression",
+            "match_expression",
+            "while_expression",
+            "for_expression",
+        ],
+        Language::JavaScript | Language::TypeScript => &[
+            "if_statement",
+            "switch_statement",
+            "for_statement",
+            "while_statement",
+        ],
+        Language::Python => &[
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "try_statement",
+        ],
         Language::Go => &["if_statement", "for_statement", "switch_statement"],
-        Language::Java => &["if_statement", "for_statement", "while_statement", "switch_expression"],
+        Language::Java => &[
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "switch_expression",
+        ],
         Language::Unknown => &[],
     };
 

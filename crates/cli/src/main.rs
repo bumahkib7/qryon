@@ -4,13 +4,13 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use rma_analyzer::{AnalyzerEngine, AnalysisSummary, FileAnalysis};
+use rma_analyzer::{AnalysisSummary, AnalyzerEngine, FileAnalysis};
 use rma_common::{RmaConfig, Severity};
 use rma_indexer::{IndexConfig, IndexerEngine};
 use rma_parser::ParserEngine;
 use std::path::PathBuf;
 use std::time::Instant;
-use tracing::{info, Level};
+use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Parser)]
@@ -169,7 +169,7 @@ fn main() -> Result<()> {
 }
 
 fn run_scan(
-    path: &PathBuf,
+    path: &std::path::Path,
     output: OutputFormat,
     output_file: Option<PathBuf>,
     min_severity: Severity,
@@ -183,10 +183,12 @@ fn run_scan(
     println!("Scanning: {}\n", path.display());
 
     // Build config
-    let mut config = RmaConfig::default();
-    config.min_severity = min_severity;
-    config.incremental = incremental;
-    config.parallelism = parallelism;
+    let mut config = RmaConfig {
+        min_severity,
+        incremental,
+        parallelism,
+        ..Default::default()
+    };
 
     if let Some(langs) = languages {
         config.languages = langs
@@ -205,10 +207,7 @@ fn run_scan(
 
     // Parse
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")?,
-    );
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green} {msg}")?);
     pb.set_message("Parsing files...");
 
     let parser = ParserEngine::new(config.clone());
@@ -221,10 +220,7 @@ fn run_scan(
 
     // Analyze
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")?,
-    );
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green} {msg}")?);
     pb.set_message("Analyzing...");
 
     let analyzer = AnalyzerEngine::new(config.clone());
@@ -474,14 +470,10 @@ fn run_init(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn run_watch(path: &PathBuf) -> Result<()> {
+fn run_watch(path: &std::path::Path) -> Result<()> {
     use rma_indexer::watcher;
 
-    println!(
-        "{} Watching {} for changes...",
-        "👁".cyan(),
-        path.display()
-    );
+    println!("{} Watching {} for changes...", "👁".cyan(), path.display());
     println!("Press Ctrl+C to stop\n");
 
     let (_watcher, rx) = watcher::watch_directory(path)?;
@@ -490,35 +482,21 @@ fn run_watch(path: &PathBuf) -> Result<()> {
     let parser = ParserEngine::new(config.clone());
     let analyzer = AnalyzerEngine::new(config);
 
-    loop {
-        match rx.recv() {
-            Ok(event) => {
-                let events = watcher::filter_source_events(vec![event]);
-                for ev in events {
-                    println!(
-                        "{} {:?}: {}",
-                        "→".yellow(),
-                        ev.kind,
-                        ev.path.display()
-                    );
+    while let Ok(event) = rx.recv() {
+        let events = watcher::filter_source_events(vec![event]);
+        for ev in events {
+            println!("{} {:?}: {}", "→".yellow(), ev.kind, ev.path.display());
 
-                    // Re-analyze the changed file
-                    if let Ok(content) = std::fs::read_to_string(&ev.path) {
-                        if let Ok(parsed) = parser.parse_file(&ev.path, &content) {
-                            if let Ok(analysis) = analyzer.analyze_file(&parsed) {
-                                if !analysis.findings.is_empty() {
-                                    println!(
-                                        "  {} {} findings",
-                                        "⚠".yellow(),
-                                        analysis.findings.len()
-                                    );
-                                }
-                            }
+            // Re-analyze the changed file
+            if let Ok(content) = std::fs::read_to_string(&ev.path) {
+                if let Ok(parsed) = parser.parse_file(&ev.path, &content) {
+                    if let Ok(analysis) = analyzer.analyze_file(&parsed) {
+                        if !analysis.findings.is_empty() {
+                            println!("  {} {} findings", "⚠".yellow(), analysis.findings.len());
                         }
                     }
                 }
             }
-            Err(_) => break,
         }
     }
 

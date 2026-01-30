@@ -12,7 +12,7 @@ pub mod security;
 
 use anyhow::Result;
 use rayon::prelude::*;
-use rma_common::{CodeMetrics, Finding, Language, RmaConfig, Severity, SourceLocation};
+use rma_common::{CodeMetrics, Finding, Language, RmaConfig, Severity};
 use rma_parser::ParsedFile;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -65,19 +65,27 @@ impl AnalyzerEngine {
         self.rules.push(Box::new(security::rust::PanicRule));
 
         // JavaScript rules - DETECT dangerous patterns
-        self.rules.push(Box::new(security::javascript::DynamicCodeExecutionRule));
-        self.rules.push(Box::new(security::javascript::InnerHtmlRule));
-        self.rules.push(Box::new(security::javascript::ConsoleLogRule));
+        self.rules
+            .push(Box::new(security::javascript::DynamicCodeExecutionRule));
+        self.rules
+            .push(Box::new(security::javascript::InnerHtmlRule));
+        self.rules
+            .push(Box::new(security::javascript::ConsoleLogRule));
 
         // Python rules - DETECT dangerous patterns
-        self.rules.push(Box::new(security::python::DynamicExecutionRule));
-        self.rules.push(Box::new(security::python::ShellInjectionRule));
-        self.rules.push(Box::new(security::python::HardcodedSecretRule));
+        self.rules
+            .push(Box::new(security::python::DynamicExecutionRule));
+        self.rules
+            .push(Box::new(security::python::ShellInjectionRule));
+        self.rules
+            .push(Box::new(security::python::HardcodedSecretRule));
 
         // Generic rules
         self.rules.push(Box::new(security::generic::TodoFixmeRule));
-        self.rules.push(Box::new(security::generic::LongFunctionRule::new(100)));
-        self.rules.push(Box::new(security::generic::HighComplexityRule::new(15)));
+        self.rules
+            .push(Box::new(security::generic::LongFunctionRule::new(100)));
+        self.rules
+            .push(Box::new(security::generic::HighComplexityRule::new(15)));
     }
 
     /// Analyze a single parsed file
@@ -115,7 +123,10 @@ impl AnalyzerEngine {
 
     /// Analyze multiple parsed files in parallel
     #[instrument(skip(self, files))]
-    pub fn analyze_files(&self, files: &[ParsedFile]) -> Result<(Vec<FileAnalysis>, AnalysisSummary)> {
+    pub fn analyze_files(
+        &self,
+        files: &[ParsedFile],
+    ) -> Result<(Vec<FileAnalysis>, AnalysisSummary)> {
         info!("Starting parallel analysis of {} files", files.len());
 
         let results: Vec<FileAnalysis> = files
@@ -127,9 +138,7 @@ impl AnalyzerEngine {
 
         info!(
             "Analysis complete: {} files, {} findings ({} critical)",
-            summary.files_analyzed,
-            summary.total_findings,
-            summary.critical_count
+            summary.files_analyzed, summary.total_findings, summary.critical_count
         );
 
         Ok((results, summary))
@@ -189,6 +198,9 @@ fn risky_function() {
         let analysis = analyzer.analyze_file(&parsed).unwrap();
 
         // Should detect the unsafe block
-        assert!(analysis.findings.iter().any(|f| f.rule_id.contains("unsafe")));
+        assert!(analysis
+            .findings
+            .iter()
+            .any(|f| f.rule_id.contains("unsafe")));
     }
 }

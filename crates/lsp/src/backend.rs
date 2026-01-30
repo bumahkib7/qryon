@@ -52,7 +52,8 @@ impl RmaBackend {
                     match self.analyzer.analyze_file(&parsed) {
                         Ok(analysis) => {
                             // Convert findings to diagnostics
-                            let diagnostics = diagnostics::findings_to_diagnostics(&analysis.findings);
+                            let diagnostics =
+                                diagnostics::findings_to_diagnostics(&analysis.findings);
 
                             self.client
                                 .publish_diagnostics(uri.clone(), diagnostics, Some(doc.version))
@@ -189,7 +190,7 @@ impl LanguageServer for RmaBackend {
 
     async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
         let uri = &params.text_document_position_params.text_document.uri;
-        let position = params.text_document_position_params.position;
+        let _position = params.text_document_position_params.position;
 
         let documents = self.documents.read().await;
         if let Some(_doc) = documents.get(uri) {
@@ -202,7 +203,7 @@ impl LanguageServer for RmaBackend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
-        let uri = &params.text_document.uri;
+        let _uri = &params.text_document.uri;
         let range = params.range;
 
         // Get diagnostics in range

@@ -8,13 +8,12 @@ pub mod watcher;
 
 use anyhow::Result;
 use rma_analyzer::FileAnalysis;
-use rma_common::RmaConfig;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexWriter};
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
 /// Index configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

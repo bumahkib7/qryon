@@ -3,8 +3,8 @@
 //! This crate provides AI integration for sophisticated security analysis,
 //! supporting multiple AI providers (Claude, OpenAI, local models).
 
-pub mod providers;
 pub mod prompts;
+pub mod providers;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -12,7 +12,7 @@ use rma_common::{Finding, Language, Severity, SourceLocation};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Errors from AI analysis
 #[derive(Error, Debug)]
@@ -125,13 +125,7 @@ impl AiFinding {
                 "medium" | "warning" => Severity::Warning,
                 _ => Severity::Info,
             },
-            location: SourceLocation::new(
-                file_path,
-                self.start_line,
-                1,
-                self.end_line,
-                1,
-            ),
+            location: SourceLocation::new(file_path, self.start_line, 1, self.end_line, 1),
             language,
             snippet: None,
             suggestion: self.fix_suggestion.clone(),

@@ -1,6 +1,6 @@
 //! Plugin loading utilities
 
-use crate::{Plugin, PluginError, PluginMetadata};
+use crate::PluginError;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -61,7 +61,9 @@ pub fn validate_plugin(path: &Path) -> Result<(), PluginError> {
 
     // Check extension
     if path.extension().map(|e| e != "wasm").unwrap_or(true) {
-        return Err(PluginError::LoadError("File must have .wasm extension".into()));
+        return Err(PluginError::LoadError(
+            "File must have .wasm extension".into(),
+        ));
     }
 
     // Check file size (max 10MB)
@@ -69,7 +71,9 @@ pub fn validate_plugin(path: &Path) -> Result<(), PluginError> {
         .map_err(|e| PluginError::LoadError(format!("Failed to read metadata: {}", e)))?;
 
     if metadata.len() > 10 * 1024 * 1024 {
-        return Err(PluginError::LoadError("Plugin file exceeds 10MB limit".into()));
+        return Err(PluginError::LoadError(
+            "Plugin file exceeds 10MB limit".into(),
+        ));
     }
 
     // Basic WASM magic number check

@@ -32,16 +32,13 @@ pub fn create_finding(
     let start = node.start_position();
     let end = node.end_position();
 
-    let snippet = node
-        .utf8_text(content.as_bytes())
-        .ok()
-        .map(|s: &str| {
-            if s.len() > 200 {
-                format!("{}...", &s[..200])
-            } else {
-                s.to_string()
-            }
-        });
+    let snippet = node.utf8_text(content.as_bytes()).ok().map(|s: &str| {
+        if s.len() > 200 {
+            format!("{}...", &s[..200])
+        } else {
+            s.to_string()
+        }
+    });
 
     Finding {
         id: format!("{}-{}-{}", rule_id, start.row, start.column),

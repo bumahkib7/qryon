@@ -3,9 +3,7 @@
 //! Provides real-time code analysis feedback to IDEs via the Language Server Protocol.
 
 use anyhow::Result;
-use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tower_lsp::{LspService, Server};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -28,7 +26,7 @@ async fn main() -> Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| RmaBackend::new(client));
+    let (service, socket) = LspService::new(RmaBackend::new);
     Server::new(stdin, stdout, socket).serve(service).await;
 
     Ok(())
