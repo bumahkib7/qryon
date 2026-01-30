@@ -1,6 +1,6 @@
 //! OpenAI Provider
 
-use crate::{AiAnalyzer, AiError, AnalysisRequest, AnalysisResponse, prompts};
+use crate::{prompts, AiAnalyzer, AiError, AnalysisRequest, AnalysisResponse};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

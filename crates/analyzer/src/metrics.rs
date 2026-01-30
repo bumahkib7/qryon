@@ -152,7 +152,10 @@ impl AstVisitor for MetricsCollector {
         let is_function = match self.language {
             Language::Rust => matches!(kind, "function_item"),
             Language::JavaScript | Language::TypeScript => {
-                matches!(kind, "function_declaration" | "method_definition" | "arrow_function")
+                matches!(
+                    kind,
+                    "function_declaration" | "method_definition" | "arrow_function"
+                )
             }
             Language::Python => kind == "function_definition",
             Language::Go => matches!(kind, "function_declaration" | "method_declaration"),
@@ -195,10 +198,16 @@ impl AstVisitor for MetricsCollector {
 /// Check if a line is a comment
 fn is_comment_line(line: &str, language: Language) -> bool {
     match language {
-        Language::Rust | Language::Go | Language::Java | Language::JavaScript | Language::TypeScript => {
+        Language::Rust
+        | Language::Go
+        | Language::Java
+        | Language::JavaScript
+        | Language::TypeScript => {
             line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
         }
-        Language::Python => line.starts_with('#') || line.starts_with("\"\"\"") || line.starts_with("'''"),
+        Language::Python => {
+            line.starts_with('#') || line.starts_with("\"\"\"") || line.starts_with("'''")
+        }
         Language::Unknown => false,
     }
 }

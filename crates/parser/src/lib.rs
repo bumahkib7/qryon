@@ -58,10 +58,7 @@ impl ParserEngine {
     /// Parse a single file
     #[instrument(skip(self, content), fields(path = %path.display()))]
     pub fn parse_file(&self, path: &Path, content: &str) -> Result<ParsedFile> {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let language = Language::from_extension(ext);
 
@@ -105,19 +102,17 @@ impl ParserEngine {
 
         let results: Vec<_> = files
             .par_iter()
-            .filter_map(|path| {
-                match std::fs::read_to_string(path) {
-                    Ok(content) => {
-                        if content.len() > self.config.max_file_size {
-                            warn!("Skipping large file: {}", path.display());
-                            return None;
-                        }
-                        Some((path.clone(), content))
+            .filter_map(|path| match std::fs::read_to_string(path) {
+                Ok(content) => {
+                    if content.len() > self.config.max_file_size {
+                        warn!("Skipping large file: {}", path.display());
+                        return None;
                     }
-                    Err(e) => {
-                        warn!("Failed to read {}: {}", path.display(), e);
-                        None
-                    }
+                    Some((path.clone(), content))
+                }
+                Err(e) => {
+                    warn!("Failed to read {}: {}", path.display(), e);
+                    None
                 }
             })
             .map(|(path, content)| {

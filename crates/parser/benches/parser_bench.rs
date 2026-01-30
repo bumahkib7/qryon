@@ -144,5 +144,10 @@ export { App, DataService };
     });
 }
 
-criterion_group!(benches, bench_parse_rust, bench_parse_python, bench_parse_javascript);
+criterion_group!(
+    benches,
+    bench_parse_rust,
+    bench_parse_python,
+    bench_parse_javascript
+);
 criterion_main!(benches);

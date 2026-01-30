@@ -1,6 +1,6 @@
 //! Plugin registry for managing loaded plugins
 
-use crate::{host, Plugin, PluginError, PluginMetadata};
+use crate::{Plugin, PluginError, PluginMetadata};
 use anyhow::Result;
 use rma_common::{Finding, Language};
 use std::collections::HashMap;
@@ -63,7 +63,9 @@ impl PluginRegistry {
     pub fn plugins_for_language(&self, language: Language) -> Vec<&str> {
         self.plugins
             .iter()
-            .filter(|(_, p)| p.metadata.languages.contains(&language) || p.metadata.languages.is_empty())
+            .filter(|(_, p)| {
+                p.metadata.languages.contains(&language) || p.metadata.languages.is_empty()
+            })
             .map(|(name, _)| name.as_str())
             .collect()
     }

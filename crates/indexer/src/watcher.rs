@@ -21,9 +21,7 @@ pub enum FileEventKind {
 }
 
 /// Start watching a directory for changes
-pub fn watch_directory(
-    path: &Path,
-) -> Result<(RecommendedWatcher, mpsc::Receiver<FileEvent>)> {
+pub fn watch_directory(path: &Path) -> Result<(RecommendedWatcher, mpsc::Receiver<FileEvent>)> {
     let (tx, rx) = mpsc::channel();
 
     let watcher_tx = tx.clone();
@@ -40,10 +38,7 @@ pub fn watch_directory(
 
                     debug!("File event: {:?} {:?}", kind, path);
 
-                    let _ = watcher_tx.send(FileEvent {
-                        path,
-                        kind,
-                    });
+                    let _ = watcher_tx.send(FileEvent { path, kind });
                 }
             }
         },
