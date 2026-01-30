@@ -1,0 +1,23 @@
+[package]
+name = "rma-indexer"
+description = "Tantivy/Sled based indexing for Rust Monorepo Analyzer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rma-common = { path = "../common" }
+rma-parser = { path = "../parser" }
+rma-analyzer = { path = "../analyzer" }
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+sled.workspace = true
+notify.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
