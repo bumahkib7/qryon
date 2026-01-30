@@ -1,0 +1,137 @@
+{
+  "name": "rma-vscode",
+  "displayName": "RMA - Rust Monorepo Analyzer",
+  "description": "Ultra-fast code intelligence and security analysis for VS Code",
+  "version": "0.1.0",
+  "publisher": "rma",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "rust",
+    "security",
+    "analysis",
+    "linter",
+    "code intelligence"
+  ],
+  "activationEvents": [
+    "onLanguage:rust",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:python",
+    "onLanguage:go",
+    "onLanguage:java"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rma.analyzeFile",
+        "title": "RMA: Analyze Current File"
+      },
+      {
+        "command": "rma.analyzeWorkspace",
+        "title": "RMA: Analyze Workspace"
+      },
+      {
+        "command": "rma.showOutput",
+        "title": "RMA: Show Output"
+      },
+      {
+        "command": "rma.restartServer",
+        "title": "RMA: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "title": "RMA",
+      "properties": {
+        "rma.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the RMA language server executable. Leave empty to use bundled server or PATH."
+        },
+        "rma.enableLsp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the RMA language server for real-time analysis."
+        },
+        "rma.minSeverity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "default": "low",
+          "description": "Minimum severity level to report."
+        },
+        "rma.enabledCategories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["security", "reliability", "performance", "maintainability"]
+          },
+          "default": ["security", "reliability", "performance", "maintainability"],
+          "description": "Categories of issues to report."
+        },
+        "rma.analyzeOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze files on save."
+        },
+        "rma.analyzeOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze files when opened."
+        },
+        "rma.maxFileSizeKb": {
+          "type": "number",
+          "default": 1024,
+          "description": "Maximum file size in KB to analyze."
+        },
+        "rma.excludePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["**/node_modules/**", "**/target/**", "**/.git/**"],
+          "description": "Glob patterns for files to exclude from analysis."
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "rust",
+        "extensions": [".rs"]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bumahkib7/rust-monorepo-analyzer"
+  },
+  "license": "MIT"
+}

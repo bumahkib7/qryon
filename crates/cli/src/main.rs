@@ -207,8 +207,7 @@ fn run_scan(
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
+            .template("{spinner:.green} {msg}")?,
     );
     pb.set_message("Parsing files...");
 
@@ -224,8 +223,7 @@ fn run_scan(
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
+            .template("{spinner:.green} {msg}")?,
     );
     pb.set_message("Analyzing...");
 

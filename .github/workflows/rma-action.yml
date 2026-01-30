@@ -1,0 +1,85 @@
+name: RMA Security Analysis
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: 'Path to analyze'
+        required: false
+        default: '.'
+        type: string
+      format:
+        description: 'Output format (text, json, sarif)'
+        required: false
+        default: 'sarif'
+        type: string
+      severity:
+        description: 'Minimum severity to report (low, medium, high, critical)'
+        required: false
+        default: 'low'
+        type: string
+      fail-on-findings:
+        description: 'Fail the workflow if findings are detected'
+        required: false
+        default: true
+        type: boolean
+      upload-sarif:
+        description: 'Upload SARIF results to GitHub Security tab'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  analyze:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install RMA
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          curl -sSfL "https://github.com/${REPO}/releases/latest/download/rma-x86_64-unknown-linux-gnu.tar.gz" | tar xz
+          chmod +x rma
+          sudo mv rma /usr/local/bin/
+
+      - name: Run RMA Analysis
+        id: rma
+        env:
+          ANALYZE_PATH: ${{ inputs.path }}
+          OUTPUT_FORMAT: ${{ inputs.format }}
+          MIN_SEVERITY: ${{ inputs.severity }}
+        run: |
+          set +e
+          rma analyze "${ANALYZE_PATH}" \
+            --format "${OUTPUT_FORMAT}" \
+            --min-severity "${MIN_SEVERITY}" \
+            --output rma-results.sarif
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload SARIF results
+        if: inputs.upload-sarif && inputs.format == 'sarif'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rma-results.sarif
+          category: rma-security
+
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: rma-results
+          path: rma-results.*
+
+      - name: Check for failures
+        if: inputs.fail-on-findings
+        env:
+          EXIT_CODE: ${{ steps.rma.outputs.exit_code }}
+        run: |
+          if [ "${EXIT_CODE}" != "0" ]; then
+            echo "Security findings detected. See the uploaded results for details."
+            exit 1
+          fi

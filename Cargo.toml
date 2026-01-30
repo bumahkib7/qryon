@@ -7,6 +7,9 @@ members = [
     "crates/indexer",
     "crates/cli",
     "crates/daemon",
+    "crates/plugins",
+    "crates/lsp",
+    "crates/ai",
 ]
 
 [workspace.package]
@@ -68,6 +71,14 @@ pretty_assertions = "1.4"
 
 # WASM plugin system
 wasmtime = "29"
+wit-bindgen = "0.36"
+
+# LSP
+tower-lsp = "0.20"
+async-trait = "0.1"
+
+# AI integration
+reqwest = { version = "0.12", features = ["json"] }
 
 # Git integration
 gix = { version = "0.70", default-features = false, features = ["max-performance"] }
