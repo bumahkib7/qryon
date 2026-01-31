@@ -28,15 +28,15 @@ tokio = { workspace = true, features = ["full"] }
 colored.workspace = true
 indicatif = { workspace = true, features = ["rayon"] }
 comfy-table.workspace = true
-dialoguer = "0.11"
-console = "0.15"
+dialoguer = "0.12"
+console = "0.16"
 humantime = "2.1"
 dirs.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-criterion = "0.5"
+criterion.workspace = true
 
 [[bench]]
 name = "cli_bench"
