@@ -125,6 +125,8 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Build binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --target ${{ matrix.target }} -p rma-cli
 
       - name: Strip binary (Linux/macOS)

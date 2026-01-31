@@ -78,7 +78,7 @@ tower-lsp = "0.20"
 async-trait = "0.1"
 
 # AI integration
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Git integration
 gix = { version = "0.70", default-features = false, features = ["max-performance"] }
