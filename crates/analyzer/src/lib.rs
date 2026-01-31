@@ -72,10 +72,8 @@ impl AnalyzerEngine {
             .push(Box::new(security::rust::RawPointerDerefRule));
 
         // Section B: Review hints (low confidence, need verification)
-        self.rules
-            .push(Box::new(security::rust::SqlInjectionHint));
-        self.rules
-            .push(Box::new(security::rust::PathTraversalHint));
+        self.rules.push(Box::new(security::rust::SqlInjectionHint));
+        self.rules.push(Box::new(security::rust::PathTraversalHint));
         self.rules.push(Box::new(security::rust::UnwrapHint));
         self.rules.push(Box::new(security::rust::PanicHint));
 

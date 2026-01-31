@@ -4,7 +4,7 @@
 //! - **Sinks (High Confidence)**: Precise detection of dangerous patterns
 //! - **Review Hints (Low Confidence)**: Patterns that need human review
 
-use crate::rules::{create_finding_with_confidence, Rule};
+use crate::rules::{Rule, create_finding_with_confidence};
 use rma_common::{Confidence, Finding, Language, Severity};
 use rma_parser::ParsedFile;
 use tree_sitter::Node;
@@ -432,7 +432,9 @@ impl Rule for PanicHint {
 
         find_nodes_by_kind(&mut cursor, "macro_invocation", |node: Node| {
             if let Some(macro_node) = node.child_by_field_name("macro") {
-                let macro_text = macro_node.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+                let macro_text = macro_node
+                    .utf8_text(parsed.content.as_bytes())
+                    .unwrap_or("");
 
                 if macro_text == "panic" || macro_text == "todo" || macro_text == "unimplemented" {
                     findings.push(create_finding_with_confidence(
