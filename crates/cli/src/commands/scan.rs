@@ -79,20 +79,20 @@ pub fn run(args: ScanArgs) -> Result<()> {
             .map(|(_, c)| c.baseline.file.clone())
             .unwrap_or_else(|| PathBuf::from(".rma/baseline.json"));
 
-        if baseline_path.exists() {
-            if let Ok(baseline) = Baseline::load(&baseline_path) {
-                let before_count = summary.total_findings;
-                filter_baseline_findings(&mut results, &mut summary, &baseline);
+        if baseline_path.exists()
+            && let Ok(baseline) = Baseline::load(&baseline_path)
+        {
+            let before_count = summary.total_findings;
+            filter_baseline_findings(&mut results, &mut summary, &baseline);
 
-                if !args.quiet && args.format == OutputFormat::Text {
-                    let filtered = before_count - summary.total_findings;
-                    if filtered > 0 {
-                        println!(
-                            "  {} Filtered {} baseline findings",
-                            Theme::info_mark(),
-                            filtered.to_string().dimmed()
-                        );
-                    }
+            if !args.quiet && args.format == OutputFormat::Text {
+                let filtered = before_count - summary.total_findings;
+                if filtered > 0 {
+                    println!(
+                        "  {} Filtered {} baseline findings",
+                        Theme::info_mark(),
+                        filtered.to_string().dimmed()
+                    );
                 }
             }
         }

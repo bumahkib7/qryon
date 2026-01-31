@@ -55,37 +55,37 @@ pub fn run(args: WatchArgs) -> Result<()> {
             }
 
             // Re-analyze the changed file
-            if let Ok(content) = std::fs::read_to_string(&ev.path) {
-                if let Ok(parsed) = parser.parse_file(&ev.path, &content) {
-                    match analyzer.analyze_file(&parsed) {
-                        Ok(analysis) => {
-                            if !args.quiet {
-                                if analysis.findings.is_empty() {
-                                    println!("    {} No issues", Theme::success_mark());
-                                } else {
-                                    println!(
-                                        "    {} {} findings",
-                                        Theme::warning_mark(),
-                                        analysis.findings.len().to_string().yellow()
-                                    );
+            if let Ok(content) = std::fs::read_to_string(&ev.path)
+                && let Ok(parsed) = parser.parse_file(&ev.path, &content)
+            {
+                match analyzer.analyze_file(&parsed) {
+                    Ok(analysis) => {
+                        if !args.quiet {
+                            if analysis.findings.is_empty() {
+                                println!("    {} No issues", Theme::success_mark());
+                            } else {
+                                println!(
+                                    "    {} {} findings",
+                                    Theme::warning_mark(),
+                                    analysis.findings.len().to_string().yellow()
+                                );
 
-                                    for finding in &analysis.findings {
-                                        println!(
-                                            "      {} [{}] {}:{} {}",
-                                            Theme::severity(finding.severity),
-                                            finding.rule_id.dimmed(),
-                                            finding.location.start_line,
-                                            finding.location.start_column,
-                                            finding.message.dimmed()
-                                        );
-                                    }
+                                for finding in &analysis.findings {
+                                    println!(
+                                        "      {} [{}] {}:{} {}",
+                                        Theme::severity(finding.severity),
+                                        finding.rule_id.dimmed(),
+                                        finding.location.start_line,
+                                        finding.location.start_column,
+                                        finding.message.dimmed()
+                                    );
                                 }
                             }
                         }
-                        Err(e) => {
-                            if !args.quiet {
-                                println!("    {} Analysis failed: {}", Theme::error_mark(), e);
-                            }
+                    }
+                    Err(e) => {
+                        if !args.quiet {
+                            println!("    {} Analysis failed: {}", Theme::error_mark(), e);
                         }
                     }
                 }

@@ -88,28 +88,27 @@ pub fn parse_analysis_response(text: &str) -> Result<AnalysisResponse, AiError> 
 /// Extract JSON from text that might contain markdown or other formatting
 fn extract_json(text: &str) -> String {
     // Try to find JSON block in markdown code fence
-    if let Some(start) = text.find("```json") {
-        if let Some(end) = text[start + 7..].find("```") {
-            return text[start + 7..start + 7 + end].trim().to_string();
-        }
+    if let Some(start) = text.find("```json")
+        && let Some(end) = text[start + 7..].find("```")
+    {
+        return text[start + 7..start + 7 + end].trim().to_string();
     }
 
     // Try to find JSON block without language specifier
-    if let Some(start) = text.find("```") {
-        let after_start = &text[start + 3..];
-        if let Some(end) = after_start.find("```") {
-            let content = &after_start[..end];
-            // Skip language identifier if present
-            let json_start = content.find('{').unwrap_or(0);
-            return content[json_start..].trim().to_string();
-        }
+    if let Some(start) = text.find("```")
+        && let Some(end) = text[start + 3..].find("```")
+    {
+        let content = &text[start + 3..start + 3 + end];
+        // Skip language identifier if present
+        let json_start = content.find('{').unwrap_or(0);
+        return content[json_start..].trim().to_string();
     }
 
     // Try to find raw JSON object
-    if let Some(start) = text.find('{') {
-        if let Some(end) = text.rfind('}') {
-            return text[start..=end].to_string();
-        }
+    if let Some(start) = text.find('{')
+        && let Some(end) = text.rfind('}')
+    {
+        return text[start..=end].to_string();
     }
 
     text.to_string()

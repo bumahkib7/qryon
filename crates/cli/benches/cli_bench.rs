@@ -1,7 +1,7 @@
 //! CLI benchmarks
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use std::path::PathBuf;
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 
 fn bench_placeholder(c: &mut Criterion) {
     c.bench_function("placeholder", |b| {

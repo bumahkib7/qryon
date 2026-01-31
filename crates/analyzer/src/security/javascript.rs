@@ -34,20 +34,22 @@ impl Rule for DynamicCodeExecutionRule {
         let dangerous_api_names = ["eval", "Function"];
 
         find_call_expressions(&mut cursor, |node: Node| {
-            if let Some(func) = node.child_by_field_name("function") {
-                if let Ok(text) = func.utf8_text(parsed.content.as_bytes()) {
-                    if dangerous_api_names.contains(&text) {
-                        findings.push(create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Critical,
-                            &format!("Detected dangerous {} call - potential code injection vulnerability", text),
-                            Language::JavaScript,
-                        ));
-                    }
-                }
+            if let Some(func) = node.child_by_field_name("function")
+                && let Ok(text) = func.utf8_text(parsed.content.as_bytes())
+                && dangerous_api_names.contains(&text)
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Critical,
+                    &format!(
+                        "Detected dangerous {} call - potential code injection vulnerability",
+                        text
+                    ),
+                    Language::JavaScript,
+                ));
             }
         });
         findings
@@ -85,30 +87,25 @@ impl Rule for TimerStringRule {
         let mut cursor = parsed.tree.walk();
 
         find_call_expressions(&mut cursor, |node: Node| {
-            if let Some(func) = node.child_by_field_name("function") {
-                if let Ok(text) = func.utf8_text(parsed.content.as_bytes()) {
-                    if text == "setTimeout" || text == "setInterval" {
-                        // Check the first argument
-                        if let Some(args) = node.child_by_field_name("arguments") {
-                            if let Some(first_arg) = args.named_child(0) {
-                                if is_string_like_argument(&first_arg) {
-                                    findings.push(create_finding(
-                                        self.id(),
-                                        &node,
-                                        &parsed.path,
-                                        &parsed.content,
-                                        Severity::Warning,
-                                        &format!(
-                                            "String passed to {} behaves like dynamic code execution; use a function instead.",
-                                            text
-                                        ),
-                                        Language::JavaScript,
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Some(func) = node.child_by_field_name("function")
+                && let Ok(text) = func.utf8_text(parsed.content.as_bytes())
+                && (text == "setTimeout" || text == "setInterval")
+                && let Some(args) = node.child_by_field_name("arguments")
+                && let Some(first_arg) = args.named_child(0)
+                && is_string_like_argument(&first_arg)
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Warning,
+                    &format!(
+                        "String passed to {} behaves like dynamic code execution; use a function instead.",
+                        text
+                    ),
+                    Language::JavaScript,
+                ));
             }
         });
         findings
@@ -125,15 +122,15 @@ fn is_string_like_argument(node: &Node) -> bool {
         // String concatenation: "code" + x
         "binary_expression" => {
             // Check if it's string concatenation (at least one operand is a string)
-            if let Some(left) = node.child_by_field_name("left") {
-                if is_string_like_argument(&left) {
-                    return true;
-                }
+            if let Some(left) = node.child_by_field_name("left")
+                && is_string_like_argument(&left)
+            {
+                return true;
             }
-            if let Some(right) = node.child_by_field_name("right") {
-                if is_string_like_argument(&right) {
-                    return true;
-                }
+            if let Some(right) = node.child_by_field_name("right")
+                && is_string_like_argument(&right)
+            {
+                return true;
             }
             false
         }
@@ -162,20 +159,19 @@ impl Rule for InnerHtmlRule {
         let mut cursor = parsed.tree.walk();
 
         find_member_expressions(&mut cursor, |node: Node| {
-            if let Some(prop) = node.child_by_field_name("property") {
-                if let Ok(text) = prop.utf8_text(parsed.content.as_bytes()) {
-                    if text == "innerHTML" || text == "outerHTML" {
-                        findings.push(create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Error,
-                            "innerHTML/outerHTML usage detected - potential XSS vulnerability. Use textContent or sanitize input.",
-                            Language::JavaScript,
-                        ));
-                    }
-                }
+            if let Some(prop) = node.child_by_field_name("property")
+                && let Ok(text) = prop.utf8_text(parsed.content.as_bytes())
+                && (text == "innerHTML" || text == "outerHTML")
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Error,
+                    "innerHTML/outerHTML usage detected - potential XSS vulnerability. Use textContent or sanitize input.",
+                    Language::JavaScript,
+                ));
             }
         });
         findings
@@ -203,20 +199,19 @@ impl Rule for ConsoleLogRule {
         let mut cursor = parsed.tree.walk();
 
         find_call_expressions(&mut cursor, |node: Node| {
-            if let Some(func) = node.child_by_field_name("function") {
-                if let Ok(text) = func.utf8_text(parsed.content.as_bytes()) {
-                    if text.starts_with("console.") {
-                        findings.push(create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Info,
-                            "console statement detected - consider removing for production",
-                            Language::JavaScript,
-                        ));
-                    }
-                }
+            if let Some(func) = node.child_by_field_name("function")
+                && let Ok(text) = func.utf8_text(parsed.content.as_bytes())
+                && text.starts_with("console.")
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Info,
+                    "console statement detected - consider removing for production",
+                    Language::JavaScript,
+                ));
             }
         });
         findings

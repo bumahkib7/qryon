@@ -60,18 +60,18 @@ impl Rule for UnwrapRule {
         let mut cursor = parsed.tree.walk();
 
         find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                if text.contains(".unwrap()") || text.contains(".expect(") {
-                    findings.push(create_finding(
-                        self.id(),
-                        &node,
-                        &parsed.path,
-                        &parsed.content,
-                        Severity::Info,
-                        "Consider using ? operator or proper error handling instead of unwrap/expect",
-                        Language::Rust,
-                    ));
-                }
+            if let Ok(text) = node.utf8_text(parsed.content.as_bytes())
+                && (text.contains(".unwrap()") || text.contains(".expect("))
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Info,
+                    "Consider using ? operator or proper error handling instead of unwrap/expect",
+                    Language::Rust,
+                ));
             }
         });
         findings
@@ -99,20 +99,19 @@ impl Rule for PanicRule {
         let mut cursor = parsed.tree.walk();
 
         find_nodes_by_kind(&mut cursor, "macro_invocation", |node: Node| {
-            if let Some(macro_node) = node.child_by_field_name("macro") {
-                if let Ok(text) = macro_node.utf8_text(parsed.content.as_bytes()) {
-                    if text == "panic" || text == "todo" || text == "unimplemented" {
-                        findings.push(create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Warning,
-                            "Panic macro may crash the program unexpectedly",
-                            Language::Rust,
-                        ));
-                    }
-                }
+            if let Some(macro_node) = node.child_by_field_name("macro")
+                && let Ok(text) = macro_node.utf8_text(parsed.content.as_bytes())
+                && (text == "panic" || text == "todo" || text == "unimplemented")
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Warning,
+                    "Panic macro may crash the program unexpectedly",
+                    Language::Rust,
+                ));
             }
         });
         findings

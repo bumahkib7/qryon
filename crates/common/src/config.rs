@@ -412,10 +412,10 @@ impl RmaTomlConfig {
         ];
 
         for candidate in &candidates {
-            if candidate.exists() {
-                if let Ok(config) = Self::load(candidate) {
-                    return Some((candidate.clone(), config));
-                }
+            if candidate.exists()
+                && let Ok(config) = Self::load(candidate)
+            {
+                return Some((candidate.clone(), config));
             }
         }
 
@@ -424,10 +424,10 @@ impl RmaTomlConfig {
         for _ in 0..5 {
             if let Some(parent) = current.parent() {
                 let config_path = parent.join("rma.toml");
-                if config_path.exists() {
-                    if let Ok(config) = Self::load(&config_path) {
-                        return Some((config_path, config));
-                    }
+                if config_path.exists()
+                    && let Ok(config) = Self::load(&config_path)
+                {
+                    return Some((config_path, config));
                 }
                 current = parent.to_path_buf();
             } else {
@@ -449,16 +449,16 @@ impl RmaTomlConfig {
                 message: "Missing 'config_version'. Add 'config_version = 1' to your config file."
                     .to_string(),
             });
-        } else if let Some(version) = self.config_version {
-            if version > CURRENT_CONFIG_VERSION {
-                warnings.push(ConfigWarning {
-                    level: WarningLevel::Error,
-                    message: format!(
-                        "Unsupported config version: {}. Maximum supported is {}.",
-                        version, CURRENT_CONFIG_VERSION
-                    ),
-                });
-            }
+        } else if let Some(version) = self.config_version
+            && version > CURRENT_CONFIG_VERSION
+        {
+            warnings.push(ConfigWarning {
+                level: WarningLevel::Error,
+                message: format!(
+                    "Unsupported config version: {}. Maximum supported is {}.",
+                    version, CURRENT_CONFIG_VERSION
+                ),
+            });
         }
 
         // Check for conflicting enable/disable rules
@@ -498,7 +498,7 @@ impl RmaTomlConfig {
         }
 
         // Check severity overrides reference valid severities
-        for (rule_id, _) in &self.severity {
+        for rule_id in self.severity.keys() {
             if rule_id.is_empty() {
                 warnings.push(ConfigWarning {
                     level: WarningLevel::Error,
@@ -621,8 +621,7 @@ impl RmaTomlConfig {
             return true;
         }
 
-        if pattern.ends_with("/*") {
-            let prefix = &pattern[..pattern.len() - 2];
+        if let Some(prefix) = pattern.strip_suffix("/*") {
             return rule_id.starts_with(prefix);
         }
 

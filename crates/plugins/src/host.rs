@@ -104,14 +104,14 @@ pub fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
             };
 
             let mut buffer = vec![0u8; len as usize];
-            if memory.read(&caller, ptr as usize, &mut buffer).is_ok() {
-                if let Ok(msg) = String::from_utf8(buffer) {
-                    match level {
-                        0 => tracing::error!(target: "plugin", "{}", msg),
-                        1 => tracing::warn!(target: "plugin", "{}", msg),
-                        2 => tracing::info!(target: "plugin", "{}", msg),
-                        _ => tracing::debug!(target: "plugin", "{}", msg),
-                    }
+            if memory.read(&caller, ptr as usize, &mut buffer).is_ok()
+                && let Ok(msg) = String::from_utf8(buffer)
+            {
+                match level {
+                    0 => tracing::error!(target: "plugin", "{}", msg),
+                    1 => tracing::warn!(target: "plugin", "{}", msg),
+                    2 => tracing::info!(target: "plugin", "{}", msg),
+                    _ => tracing::debug!(target: "plugin", "{}", msg),
                 }
             }
         },

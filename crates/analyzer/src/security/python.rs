@@ -32,23 +32,22 @@ impl Rule for DynamicExecutionRule {
         let flagged_builtins = ["exec", "compile", "__import__"];
 
         find_calls(&mut cursor, |node: Node| {
-            if let Some(func) = node.child_by_field_name("function") {
-                if let Ok(text) = func.utf8_text(parsed.content.as_bytes()) {
-                    if flagged_builtins.contains(&text) {
-                        findings.push(create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Critical,
-                            &format!(
-                                "AST detected {} call - review for code injection risk",
-                                text
-                            ),
-                            Language::Python,
-                        ));
-                    }
-                }
+            if let Some(func) = node.child_by_field_name("function")
+                && let Ok(text) = func.utf8_text(parsed.content.as_bytes())
+                && flagged_builtins.contains(&text)
+            {
+                findings.push(create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Critical,
+                    &format!(
+                        "AST detected {} call - review for code injection risk",
+                        text
+                    ),
+                    Language::Python,
+                ));
             }
         });
         findings
@@ -130,26 +129,25 @@ impl Rule for HardcodedSecretRule {
         ];
 
         find_assignments(&mut cursor, |node: Node| {
-            if let Some(left) = node.child_by_field_name("left") {
-                if let Ok(var_name) = left.utf8_text(parsed.content.as_bytes()) {
-                    let var_lower = var_name.to_lowercase();
-                    for keyword in &secret_keywords {
-                        if var_lower.contains(keyword) {
-                            if let Some(right) = node.child_by_field_name("right") {
-                                if right.kind() == "string" {
-                                    findings.push(create_finding(
-                                        self.id(),
-                                        &node,
-                                        &parsed.path,
-                                        &parsed.content,
-                                        Severity::Critical,
-                                        "Hardcoded credential pattern detected - use env vars",
-                                        Language::Python,
-                                    ));
-                                    break;
-                                }
-                            }
-                        }
+            if let Some(left) = node.child_by_field_name("left")
+                && let Ok(var_name) = left.utf8_text(parsed.content.as_bytes())
+            {
+                let var_lower = var_name.to_lowercase();
+                for keyword in &secret_keywords {
+                    if var_lower.contains(keyword)
+                        && let Some(right) = node.child_by_field_name("right")
+                        && right.kind() == "string"
+                    {
+                        findings.push(create_finding(
+                            self.id(),
+                            &node,
+                            &parsed.path,
+                            &parsed.content,
+                            Severity::Critical,
+                            "Hardcoded credential pattern detected - use env vars",
+                            Language::Python,
+                        ));
+                        break;
                     }
                 }
             }

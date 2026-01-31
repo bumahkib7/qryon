@@ -1,8 +1,9 @@
 //! Parser benchmarks
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rma_common::RmaConfig;
 use rma_parser::ParserEngine;
+use std::hint::black_box;
 use std::path::Path;
 
 fn bench_parse_rust(c: &mut Criterion) {
