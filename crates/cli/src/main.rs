@@ -74,6 +74,10 @@ pub enum Commands {
         #[arg(short, long, default_value = "warning", value_enum)]
         severity: SeverityArg,
 
+        /// Profile to use (fast, balanced, strict)
+        #[arg(short = 'p', long)]
+        profile: Option<String>,
+
         /// Enable incremental mode (only scan changed files)
         #[arg(short, long)]
         incremental: bool,
@@ -101,6 +105,10 @@ pub enum Commands {
         /// Exclude patterns (glob)
         #[arg(short = 'x', long, value_delimiter = ',')]
         exclude: Option<Vec<String>>,
+
+        /// Only report new findings (requires baseline)
+        #[arg(long)]
+        baseline_mode: bool,
     },
 
     /// Watch for file changes and re-analyze in real-time
@@ -205,6 +213,25 @@ pub enum Commands {
         /// Initialize with AI features enabled
         #[arg(long)]
         with_ai: bool,
+
+        /// Initial profile (fast, balanced, strict)
+        #[arg(long, default_value = "balanced")]
+        profile: String,
+    },
+
+    /// Generate baseline from current findings (for legacy code)
+    Baseline {
+        /// Path to scan for baseline
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output baseline file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Update existing baseline instead of replacing
+        #[arg(short, long)]
+        update: bool,
     },
 
     /// Generate shell completions
@@ -260,7 +287,7 @@ pub enum PluginAction {
 pub enum ConfigAction {
     /// Get a configuration value
     Get {
-        /// Configuration key (e.g., "ai.provider")
+        /// Configuration key (e.g., "profiles.default")
         key: String,
     },
     /// Set a configuration value
@@ -276,6 +303,8 @@ pub enum ConfigAction {
     Edit,
     /// Show configuration file path
     Path,
+    /// Validate configuration file
+    Validate,
     /// Reset to defaults
     Reset {
         /// Don't ask for confirmation
@@ -355,6 +384,7 @@ fn main() -> Result<()> {
             format,
             output,
             severity,
+            profile,
             incremental,
             jobs,
             languages,
@@ -362,11 +392,13 @@ fn main() -> Result<()> {
             ai_provider,
             timing,
             exclude,
+            baseline_mode,
         } => commands::scan::run(commands::scan::ScanArgs {
             path,
             format,
             output,
             severity: severity.into(),
+            profile,
             incremental,
             jobs,
             languages,
@@ -376,6 +408,7 @@ fn main() -> Result<()> {
             exclude,
             config_path,
             quiet: cli.quiet,
+            baseline_mode,
         }),
 
         Commands::Watch {
@@ -435,10 +468,23 @@ fn main() -> Result<()> {
             path,
             force,
             with_ai,
+            profile,
         } => commands::init::run(commands::init::InitArgs {
             path,
             force,
             with_ai,
+            profile: profile.parse().ok(),
+        }),
+
+        Commands::Baseline {
+            path,
+            output,
+            update,
+        } => commands::baseline::run(commands::baseline::BaselineArgs {
+            path,
+            output,
+            update,
+            quiet: cli.quiet,
         }),
 
         Commands::Completions { shell } => {

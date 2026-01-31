@@ -2573,8 +2573,10 @@ dependencies = [
  "rma-plugins",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2584,9 +2586,12 @@ name = "rma-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "toml",
  "tracing",
 ]
 

@@ -3,6 +3,14 @@
 //! This crate provides shared data structures, error types, and utilities
 //! used across all RMA components.
 
+pub mod config;
+
+pub use config::{
+    AllowConfig, AllowType, Baseline, BaselineConfig, BaselineEntry, BaselineMode, ConfigWarning,
+    Profile, ProfileThresholds, ProfilesConfig, RmaTomlConfig, RulesConfig, ScanConfig,
+    ThresholdOverride, WarningLevel,
+};
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;

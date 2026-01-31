@@ -3,28 +3,35 @@
 use crate::ui::theme::Theme;
 use anyhow::Result;
 use colored::Colorize;
-use rma_common::RmaConfig;
+use rma_common::{Profile, RmaTomlConfig};
 use std::path::PathBuf;
 
 pub struct InitArgs {
     pub path: PathBuf,
     pub force: bool,
     pub with_ai: bool,
+    pub profile: Option<Profile>,
 }
 
 pub fn run(args: InitArgs) -> Result<()> {
     let config_dir = args.path.join(".rma");
-    let config_file = config_dir.join("config.json");
+    let config_file = args.path.join("rma.toml");
+    let legacy_config = config_dir.join("config.json");
 
     // Check if already initialized
-    if config_file.exists() && !args.force {
+    if (config_file.exists() || legacy_config.exists()) && !args.force {
         println!(
             "{} RMA is already initialized in this directory",
             Theme::warning_mark()
         );
+        if config_file.exists() {
+            println!("  Config file: {}", config_file.display().to_string().cyan());
+        }
         println!("  Use {} to reinitialize", "--force".yellow());
         return Ok(());
     }
+
+    let profile = args.profile.unwrap_or(Profile::Balanced);
 
     println!();
     println!("{}", "🚀 Initializing RMA".cyan().bold());
@@ -41,40 +48,75 @@ pub fn run(args: InitArgs) -> Result<()> {
         ".rma/".bright_white()
     );
 
-    // Create config
-    let config = RmaConfig::default();
+    // Generate TOML config
+    let toml_content = RmaTomlConfig::default_toml(profile);
+
+    // Optionally add AI configuration
+    let final_content = if args.with_ai {
+        format!(
+            r#"{}
+[ai]
+# AI-powered analysis settings
+enabled = true
+provider = "claude"
+# api_key = "${{ANTHROPIC_API_KEY}}"  # Use environment variable
+"#,
+            toml_content
+        )
+    } else {
+        toml_content
+    };
+
+    std::fs::write(&config_file, &final_content)?;
+
+    println!(
+        "  {} Created {} (profile: {})",
+        Theme::success_mark(),
+        "rma.toml".bright_white(),
+        profile.to_string().cyan()
+    );
 
     if args.with_ai {
-        // AI would be configured here
         println!("  {} AI features enabled", Theme::success_mark());
     }
 
-    let config_json = serde_json::to_string_pretty(&config)?;
-    std::fs::write(&config_file, &config_json)?;
-
-    println!(
-        "  {} Created {}",
-        Theme::success_mark(),
-        "config.json".bright_white()
-    );
-
     // Create .gitignore for RMA directory
     let gitignore_path = config_dir.join(".gitignore");
-    let gitignore_content = r#"# RMA cache and index
+    let gitignore_content = r#"# RMA cache and index (do not commit)
 index/
 cache/
 *.lock
+
+# Baseline can be committed to track legacy issues
+# !baseline.json
 "#;
     std::fs::write(&gitignore_path, gitignore_content)?;
     println!(
         "  {} Created {}",
         Theme::success_mark(),
-        ".gitignore".bright_white()
+        ".rma/.gitignore".bright_white()
     );
 
     println!();
     println!("{}", Theme::double_separator(50));
     println!("{} RMA initialized successfully!", Theme::success_mark());
+    println!();
+    println!("  {}", "Configuration:".cyan().bold());
+    println!(
+        "  {} Config file: {}",
+        Theme::bullet(),
+        "rma.toml".yellow()
+    );
+    println!(
+        "  {} Profile: {} ({})",
+        Theme::bullet(),
+        profile.to_string().yellow(),
+        match profile {
+            Profile::Fast => "relaxed thresholds",
+            Profile::Balanced => "recommended defaults",
+            Profile::Strict => "high-quality standards",
+        }
+    );
     println!();
     println!("  {}", "Next steps:".cyan().bold());
     println!(
@@ -83,14 +125,19 @@ cache/
         "rma scan".yellow()
     );
     println!(
-        "  {} Run {} to watch for changes",
+        "  {} Run {} to validate configuration",
         Theme::bullet(),
-        "rma watch".yellow()
+        "rma config validate".yellow()
     );
     println!(
-        "  {} Run {} to customize settings",
+        "  {} Run {} to create a baseline for legacy issues",
         Theme::bullet(),
-        "rma config edit".yellow()
+        "rma baseline".yellow()
+    );
+    println!(
+        "  {} Edit {} to customize rules and thresholds",
+        Theme::bullet(),
+        "rma.toml".yellow()
     );
     println!();
 

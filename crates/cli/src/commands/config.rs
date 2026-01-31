@@ -4,8 +4,7 @@ use crate::ui::theme::Theme;
 use crate::ConfigAction;
 use anyhow::Result;
 use colored::Colorize;
-use rma_common::RmaConfig;
-use std::path::PathBuf;
+use rma_common::{RmaTomlConfig, WarningLevel};
 
 pub fn run(action: ConfigAction) -> Result<()> {
     match action {
@@ -15,13 +14,137 @@ pub fn run(action: ConfigAction) -> Result<()> {
         ConfigAction::Edit => edit_config(),
         ConfigAction::Path => show_config_path(),
         ConfigAction::Reset { force } => reset_config(force),
+        ConfigAction::Validate => validate_config(),
     }
 }
 
-fn get_config(key: &str) -> Result<()> {
-    let config = load_config()?;
-    let json = serde_json::to_value(&config)?;
+fn validate_config() -> Result<()> {
+    println!();
+    println!("{}", Theme::header("Validating Configuration"));
+    println!("{}", Theme::separator(60));
+    println!();
 
+    // Try to find config
+    let cwd = std::env::current_dir()?;
+    let (config_path, config) = match RmaTomlConfig::discover(&cwd) {
+        Some((path, cfg)) => (path, cfg),
+        None => {
+            println!(
+                "{} No configuration file found",
+                Theme::warning_mark()
+            );
+            println!();
+            println!("  Looking for:");
+            println!("    {} rma.toml", Theme::bullet());
+            println!("    {} .rma/rma.toml", Theme::bullet());
+            println!("    {} .rma.toml", Theme::bullet());
+            println!();
+            println!(
+                "  Run {} to create one",
+                "rma init".yellow()
+            );
+            return Ok(());
+        }
+    };
+
+    println!(
+        "  {} Config file: {}",
+        Theme::info_mark(),
+        config_path.display().to_string().cyan()
+    );
+    println!();
+
+    // Validate
+    let warnings = config.validate();
+
+    if warnings.is_empty() {
+        println!(
+            "{} Configuration is valid!",
+            Theme::success_mark()
+        );
+        println!();
+
+        // Show summary
+        println!("  {}", "Summary:".cyan().bold());
+        println!(
+            "    {} Default profile: {}",
+            Theme::bullet(),
+            config.profiles.default.to_string().yellow()
+        );
+        println!(
+            "    {} Rules enabled: {}",
+            Theme::bullet(),
+            config.rules.enable.join(", ").green()
+        );
+        if !config.rules.disable.is_empty() {
+            println!(
+                "    {} Rules disabled: {}",
+                Theme::bullet(),
+                config.rules.disable.join(", ").red()
+            );
+        }
+        if !config.severity.is_empty() {
+            println!(
+                "    {} Severity overrides: {}",
+                Theme::bullet(),
+                config.severity.len().to_string().cyan()
+            );
+        }
+        if !config.threshold_overrides.is_empty() {
+            println!(
+                "    {} Threshold overrides: {}",
+                Theme::bullet(),
+                config.threshold_overrides.len().to_string().cyan()
+            );
+        }
+        println!(
+            "    {} Baseline mode: {:?}",
+            Theme::bullet(),
+            config.baseline.mode
+        );
+    } else {
+        let errors: Vec<_> = warnings.iter().filter(|w| w.level == WarningLevel::Error).collect();
+        let warns: Vec<_> = warnings.iter().filter(|w| w.level == WarningLevel::Warning).collect();
+
+        if !errors.is_empty() {
+            println!("{} Configuration has errors:", Theme::error_mark());
+            println!();
+            for error in &errors {
+                println!("    {} {}", "✗".red(), error.message);
+            }
+        }
+
+        if !warns.is_empty() {
+            println!();
+            println!("{} Warnings:", Theme::warning_mark());
+            println!();
+            for warn in &warns {
+                println!("    {} {}", "⚠".yellow(), warn.message);
+            }
+        }
+
+        if !errors.is_empty() {
+            std::process::exit(1);
+        }
+    }
+
+    println!();
+
+    Ok(())
+}
+
+fn get_config(key: &str) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+
+    let config = match RmaTomlConfig::discover(&cwd) {
+        Some((_, cfg)) => cfg,
+        None => {
+            eprintln!("{} No configuration found", Theme::error_mark());
+            std::process::exit(1);
+        }
+    };
+
+    let json = serde_json::to_value(&config)?;
     let value = get_nested_value(&json, key);
 
     match value {
@@ -36,7 +159,11 @@ fn get_config(key: &str) -> Result<()> {
 }
 
 fn set_config(key: &str, value: &str) -> Result<()> {
-    let mut config = load_config()?;
+    let cwd = std::env::current_dir()?;
+
+    let (config_path, mut config) = RmaTomlConfig::discover(&cwd)
+        .ok_or_else(|| anyhow::anyhow!("No configuration found. Run 'rma init' first."))?;
+
     let mut json = serde_json::to_value(&config)?;
 
     // Parse the value
@@ -47,7 +174,10 @@ fn set_config(key: &str, value: &str) -> Result<()> {
 
     // Convert back to config
     config = serde_json::from_value(json)?;
-    save_config(&config)?;
+
+    // Save as TOML
+    let toml_str = toml::to_string_pretty(&config)?;
+    std::fs::write(&config_path, toml_str)?;
 
     println!(
         "{} Configuration updated: {} = {}",
@@ -60,7 +190,16 @@ fn set_config(key: &str, value: &str) -> Result<()> {
 }
 
 fn list_config() -> Result<()> {
-    let config = load_config()?;
+    let cwd = std::env::current_dir()?;
+
+    let (config_path, config) = match RmaTomlConfig::discover(&cwd) {
+        Some((path, cfg)) => (path, cfg),
+        None => {
+            println!("{} No configuration found", Theme::warning_mark());
+            println!("  Run {} to create one", "rma init".yellow());
+            return Ok(());
+        }
+    };
 
     println!();
     println!("{}", Theme::header("Configuration"));
@@ -74,7 +213,7 @@ fn list_config() -> Result<()> {
     println!(
         "  {} {}",
         "Config file:".dimmed(),
-        get_config_path()?.display()
+        config_path.display()
     );
     println!();
 
@@ -111,13 +250,18 @@ fn print_config_tree(value: &serde_json::Value, prefix: &str) {
 }
 
 fn edit_config() -> Result<()> {
-    let config_path = get_config_path()?;
+    let cwd = std::env::current_dir()?;
 
-    // Ensure config exists
-    if !config_path.exists() {
-        let config = RmaConfig::default();
-        save_config(&config)?;
-    }
+    let config_path = match RmaTomlConfig::discover(&cwd) {
+        Some((path, _)) => path,
+        None => {
+            // Create default config
+            let default_path = cwd.join("rma.toml");
+            let default_config = RmaTomlConfig::default_toml(rma_common::Profile::Balanced);
+            std::fs::write(&default_path, default_config)?;
+            default_path
+        }
+    };
 
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
 
@@ -132,18 +276,50 @@ fn edit_config() -> Result<()> {
         .arg(&config_path)
         .status()?;
 
-    println!("{} Configuration saved", Theme::success_mark());
+    // Validate after editing
+    println!();
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
+        match toml::from_str::<RmaTomlConfig>(&content) {
+            Ok(config) => {
+                let warnings = config.validate();
+                if warnings.is_empty() {
+                    println!("{} Configuration saved and valid", Theme::success_mark());
+                } else {
+                    println!("{} Configuration saved with warnings:", Theme::warning_mark());
+                    for w in &warnings {
+                        println!("  {} {}", Theme::bullet(), w.message.yellow());
+                    }
+                }
+            }
+            Err(e) => {
+                println!("{} Configuration has syntax errors:", Theme::error_mark());
+                println!("  {}", e.to_string().red());
+            }
+        }
+    }
 
     Ok(())
 }
 
 fn show_config_path() -> Result<()> {
-    let path = get_config_path()?;
-    println!("{}", path.display());
+    let cwd = std::env::current_dir()?;
+
+    match RmaTomlConfig::discover(&cwd) {
+        Some((path, _)) => println!("{}", path.display()),
+        None => {
+            // Show where config would be created
+            let default_path = cwd.join("rma.toml");
+            println!("{} (not found)", default_path.display());
+        }
+    }
+
     Ok(())
 }
 
 fn reset_config(force: bool) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config_path = cwd.join("rma.toml");
+
     if !force {
         println!(
             "{} This will reset all configuration to defaults.",
@@ -161,49 +337,11 @@ fn reset_config(force: bool) -> Result<()> {
         }
     }
 
-    let config = RmaConfig::default();
-    save_config(&config)?;
+    let default_config = RmaTomlConfig::default_toml(rma_common::Profile::Balanced);
+    std::fs::write(&config_path, default_config)?;
 
     println!("{} Configuration reset to defaults", Theme::success_mark());
-
-    Ok(())
-}
-
-fn get_config_path() -> Result<PathBuf> {
-    // Check current directory first
-    let local_config = PathBuf::from(".rma/config.json");
-    if local_config.exists() {
-        return Ok(local_config);
-    }
-
-    // Fall back to global config
-    let home =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-    let global_config = home.join(".config/rma/config.json");
-
-    Ok(global_config)
-}
-
-fn load_config() -> Result<RmaConfig> {
-    let config_path = get_config_path()?;
-
-    if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)?;
-        Ok(serde_json::from_str(&content)?)
-    } else {
-        Ok(RmaConfig::default())
-    }
-}
-
-fn save_config(config: &RmaConfig) -> Result<()> {
-    let config_path = get_config_path()?;
-
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let json = serde_json::to_string_pretty(config)?;
-    std::fs::write(&config_path, json)?;
+    println!("  Saved to: {}", config_path.display().to_string().cyan());
 
     Ok(())
 }

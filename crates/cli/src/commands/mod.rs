@@ -1,5 +1,6 @@
 //! CLI Command implementations
 
+pub mod baseline;
 pub mod bench;
 pub mod config;
 pub mod daemon;

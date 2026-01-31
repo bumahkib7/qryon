@@ -33,6 +33,8 @@ console = "0.16"
 humantime = "2.1"
 dirs.workspace = true
 chrono.workspace = true
+toml.workspace = true
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile.workspace = true
