@@ -39,7 +39,7 @@ pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<
             },
             "results": results.iter().flat_map(|r| {
                 r.findings.iter().map(|f| {
-                    serde_json::json!({
+                    let mut result = serde_json::json!({
                         "ruleId": f.rule_id,
                         "ruleIndex": rules.iter().position(|rule| {
                             rule.get("id").and_then(|v| v.as_str()) == Some(&f.rule_id)
@@ -69,13 +69,17 @@ pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<
                                     }))
                                 }
                             }
-                        }],
-                        "fixes": f.suggestion.as_ref().map(|s| serde_json::json!([{
+                        }]
+                    });
+                    // Only add fixes if there's a suggestion
+                    if let Some(suggestion) = &f.suggestion {
+                        result["fixes"] = serde_json::json!([{
                             "description": {
-                                "text": s
+                                "text": suggestion
                             }
-                        }]))
-                    })
+                        }]);
+                    }
+                    result
                 }).collect::<Vec<_>>()
             }).collect::<Vec<_>>(),
             "automationDetails": {
