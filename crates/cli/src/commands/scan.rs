@@ -31,6 +31,8 @@ pub struct ScanArgs {
     pub quiet: bool,
     pub baseline_mode: bool,
     pub include_suppressed: bool,
+    pub changed_only: bool,
+    pub base: String,
 }
 
 pub fn run(args: ScanArgs) -> Result<()> {
@@ -58,8 +60,39 @@ pub fn run(args: ScanArgs) -> Result<()> {
 
     // Phase 1: Parse files
     let parse_start = Instant::now();
-    let (parsed_files, _parse_stats) = run_parse_phase(&args, &config)?;
+    let (mut parsed_files, _parse_stats) = run_parse_phase(&args, &config)?;
     timings.push(("Parse", parse_start.elapsed()));
+
+    // Phase 1.5: Filter to changed files only (for PR workflows)
+    if args.changed_only {
+        let changed_files = get_changed_files(&args.path, &args.base)?;
+
+        if !args.quiet && args.format == OutputFormat::Text {
+            println!(
+                "  {} {} files changed since {}",
+                Theme::info_mark(),
+                changed_files.len().to_string().yellow(),
+                args.base.dimmed()
+            );
+        }
+
+        let before_count = parsed_files.len();
+        parsed_files.retain(|f| {
+            let file_path = f.path.strip_prefix(&args.path).unwrap_or(&f.path);
+            changed_files
+                .iter()
+                .any(|cf| file_path.ends_with(cf) || cf.ends_with(file_path.to_string_lossy().as_ref()))
+        });
+
+        if !args.quiet && args.format == OutputFormat::Text && before_count != parsed_files.len() {
+            println!(
+                "  {} Scanning {} of {} files",
+                Theme::info_mark(),
+                parsed_files.len().to_string().green(),
+                before_count.to_string().dimmed()
+            );
+        }
+    }
 
     // Phase 2: Analyze
     let analyze_start = Instant::now();
@@ -171,6 +204,15 @@ fn print_scan_header(args: &ScanArgs, toml_config: Option<&RmaTomlConfig>, profi
 
     if args.baseline_mode {
         println!("  {} {}", "Baseline:".dimmed(), "new-only".yellow());
+    }
+
+    if args.changed_only {
+        println!(
+            "  {} {} (base: {})",
+            "Mode:".dimmed(),
+            "changed-only".cyan(),
+            args.base.dimmed()
+        );
     }
 
     println!();
@@ -401,4 +443,74 @@ fn filter_baseline_findings(
             }
         }
     }
+}
+
+/// Get list of files changed since a base git ref
+fn get_changed_files(repo_path: &PathBuf, base_ref: &str) -> Result<Vec<String>> {
+    use std::process::Command;
+
+    // Run git diff to get changed files
+    let output = Command::new("git")
+        .args(["diff", "--name-only", "--diff-filter=ACMR", base_ref])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        // Try fetching the remote first
+        let _ = Command::new("git")
+            .args(["fetch", "origin"])
+            .current_dir(repo_path)
+            .output();
+
+        // Retry the diff
+        let output = Command::new("git")
+            .args(["diff", "--name-only", "--diff-filter=ACMR", base_ref])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            // Fall back to comparing against HEAD~10 if base ref doesn't exist
+            let output = Command::new("git")
+                .args(["diff", "--name-only", "--diff-filter=ACMR", "HEAD~10"])
+                .current_dir(repo_path)
+                .output()?;
+
+            if !output.status.success() {
+                anyhow::bail!(
+                    "Failed to get changed files. Is this a git repository? Error: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+
+            return Ok(String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|s| s.to_string())
+                .collect());
+        }
+    }
+
+    // Also include staged files
+    let staged = Command::new("git")
+        .args(["diff", "--name-only", "--cached", "--diff-filter=ACMR"])
+        .current_dir(repo_path)
+        .output()?;
+
+    let mut files: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .collect();
+
+    if staged.status.success() {
+        files.extend(
+            String::from_utf8_lossy(&staged.stdout)
+                .lines()
+                .map(|s| s.to_string()),
+        );
+    }
+
+    // Deduplicate
+    files.sort();
+    files.dedup();
+
+    Ok(files)
 }

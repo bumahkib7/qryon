@@ -117,6 +117,14 @@ pub enum Commands {
         /// Include suppressed findings in output (normally hidden)
         #[arg(long)]
         include_suppressed: bool,
+
+        /// Only scan files changed since base ref (for PR workflows)
+        #[arg(long)]
+        changed_only: bool,
+
+        /// Base git ref to compare against (default: origin/main)
+        #[arg(long, default_value = "origin/main", requires = "changed_only")]
+        base: String,
     },
 
     /// Watch for file changes and re-analyze in real-time
@@ -426,6 +434,8 @@ fn main() -> Result<()> {
             exclude,
             baseline_mode,
             include_suppressed,
+            changed_only,
+            base,
         } => commands::scan::run(commands::scan::ScanArgs {
             path,
             format,
@@ -444,6 +454,8 @@ fn main() -> Result<()> {
             quiet: cli.quiet,
             baseline_mode,
             include_suppressed,
+            changed_only,
+            base,
         }),
 
         Commands::Watch {
