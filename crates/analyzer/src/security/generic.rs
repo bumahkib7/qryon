@@ -348,12 +348,34 @@ impl Rule for InsecureCryptoRule {
         let mut findings = Vec::new();
 
         for (line_num, line) in parsed.content.lines().enumerate() {
+            let trimmed = line.trim();
             let lower = line.to_lowercase();
+
+            // Skip comments (various languages)
+            if trimmed.starts_with("//")
+                || trimmed.starts_with("/*")
+                || trimmed.starts_with('*')
+                || trimmed.starts_with('#')
+                || trimmed.starts_with("<!--")
+            {
+                continue;
+            }
 
             // Skip detection code (lines that are checking for patterns)
             if lower.contains(".contains(")
                 || lower.contains(".is_match(")
                 || lower.contains("regex")
+            {
+                continue;
+            }
+
+            // Skip string literals that are error messages or documentation
+            // (lines where the crypto term appears inside quotes for display)
+            if is_in_string_literal(&lower, "md5")
+                || is_in_string_literal(&lower, "sha1")
+                || is_in_string_literal(&lower, "des")
+                || is_in_string_literal(&lower, "rc4")
+                || is_in_string_literal(&lower, "ecb")
             {
                 continue;
             }
@@ -446,6 +468,21 @@ impl Rule for InsecureCryptoRule {
             }
         }
         findings
+    }
+}
+
+/// Check if a term appears inside a string literal (for skipping error messages)
+fn is_in_string_literal(line: &str, term: &str) -> bool {
+    // Find the term and check if it's inside quotes
+    if let Some(pos) = line.find(term) {
+        let before = &line[..pos];
+        // Count quotes before the term
+        let double_quotes = before.matches('"').count();
+        let single_quotes = before.matches('\'').count();
+        // If odd number of quotes, we're inside a string
+        double_quotes % 2 == 1 || single_quotes % 2 == 1
+    } else {
+        false
     }
 }
 

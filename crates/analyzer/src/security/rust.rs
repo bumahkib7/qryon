@@ -138,13 +138,21 @@ impl Rule for TransmuteRule {
         let mut findings = Vec::new();
         let mut cursor = parsed.tree.walk();
 
+        // Look for actual transmute function calls using scoped_identifier
         find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                // Skip detection code patterns
-                if text.contains(".contains(") {
-                    return;
-                }
-                if text.contains("transmute") || text.contains("transmute_copy") {
+            // Get the function being called (first child is usually the function)
+            if let Some(func) = node.child(0) {
+                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                // Check for actual transmute calls: mem::transmute, std::mem::transmute, transmute
+                // Must be a scoped identifier or identifier, not a string literal
+                let is_transmute_call = func.kind() == "scoped_identifier"
+                    && (func_text.ends_with("::transmute")
+                        || func_text.ends_with("::transmute_copy")
+                        || func_text == "transmute"
+                        || func_text == "transmute_copy");
+
+                if is_transmute_call {
                     findings.push(create_finding(
                         self.id(),
                         &node,
@@ -515,24 +523,65 @@ impl Rule for PathTraversalRule {
         let mut findings = Vec::new();
         let mut cursor = parsed.tree.walk();
 
+        // File operation functions that are vulnerable to path traversal
+        const FILE_OPS: &[&str] = &[
+            "File::open",
+            "File::create",
+            "fs::read",
+            "fs::read_to_string",
+            "fs::write",
+            "fs::remove_file",
+            "fs::remove_dir",
+            "fs::create_dir",
+            "std::fs::read",
+            "std::fs::write",
+            "std::fs::read_to_string",
+        ];
+
         find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                // Check for File::open, fs::read, etc. with format! or user input
-                if (text.contains("File::open")
-                    || text.contains("fs::read")
-                    || text.contains("fs::write")
-                    || text.contains("Path::new"))
-                    && (text.contains("format!") || text.contains("&format"))
-                {
-                    findings.push(create_finding(
-                        self.id(),
-                        &node,
-                        &parsed.path,
-                        &parsed.content,
-                        Severity::Warning,
-                        "File path uses string interpolation - validate path to prevent directory traversal",
-                        Language::Rust,
-                    ));
+            // Get the function being called
+            if let Some(func) = node.child(0) {
+                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                // Check if this is a file operation
+                let is_file_op = FILE_OPS.iter().any(|op| func_text.ends_with(op));
+
+                if is_file_op {
+                    // Check if arguments contain format! macro (indicates string interpolation)
+                    let mut has_format_macro = false;
+                    let mut arg_cursor = node.walk();
+
+                    if arg_cursor.goto_first_child() {
+                        loop {
+                            let child = arg_cursor.node();
+                            // Look for macro_invocation with format! in the arguments
+                            if child.kind() == "arguments" {
+                                let args_text =
+                                    child.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+                                // Check for format! macro in arguments, but not in string literals
+                                if args_text.contains("format!(") || args_text.contains("&format!(")
+                                {
+                                    has_format_macro = true;
+                                    break;
+                                }
+                            }
+                            if !arg_cursor.goto_next_sibling() {
+                                break;
+                            }
+                        }
+                    }
+
+                    if has_format_macro {
+                        findings.push(create_finding(
+                            self.id(),
+                            &node,
+                            &parsed.path,
+                            &parsed.content,
+                            Severity::Warning,
+                            "File path uses string interpolation - validate path to prevent directory traversal",
+                            Language::Rust,
+                        ));
+                    }
                 }
             }
         });
