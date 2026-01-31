@@ -5,6 +5,35 @@ All notable changes to RMA (Rust Monorepo Analyzer) will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-31
+
+### Added
+
+- **8 New Security Rules**: Comprehensive vulnerability detection
+
+  **Rust-specific:**
+  - `rust/transmute-used` - Detects std::mem::transmute (type safety bypass)
+  - `rust/raw-pointer-deref` - Detects raw pointer dereferences
+  - `rust/command-injection` - Detects shell command execution patterns
+  - `rust/sql-injection` - Detects SQL built with format!/string concatenation
+  - `rust/unchecked-index` - Detects direct array indexing without bounds check
+  - `rust/path-traversal` - Detects file paths with string interpolation
+
+  **Generic (all languages):**
+  - `generic/hardcoded-secret` - Detects API keys, AWS keys, GitHub tokens, private keys
+  - `generic/insecure-crypto` - Detects MD5, SHA-1, DES, RC4, ECB mode usage
+
+- **Automatic Homebrew Updates**: New workflow auto-updates tap on release
+  - `.github/workflows/update-homebrew-tap.yml`
+  - Computes SHA256 hashes automatically
+  - Supports macOS + Linux (Intel + ARM)
+
+### Changed
+
+- Total security rules: 19 (was 11)
+- Secret detection now redacts sensitive values in output
+- Detection code patterns are automatically skipped to reduce false positives
+
 ## [0.2.0] - 2026-02-01
 
 ### Added
