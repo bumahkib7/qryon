@@ -1,0 +1,149 @@
+name: RMA Security Scan (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: 'Path to scan'
+        type: string
+        required: false
+        default: '.'
+      format:
+        description: 'Output format: text, json, sarif, compact, markdown'
+        type: string
+        required: false
+        default: 'sarif'
+      output-file:
+        description: 'Output file path'
+        type: string
+        required: false
+        default: 'rma-results.sarif'
+      severity:
+        description: 'Minimum severity: info, warning, error, critical'
+        type: string
+        required: false
+        default: 'warning'
+      languages:
+        description: 'Comma-separated languages to scan'
+        type: string
+        required: false
+        default: ''
+      ai:
+        description: 'Enable AI analysis'
+        type: boolean
+        required: false
+        default: false
+      verbose:
+        description: 'Enable verbose output'
+        type: boolean
+        required: false
+        default: false
+      incremental:
+        description: 'Incremental scan'
+        type: boolean
+        required: false
+        default: false
+      extra-args:
+        description: 'Extra CLI arguments'
+        type: string
+        required: false
+        default: ''
+      version:
+        description: 'RMA version (e.g., v0.1.0 or latest)'
+        type: string
+        required: false
+        default: 'latest'
+      upload-sarif:
+        description: 'Upload SARIF to Security tab'
+        type: boolean
+        required: false
+        default: true
+      fail-on-findings:
+        description: 'Fail if findings detected'
+        type: boolean
+        required: false
+        default: false
+      runs-on:
+        description: 'Runner to use'
+        type: string
+        required: false
+        default: 'ubuntu-latest'
+    outputs:
+      sarif-file:
+        description: 'Generated SARIF file path'
+        value: ${{ jobs.scan.outputs.sarif-file }}
+      findings-count:
+        description: 'Number of findings'
+        value: ${{ jobs.scan.outputs.findings-count }}
+    secrets:
+      OPENAI_API_KEY:
+        description: 'OpenAI API key for AI analysis'
+        required: false
+
+jobs:
+  scan:
+    name: RMA Security Scan
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      sarif-file: ${{ steps.rma.outputs.sarif-file }}
+      findings-count: ${{ steps.rma.outputs.findings-count }}
+
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run RMA Scan
+        id: rma
+        uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+        with:
+          path: ${{ inputs.path }}
+          format: ${{ inputs.format }}
+          output-file: ${{ inputs.output-file }}
+          severity: ${{ inputs.severity }}
+          languages: ${{ inputs.languages }}
+          ai: ${{ inputs.ai }}
+          verbose: ${{ inputs.verbose }}
+          incremental: ${{ inputs.incremental }}
+          extra-args: ${{ inputs.extra-args }}
+          version: ${{ inputs.version }}
+          upload-sarif: ${{ inputs.upload-sarif }}
+          fail-on-findings: ${{ inputs.fail-on-findings }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Upload SARIF Artifact
+        if: inputs.format == 'sarif'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rma-sarif-results
+          path: ${{ inputs.output-file }}
+          retention-days: 30
+
+      - name: Generate Summary
+        env:
+          SCAN_PATH: ${{ inputs.path }}
+          SCAN_FORMAT: ${{ inputs.format }}
+          FINDINGS_COUNT: ${{ steps.rma.outputs.findings-count }}
+          UPLOAD_SARIF: ${{ inputs.upload-sarif }}
+          OUTPUT_FILE: ${{ inputs.output-file }}
+        run: |
+          echo "## RMA Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Path Scanned | \`$SCAN_PATH\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Output Format | $SCAN_FORMAT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Findings | $FINDINGS_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| SARIF Uploaded | $UPLOAD_SARIF |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$SCAN_FORMAT" = "sarif" ] && [ -f "$OUTPUT_FILE" ]; then
+            echo "### SARIF file uploaded to Security tab" >> $GITHUB_STEP_SUMMARY
+            echo "View findings in the **Security** tab -> **Code scanning alerts**" >> $GITHUB_STEP_SUMMARY
+          fi

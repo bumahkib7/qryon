@@ -1,0 +1,209 @@
+name: 'RMA Security Scan'
+description: 'Run Rust Monorepo Analyzer for security scanning and code analysis with SARIF output'
+author: 'bumahkib7'
+
+branding:
+  icon: 'shield'
+  color: 'orange'
+
+inputs:
+  path:
+    description: 'Path to scan (relative to repository root)'
+    required: false
+    default: '.'
+  format:
+    description: 'Output format: text, json, sarif, compact, markdown'
+    required: false
+    default: 'sarif'
+  output-file:
+    description: 'Output file path for results'
+    required: false
+    default: 'rma-results.sarif'
+  severity:
+    description: 'Minimum severity to report: info, warning, error, critical'
+    required: false
+    default: 'warning'
+  languages:
+    description: 'Comma-separated list of languages to scan (e.g., rust,python,javascript)'
+    required: false
+    default: ''
+  ai:
+    description: 'Enable AI-powered vulnerability analysis'
+    required: false
+    default: 'false'
+  verbose:
+    description: 'Enable verbose output'
+    required: false
+    default: 'false'
+  incremental:
+    description: 'Enable incremental scanning (only changed files)'
+    required: false
+    default: 'false'
+  extra-args:
+    description: 'Additional arguments to pass to rma scan'
+    required: false
+    default: ''
+  version:
+    description: 'RMA version to use (e.g., v0.1.0, latest)'
+    required: false
+    default: 'latest'
+  upload-sarif:
+    description: 'Automatically upload SARIF to GitHub Security tab'
+    required: false
+    default: 'true'
+  fail-on-findings:
+    description: 'Fail the action if findings are detected'
+    required: false
+    default: 'false'
+  token:
+    description: 'GitHub token for API access (defaults to github.token)'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  sarif-file:
+    description: 'Path to the generated SARIF file'
+    value: ${{ steps.scan.outputs.sarif-file }}
+  findings-count:
+    description: 'Total number of findings detected'
+    value: ${{ steps.scan.outputs.findings-count }}
+  exit-code:
+    description: 'Exit code from RMA scan'
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect Platform
+      id: platform
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+
+        case "$OS" in
+          linux*)
+            case "$ARCH" in
+              x86_64|amd64) PLATFORM="x86_64-unknown-linux-gnu" ;;
+              aarch64|arm64) PLATFORM="aarch64-unknown-linux-gnu" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            EXT="tar.gz"
+            ;;
+          darwin*)
+            case "$ARCH" in
+              x86_64|amd64) PLATFORM="x86_64-apple-darwin" ;;
+              aarch64|arm64) PLATFORM="aarch64-apple-darwin" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            EXT="tar.gz"
+            ;;
+          *)
+            echo "::error::Unsupported OS: $OS"
+            exit 1
+            ;;
+        esac
+
+        echo "platform=$PLATFORM" >> $GITHUB_OUTPUT
+        echo "ext=$EXT" >> $GITHUB_OUTPUT
+        echo "::notice::Detected platform: $PLATFORM"
+
+    - name: Install RMA
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        RMA_VERSION: ${{ inputs.version }}
+      run: |
+        PLATFORM="${{ steps.platform.outputs.platform }}"
+        EXT="${{ steps.platform.outputs.ext }}"
+
+        if [ "$RMA_VERSION" = "latest" ]; then
+          DOWNLOAD_URL="https://github.com/bumahkib7/rust-monorepo-analyzer/releases/latest/download/rma-${PLATFORM}.${EXT}"
+        else
+          DOWNLOAD_URL="https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/${RMA_VERSION}/rma-${PLATFORM}.${EXT}"
+        fi
+
+        echo "::notice::Downloading RMA from: $DOWNLOAD_URL"
+
+        # Download and extract
+        curl -fsSL "$DOWNLOAD_URL" -o rma-archive.tar.gz
+        tar -xzf rma-archive.tar.gz
+        chmod +x rma
+
+        # Move to a location in PATH
+        sudo mv rma /usr/local/bin/rma || mv rma $HOME/.local/bin/rma
+
+        # Verify installation
+        RMA_PATH=$(which rma)
+        RMA_VER=$(rma --version)
+        echo "::notice::RMA installed: $RMA_VER at $RMA_PATH"
+        echo "rma-path=$RMA_PATH" >> $GITHUB_OUTPUT
+
+    - name: Run RMA Scan
+      id: scan
+      shell: bash
+      run: |
+        # Build command
+        CMD="rma scan ${{ inputs.path }}"
+        CMD="$CMD --output ${{ inputs.format }}"
+        CMD="$CMD -f ${{ inputs.output-file }}"
+        CMD="$CMD --severity ${{ inputs.severity }}"
+
+        # Optional flags
+        if [ "${{ inputs.languages }}" != "" ]; then
+          CMD="$CMD --languages ${{ inputs.languages }}"
+        fi
+
+        if [ "${{ inputs.ai }}" = "true" ]; then
+          CMD="$CMD --ai"
+        fi
+
+        if [ "${{ inputs.verbose }}" = "true" ]; then
+          CMD="$CMD --verbose"
+        fi
+
+        if [ "${{ inputs.incremental }}" = "true" ]; then
+          CMD="$CMD --incremental"
+        fi
+
+        if [ "${{ inputs.extra-args }}" != "" ]; then
+          CMD="$CMD ${{ inputs.extra-args }}"
+        fi
+
+        echo "::group::Running RMA Scan"
+        echo "Command: $CMD"
+
+        # Run scan and capture exit code
+        set +e
+        $CMD
+        EXIT_CODE=$?
+        set -e
+
+        echo "::endgroup::"
+
+        # Set outputs
+        echo "sarif-file=${{ inputs.output-file }}" >> $GITHUB_OUTPUT
+        echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+        # Count findings if SARIF format
+        if [ "${{ inputs.format }}" = "sarif" ] && [ -f "${{ inputs.output-file }}" ]; then
+          FINDINGS=$(jq '[.runs[].results | length] | add // 0' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+          echo "findings-count=$FINDINGS" >> $GITHUB_OUTPUT
+          echo "::notice::Found $FINDINGS security findings"
+        else
+          echo "findings-count=0" >> $GITHUB_OUTPUT
+        fi
+
+        # Handle failure
+        if [ "${{ inputs.fail-on-findings }}" = "true" ] && [ "$EXIT_CODE" -ne 0 ]; then
+          echo "::error::RMA scan found issues (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+        fi
+
+    - name: Upload SARIF to GitHub Security
+      if: inputs.format == 'sarif' && inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.output-file }}
+        category: 'rma-security-scan'

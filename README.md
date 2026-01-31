@@ -124,14 +124,84 @@ Options:
 | `compact` | Minimal output for CI logs |
 | `markdown` | Documentation and reports |
 
-### SARIF Integration (GitHub Actions)
+### GitHub Actions Integration
+
+RMA provides a reusable GitHub Action for easy CI/CD integration with automatic SARIF upload to GitHub Security tab.
+
+#### Quick Setup (Reusable Workflow)
+
+```yaml
+name: Security Scan
+
+on: [push, pull_request]
+
+jobs:
+  security-scan:
+    uses: bumahkib7/rust-monorepo-analyzer/.github/workflows/rma-scan-reusable.yml@master
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      path: './src'
+      severity: 'warning'
+      upload-sarif: true
+```
+
+#### Composite Action (More Control)
+
+```yaml
+name: Security Scan
+
+on: [push, pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run RMA Security Scan
+        uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+        with:
+          path: '.'
+          format: 'sarif'
+          severity: 'warning'
+          upload-sarif: 'true'
+```
+
+#### Action Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Path to scan | `.` |
+| `format` | Output format (text, json, sarif, compact, markdown) | `sarif` |
+| `severity` | Minimum severity (info, warning, error, critical) | `warning` |
+| `languages` | Comma-separated languages to scan | (all) |
+| `ai` | Enable AI-powered analysis | `false` |
+| `verbose` | Enable verbose output | `false` |
+| `upload-sarif` | Upload SARIF to GitHub Security tab | `true` |
+| `fail-on-findings` | Fail workflow if findings detected | `false` |
+| `version` | RMA version to use | `latest` |
+
+#### Action Outputs
+
+| Output | Description |
+|--------|-------------|
+| `sarif-file` | Path to generated SARIF file |
+| `findings-count` | Number of security findings detected |
+
+#### Manual SARIF Upload
 
 ```yaml
 - name: Run RMA Security Scan
   run: rma scan . --output sarif -f results.sarif
 
 - name: Upload SARIF
-  uses: github/codeql-action/upload-sarif@v2
+  uses: github/codeql-action/upload-sarif@v3
   with:
     sarif_file: results.sarif
 ```
@@ -341,8 +411,8 @@ hyperfine 'rma scan /path/to/repo' 'semgrep --config auto /path/to/repo'
 - [x] WASM plugin system
 - [x] AI-powered analysis
 - [x] One-command installation
+- [x] GitHub Actions integration
 - [ ] VS Code extension
-- [ ] GitHub Actions marketplace
 - [ ] LSP integration
 - [ ] Cloud SaaS deployment
 

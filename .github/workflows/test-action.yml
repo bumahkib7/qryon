@@ -1,0 +1,131 @@
+name: Test RMA Action
+
+on:
+  push:
+    paths:
+      - '.github/actions/rma-scan/**'
+      - '.github/workflows/rma-scan-reusable.yml'
+      - '.github/workflows/test-action.yml'
+  pull_request:
+    paths:
+      - '.github/actions/rma-scan/**'
+      - '.github/workflows/rma-scan-reusable.yml'
+  workflow_dispatch:
+
+jobs:
+  test-composite-action:
+    name: Test Composite Action
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run RMA Action (SARIF)
+        id: rma-sarif
+        uses: ./.github/actions/rma-scan
+        with:
+          path: './crates'
+          format: 'sarif'
+          output-file: 'test-results.sarif'
+          severity: 'info'
+          verbose: 'true'
+          upload-sarif: 'true'
+
+      - name: Verify SARIF Output
+        run: |
+          if [ ! -f "test-results.sarif" ]; then
+            echo "::error::SARIF file not generated"
+            exit 1
+          fi
+          echo "SARIF file exists"
+          jq '.' test-results.sarif | head -50
+
+      - name: Check Outputs
+        env:
+          SARIF_FILE: ${{ steps.rma-sarif.outputs.sarif-file }}
+          FINDINGS: ${{ steps.rma-sarif.outputs.findings-count }}
+        run: |
+          echo "SARIF file: $SARIF_FILE"
+          echo "Findings count: $FINDINGS"
+
+  test-json-format:
+    name: Test JSON Output
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run RMA Action (JSON)
+        uses: ./.github/actions/rma-scan
+        with:
+          path: './crates/common'
+          format: 'json'
+          output-file: 'results.json'
+          upload-sarif: 'false'
+
+      - name: Verify JSON Output
+        run: |
+          if [ ! -f "results.json" ]; then
+            echo "::error::JSON file not generated"
+            exit 1
+          fi
+          echo "JSON output:"
+          jq '.' results.json | head -30
+
+  test-reusable-workflow:
+    name: Test Reusable Workflow
+    uses: ./.github/workflows/rma-scan-reusable.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      path: './crates'
+      format: 'sarif'
+      severity: 'warning'
+      verbose: true
+      upload-sarif: true
+
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run RMA Action
+        uses: ./.github/actions/rma-scan
+        with:
+          path: '.'
+          format: 'compact'
+          output-file: 'results.txt'
+          upload-sarif: 'false'
+
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test-composite-action, test-json-format, test-reusable-workflow, test-macos]
+    if: always()
+
+    steps:
+      - name: Report Results
+        env:
+          COMPOSITE_RESULT: ${{ needs.test-composite-action.result }}
+          JSON_RESULT: ${{ needs.test-json-format.result }}
+          REUSABLE_RESULT: ${{ needs.test-reusable-workflow.result }}
+          MACOS_RESULT: ${{ needs.test-macos.result }}
+        run: |
+          echo "## RMA Action Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Composite Action (SARIF) | $COMPOSITE_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| JSON Format | $JSON_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reusable Workflow | $REUSABLE_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS | $MACOS_RESULT |" >> $GITHUB_STEP_SUMMARY
