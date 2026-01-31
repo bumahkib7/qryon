@@ -1,11 +1,21 @@
-//! Rust-specific security vulnerability DETECTION rules
+//! Rust-specific security rules
+//!
+//! Categorized into:
+//! - **Sinks (High Confidence)**: Precise detection of dangerous patterns
+//! - **Review Hints (Low Confidence)**: Patterns that need human review
 
-use crate::rules::{Rule, create_finding};
-use rma_common::{Finding, Language, Severity};
+use crate::rules::{create_finding_with_confidence, Rule};
+use rma_common::{Confidence, Finding, Language, Severity};
 use rma_parser::ParsedFile;
 use tree_sitter::Node;
 
-/// DETECTS unsafe blocks in Rust code (security audit)
+// =============================================================================
+// SECTION A: HIGH-CONFIDENCE SINKS
+// These detect actual dangerous patterns with high precision
+// =============================================================================
+
+/// Detects `unsafe` blocks - requires security review
+/// Confidence: HIGH (AST-based, precise)
 pub struct UnsafeBlockRule;
 
 impl Rule for UnsafeBlockRule {
@@ -14,7 +24,7 @@ impl Rule for UnsafeBlockRule {
     }
 
     fn description(&self) -> &str {
-        "Detects unsafe blocks that require manual security review"
+        "Detects unsafe blocks that bypass Rust's safety guarantees"
     }
 
     fn applies_to(&self, lang: Language) -> bool {
@@ -24,101 +34,26 @@ impl Rule for UnsafeBlockRule {
     fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut cursor = parsed.tree.walk();
+
+        // AST node type "unsafe_block" is precise
         find_nodes_by_kind(&mut cursor, "unsafe_block", |node: Node| {
-            findings.push(create_finding(
+            findings.push(create_finding_with_confidence(
                 self.id(),
                 &node,
                 &parsed.path,
                 &parsed.content,
                 Severity::Warning,
-                "Unsafe block requires manual security review",
+                "Unsafe block bypasses Rust's memory safety - requires manual review",
                 Language::Rust,
+                Confidence::High,
             ));
         });
         findings
     }
 }
 
-/// DETECTS .unwrap() calls that may panic (reliability issue)
-pub struct UnwrapRule;
-
-impl Rule for UnwrapRule {
-    fn id(&self) -> &str {
-        "rust/unwrap-used"
-    }
-
-    fn description(&self) -> &str {
-        "Detects .unwrap() calls that may cause panics"
-    }
-
-    fn applies_to(&self, lang: Language) -> bool {
-        lang == Language::Rust
-    }
-
-    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
-        let mut findings = Vec::new();
-        let mut cursor = parsed.tree.walk();
-
-        find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes())
-                && (text.contains(".unwrap()") || text.contains(".expect("))
-            {
-                findings.push(create_finding(
-                    self.id(),
-                    &node,
-                    &parsed.path,
-                    &parsed.content,
-                    Severity::Info,
-                    "Consider using ? operator or proper error handling instead of unwrap/expect",
-                    Language::Rust,
-                ));
-            }
-        });
-        findings
-    }
-}
-
-/// DETECTS panic! macro usage
-pub struct PanicRule;
-
-impl Rule for PanicRule {
-    fn id(&self) -> &str {
-        "rust/panic-used"
-    }
-
-    fn description(&self) -> &str {
-        "Detects panic! macro calls that may crash the program"
-    }
-
-    fn applies_to(&self, lang: Language) -> bool {
-        lang == Language::Rust
-    }
-
-    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
-        let mut findings = Vec::new();
-        let mut cursor = parsed.tree.walk();
-
-        find_nodes_by_kind(&mut cursor, "macro_invocation", |node: Node| {
-            if let Some(macro_node) = node.child_by_field_name("macro")
-                && let Ok(text) = macro_node.utf8_text(parsed.content.as_bytes())
-                && (text == "panic" || text == "todo" || text == "unimplemented")
-            {
-                findings.push(create_finding(
-                    self.id(),
-                    &node,
-                    &parsed.path,
-                    &parsed.content,
-                    Severity::Warning,
-                    "Panic macro may crash the program unexpectedly",
-                    Language::Rust,
-                ));
-            }
-        });
-        findings
-    }
-}
-
-/// DETECTS std::mem::transmute usage (type safety bypass)
+/// Detects `std::mem::transmute` - type safety bypass
+/// Confidence: HIGH (checks actual function call via scoped_identifier)
 pub struct TransmuteRule;
 
 impl Rule for TransmuteRule {
@@ -138,30 +73,29 @@ impl Rule for TransmuteRule {
         let mut findings = Vec::new();
         let mut cursor = parsed.tree.walk();
 
-        // Look for actual transmute function calls using scoped_identifier
         find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            // Get the function being called (first child is usually the function)
             if let Some(func) = node.child(0) {
-                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+                // Must be scoped_identifier (not string literal)
+                if func.kind() == "scoped_identifier" || func.kind() == "identifier" {
+                    let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
 
-                // Check for actual transmute calls: mem::transmute, std::mem::transmute, transmute
-                // Must be a scoped identifier or identifier, not a string literal
-                let is_transmute_call = func.kind() == "scoped_identifier"
-                    && (func_text.ends_with("::transmute")
+                    // Precise match: mem::transmute, std::mem::transmute, transmute_copy
+                    if func_text.ends_with("::transmute")
                         || func_text.ends_with("::transmute_copy")
                         || func_text == "transmute"
-                        || func_text == "transmute_copy");
-
-                if is_transmute_call {
-                    findings.push(create_finding(
-                        self.id(),
-                        &node,
-                        &parsed.path,
-                        &parsed.content,
-                        Severity::Error,
-                        "std::mem::transmute bypasses type safety - ensure this is absolutely necessary",
-                        Language::Rust,
-                    ));
+                        || func_text == "transmute_copy"
+                    {
+                        findings.push(create_finding_with_confidence(
+                            self.id(),
+                            &node,
+                            &parsed.path,
+                            &parsed.content,
+                            Severity::Error,
+                            "std::mem::transmute bypasses type safety - ensure this is necessary",
+                            Language::Rust,
+                            Confidence::High,
+                        ));
+                    }
                 }
             }
         });
@@ -169,7 +103,65 @@ impl Rule for TransmuteRule {
     }
 }
 
-/// DETECTS raw pointer dereferences in unsafe blocks
+/// Detects `Command::new` with shell execution - command injection sink
+/// Confidence: HIGH (precise AST pattern)
+pub struct CommandInjectionRule;
+
+impl Rule for CommandInjectionRule {
+    fn id(&self) -> &str {
+        "rust/command-injection"
+    }
+
+    fn description(&self) -> &str {
+        "Detects shell command execution sinks"
+    }
+
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Rust
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let mut cursor = parsed.tree.walk();
+
+        find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
+            if let Some(func) = node.child(0) {
+                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                // HIGH: Command::new with shell
+                if func_text.ends_with("Command::new") || func_text == "Command::new" {
+                    // Check arguments for shell invocation
+                    if let Some(args) = node.child_by_field_name("arguments") {
+                        let args_text = args.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                        if args_text.contains("\"sh\"")
+                            || args_text.contains("\"bash\"")
+                            || args_text.contains("\"/bin/sh\"")
+                            || args_text.contains("\"/bin/bash\"")
+                            || args_text.contains("\"cmd\"")
+                            || args_text.contains("\"powershell\"")
+                        {
+                            findings.push(create_finding_with_confidence(
+                                self.id(),
+                                &node,
+                                &parsed.path,
+                                &parsed.content,
+                                Severity::Critical,
+                                "Shell command execution - validate all inputs to prevent injection",
+                                Language::Rust,
+                                Confidence::High,
+                            ));
+                        }
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+/// Detects raw pointer dereferences
+/// Confidence: HIGH (AST-based, inside unsafe blocks)
 pub struct RawPointerDerefRule;
 
 impl Rule for RawPointerDerefRule {
@@ -189,22 +181,116 @@ impl Rule for RawPointerDerefRule {
         let mut findings = Vec::new();
         let mut cursor = parsed.tree.walk();
 
-        // Look for dereference of raw pointers
-        find_nodes_by_kind(&mut cursor, "unary_expression", |node: Node| {
+        // Look for dereference expressions inside unsafe blocks
+        find_nodes_by_kind(&mut cursor, "unsafe_block", |unsafe_node: Node| {
+            let mut inner_cursor = unsafe_node.walk();
+            find_nodes_in_subtree(&mut inner_cursor, "unary_expression", |node: Node| {
+                if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
+                    // Dereference operator on pointer
+                    if text.starts_with('*') {
+                        findings.push(create_finding_with_confidence(
+                            self.id(),
+                            &node,
+                            &parsed.path,
+                            &parsed.content,
+                            Severity::Warning,
+                            "Raw pointer dereference - ensure pointer validity",
+                            Language::Rust,
+                            Confidence::High,
+                        ));
+                    }
+                }
+            });
+        });
+        findings
+    }
+}
+
+// =============================================================================
+// SECTION B: REVIEW HINTS (LOW CONFIDENCE)
+// These are heuristics that may need human verification
+// =============================================================================
+
+/// Review hint: SQL query building with string interpolation
+/// Confidence: LOW-MEDIUM (heuristic, context-dependent)
+pub struct SqlInjectionHint;
+
+impl SqlInjectionHint {
+    /// Check for database context indicators
+    fn has_db_context(path: &std::path::Path, content: &str) -> bool {
+        let path_str = path.to_string_lossy().to_lowercase();
+
+        // Path indicators
+        let db_path = path_str.contains("/db/")
+            || path_str.contains("/database/")
+            || path_str.contains("/repository/")
+            || path_str.contains("/dao/")
+            || path_str.contains("_repo")
+            || path_str.ends_with("_db.rs");
+
+        // Import indicators
+        let db_imports = ["sqlx", "diesel", "postgres", "rusqlite", "mysql", "sea_orm"]
+            .iter()
+            .any(|crate_name| content.contains(&format!("use {}::", crate_name)));
+
+        db_path || db_imports
+    }
+
+    /// Check for actual database API usage (high signal)
+    fn has_db_api_call(text: &str) -> bool {
+        text.contains(".query(")
+            || text.contains(".execute(")
+            || text.contains("query!(")
+            || text.contains("query_as!(")
+            || text.contains(".prepare(")
+    }
+}
+
+impl Rule for SqlInjectionHint {
+    fn id(&self) -> &str {
+        "rust/sql-injection-hint"
+    }
+
+    fn description(&self) -> &str {
+        "Review hint: potential SQL injection if input is untrusted"
+    }
+
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Rust
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        // Only check files with DB context
+        if !Self::has_db_context(&parsed.path, &parsed.content) {
+            return findings;
+        }
+
+        let mut cursor = parsed.tree.walk();
+
+        find_nodes_by_kind(&mut cursor, "macro_invocation", |node: Node| {
             if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                // Check for *ptr patterns with raw pointer types
-                if text.starts_with('*')
-                    && (text.contains("*const") || text.contains("*mut") || text.contains("as *"))
-                {
-                    findings.push(create_finding(
-                        self.id(),
-                        &node,
-                        &parsed.path,
-                        &parsed.content,
-                        Severity::Warning,
-                        "Raw pointer dereference may cause undefined behavior",
-                        Language::Rust,
-                    ));
+                // Check for format! with SQL keywords
+                if text.starts_with("format!") && Self::has_db_api_call(text) {
+                    let lower = text.to_lowercase();
+                    let has_sql = lower.contains("select ")
+                        || lower.contains("insert ")
+                        || lower.contains("update ")
+                        || lower.contains("delete ");
+
+                    if has_sql {
+                        findings.push(create_finding_with_confidence(
+                            self.id(),
+                            &node,
+                            &parsed.path,
+                            &parsed.content,
+                            Severity::Warning,
+                            "Potential SQL injection if input is untrusted - use parameterized queries",
+                            Language::Rust,
+                            Confidence::Medium,
+                        ));
+                    }
                 }
             }
         });
@@ -212,16 +298,83 @@ impl Rule for RawPointerDerefRule {
     }
 }
 
-/// DETECTS potential command injection via std::process::Command
-pub struct CommandInjectionRule;
+/// Review hint: File operations with dynamic paths
+/// Confidence: LOW (heuristic - only flags format! in file ops)
+pub struct PathTraversalHint;
 
-impl Rule for CommandInjectionRule {
+impl Rule for PathTraversalHint {
     fn id(&self) -> &str {
-        "rust/command-injection"
+        "rust/path-traversal-hint"
     }
 
     fn description(&self) -> &str {
-        "Detects potential command injection vulnerabilities"
+        "Review hint: file path from untrusted input may allow directory traversal"
+    }
+
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Rust
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let mut cursor = parsed.tree.walk();
+
+        // File operation sinks
+        const FILE_SINKS: &[&str] = &[
+            "File::open",
+            "File::create",
+            "fs::read",
+            "fs::read_to_string",
+            "fs::write",
+            "fs::remove_file",
+            "fs::remove_dir_all",
+            "std::fs::read",
+            "std::fs::write",
+        ];
+
+        find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
+            if let Some(func) = node.child(0) {
+                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                // Check if calling a file operation
+                let is_file_sink = FILE_SINKS.iter().any(|sink| func_text.ends_with(sink));
+
+                if is_file_sink {
+                    // Check for format! macro in arguments
+                    if let Some(args) = node.child_by_field_name("arguments") {
+                        let args_text = args.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                        if args_text.contains("format!(") {
+                            findings.push(create_finding_with_confidence(
+                                self.id(),
+                                &node,
+                                &parsed.path,
+                                &parsed.content,
+                                Severity::Info,
+                                "File path from dynamic input - validate to prevent directory traversal if untrusted",
+                                Language::Rust,
+                                Confidence::Low,
+                            ));
+                        }
+                    }
+                }
+            }
+        });
+        findings
+    }
+}
+
+/// Review hint: .unwrap() usage
+/// Confidence: LOW (code quality, not security)
+pub struct UnwrapHint;
+
+impl Rule for UnwrapHint {
+    fn id(&self) -> &str {
+        "rust/unwrap-hint"
+    }
+
+    fn description(&self) -> &str {
+        "Review hint: unwrap/expect may panic"
     }
 
     fn applies_to(&self, lang: Language) -> bool {
@@ -233,39 +386,21 @@ impl Rule for CommandInjectionRule {
         let mut cursor = parsed.tree.walk();
 
         find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                // Skip detection code patterns
-                if text.contains(".contains(") {
-                    return;
-                }
-                // Detect Command::new with shell or sh
-                if (text.contains("Command::new") || text.contains("process::Command"))
-                    && (text.contains("\"sh\"")
-                        || text.contains("\"bash\"")
-                        || text.contains("\"/bin/sh\"")
-                        || text.contains("shell"))
-                {
-                    findings.push(create_finding(
+            if let Some(func) = node.child(0)
+                && func.kind() == "field_expression"
+            {
+                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
+
+                if func_text.ends_with(".unwrap") || func_text.ends_with(".expect") {
+                    findings.push(create_finding_with_confidence(
                         self.id(),
                         &node,
                         &parsed.path,
                         &parsed.content,
-                        Severity::Critical,
-                        "Shell command execution detected - ensure input is properly sanitized",
+                        Severity::Info,
+                        "Consider ? operator or proper error handling",
                         Language::Rust,
-                    ));
-                }
-                // Detect .arg() with format! or variable interpolation
-                if text.contains(".arg(") && (text.contains("format!") || text.contains("&format"))
-                {
-                    findings.push(create_finding(
-                        self.id(),
-                        &node,
-                        &parsed.path,
-                        &parsed.content,
-                        Severity::Warning,
-                        "Command argument uses string interpolation - verify input is sanitized",
-                        Language::Rust,
+                        Confidence::Low,
                     ));
                 }
             }
@@ -274,118 +409,17 @@ impl Rule for CommandInjectionRule {
     }
 }
 
-/// DETECTS SQL query construction with string formatting (SQL injection risk)
-/// Uses context-aware detection to reduce false positives
-pub struct SqlInjectionRule;
+/// Review hint: panic! macro usage
+/// Confidence: LOW (code quality)
+pub struct PanicHint;
 
-impl SqlInjectionRule {
-    /// Check if file path suggests database context
-    fn is_db_path(path: &std::path::Path) -> bool {
-        let path_str = path.to_string_lossy().to_lowercase();
-        path_str.contains("/db/")
-            || path_str.contains("/database/")
-            || path_str.contains("/repository/")
-            || path_str.contains("/dao/")
-            || path_str.contains("/sql/")
-            || path_str.contains("/queries/")
-            || path_str.contains("_repo")
-            || path_str.ends_with("_db.rs")
-            || path_str.ends_with("_repository.rs")
-    }
-
-    /// Check if content has database imports
-    fn has_db_imports(content: &str) -> bool {
-        let db_crates = [
-            "sqlx",
-            "diesel",
-            "postgres",
-            "tokio_postgres",
-            "rusqlite",
-            "mysql",
-            "sea_orm",
-            "rbatis",
-            "deadpool_postgres",
-        ];
-        for crate_name in &db_crates {
-            if content.contains(&format!("use {}::", crate_name))
-                || content.contains(&format!("{}::", crate_name))
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Check if the text looks like actual SQL (not documentation or markdown)
-    fn looks_like_sql(text: &str) -> bool {
-        let lower = text.to_lowercase();
-
-        // Must have SQL keywords
-        let has_sql_keyword = lower.contains("select ")
-            || lower.contains("insert into")
-            || lower.contains("update ")
-            || lower.contains("delete from")
-            || lower.contains(" where ")
-            || lower.contains(" from ");
-
-        if !has_sql_keyword {
-            return false;
-        }
-
-        // Exclude documentation/markdown patterns
-        let is_doc = lower.contains("```")
-            || lower.contains("///")
-            || lower.contains("//!")
-            || lower.contains("* select")
-            || lower.contains("# select")
-            || lower.contains("example:")
-            || lower.contains("e.g.")
-            || lower.contains("such as")
-            || text.contains("```sql");
-
-        !is_doc
-    }
-
-    /// Determine confidence based on context
-    fn determine_confidence(
-        path: &std::path::Path,
-        content: &str,
-        text: &str,
-    ) -> Option<rma_common::Confidence> {
-        let is_db_context = Self::is_db_path(path) || Self::has_db_imports(content);
-        let looks_like_sql = Self::looks_like_sql(text);
-
-        // Check for strong DB API usage indicators
-        let has_db_api = text.contains(".query")
-            || text.contains(".execute")
-            || text.contains("query!")
-            || text.contains("query_as!")
-            || text.contains(".prepare")
-            || text.contains("conn.")
-            || text.contains("client.")
-            || text.contains("pool.");
-
-        if has_db_api && looks_like_sql {
-            Some(rma_common::Confidence::High)
-        } else if is_db_context && looks_like_sql {
-            Some(rma_common::Confidence::Medium)
-        } else if looks_like_sql {
-            // Only SQL keywords, no other context - skip to avoid false positives
-            // This catches cases like markdown generation, documentation, etc.
-            None
-        } else {
-            None
-        }
-    }
-}
-
-impl Rule for SqlInjectionRule {
+impl Rule for PanicHint {
     fn id(&self) -> &str {
-        "rust/sql-injection"
+        "rust/panic-hint"
     }
 
     fn description(&self) -> &str {
-        "Detects potential SQL injection from string concatenation in queries"
+        "Review hint: panic macros crash the program"
     }
 
     fn applies_to(&self, lang: Language) -> bool {
@@ -397,104 +431,19 @@ impl Rule for SqlInjectionRule {
         let mut cursor = parsed.tree.walk();
 
         find_nodes_by_kind(&mut cursor, "macro_invocation", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                // Check for format! with SQL keywords
-                if text.contains("format!") {
-                    // Determine confidence based on context
-                    if let Some(confidence) =
-                        Self::determine_confidence(&parsed.path, &parsed.content, text)
-                    {
-                        let severity = match confidence {
-                            rma_common::Confidence::High => Severity::Critical,
-                            rma_common::Confidence::Medium => Severity::Error,
-                            rma_common::Confidence::Low => Severity::Warning,
-                        };
+            if let Some(macro_node) = node.child_by_field_name("macro") {
+                let macro_text = macro_node.utf8_text(parsed.content.as_bytes()).unwrap_or("");
 
-                        let mut finding = create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            severity,
-                            "SQL query built with format! - use parameterized queries instead",
-                            Language::Rust,
-                        );
-                        finding.confidence = confidence;
-                        findings.push(finding);
-                    }
-                }
-            }
-        });
-
-        // Also check for raw string SQL with concatenation
-        let mut cursor2 = parsed.tree.walk();
-        find_nodes_by_kind(&mut cursor2, "binary_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes())
-                && text.contains('+')
-                && let Some(confidence) =
-                    Self::determine_confidence(&parsed.path, &parsed.content, text)
-            {
-                let severity = match confidence {
-                    rma_common::Confidence::High => Severity::Critical,
-                    rma_common::Confidence::Medium => Severity::Error,
-                    rma_common::Confidence::Low => Severity::Warning,
-                };
-
-                let mut finding = create_finding(
-                    self.id(),
-                    &node,
-                    &parsed.path,
-                    &parsed.content,
-                    severity,
-                    "SQL query uses string concatenation - use parameterized queries",
-                    Language::Rust,
-                );
-                finding.confidence = confidence;
-                findings.push(finding);
-            }
-        });
-
-        findings
-    }
-}
-
-/// DETECTS unchecked array/slice indexing
-pub struct UncheckedIndexRule;
-
-impl Rule for UncheckedIndexRule {
-    fn id(&self) -> &str {
-        "rust/unchecked-index"
-    }
-
-    fn description(&self) -> &str {
-        "Detects direct array indexing that may panic on out-of-bounds"
-    }
-
-    fn applies_to(&self, lang: Language) -> bool {
-        lang == Language::Rust
-    }
-
-    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
-        let mut findings = Vec::new();
-        let mut cursor = parsed.tree.walk();
-
-        find_nodes_by_kind(&mut cursor, "index_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                // Skip .get() calls which are safe
-                if text.contains(".get(") || text.contains(".get_mut(") {
-                    return;
-                }
-                // Check for variable index (not constant)
-                if text.contains('[') && !text.contains("[0]") && !text.contains("[1]") {
-                    // Likely a variable index - could panic
-                    findings.push(create_finding(
+                if macro_text == "panic" || macro_text == "todo" || macro_text == "unimplemented" {
+                    findings.push(create_finding_with_confidence(
                         self.id(),
                         &node,
                         &parsed.path,
                         &parsed.content,
                         Severity::Info,
-                        "Consider using .get() for bounds-checked indexing",
+                        "Panic macro will crash - consider Result/Option for recoverable errors",
                         Language::Rust,
+                        Confidence::Low,
                     ));
                 }
             }
@@ -503,93 +452,11 @@ impl Rule for UncheckedIndexRule {
     }
 }
 
-/// DETECTS path traversal vulnerabilities
-pub struct PathTraversalRule;
+// =============================================================================
+// HELPERS
+// =============================================================================
 
-impl Rule for PathTraversalRule {
-    fn id(&self) -> &str {
-        "rust/path-traversal"
-    }
-
-    fn description(&self) -> &str {
-        "Detects potential path traversal vulnerabilities"
-    }
-
-    fn applies_to(&self, lang: Language) -> bool {
-        lang == Language::Rust
-    }
-
-    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
-        let mut findings = Vec::new();
-        let mut cursor = parsed.tree.walk();
-
-        // File operation functions that are vulnerable to path traversal
-        const FILE_OPS: &[&str] = &[
-            "File::open",
-            "File::create",
-            "fs::read",
-            "fs::read_to_string",
-            "fs::write",
-            "fs::remove_file",
-            "fs::remove_dir",
-            "fs::create_dir",
-            "std::fs::read",
-            "std::fs::write",
-            "std::fs::read_to_string",
-        ];
-
-        find_nodes_by_kind(&mut cursor, "call_expression", |node: Node| {
-            // Get the function being called
-            if let Some(func) = node.child(0) {
-                let func_text = func.utf8_text(parsed.content.as_bytes()).unwrap_or("");
-
-                // Check if this is a file operation
-                let is_file_op = FILE_OPS.iter().any(|op| func_text.ends_with(op));
-
-                if is_file_op {
-                    // Check if arguments contain format! macro (indicates string interpolation)
-                    let mut has_format_macro = false;
-                    let mut arg_cursor = node.walk();
-
-                    if arg_cursor.goto_first_child() {
-                        loop {
-                            let child = arg_cursor.node();
-                            // Look for macro_invocation with format! in the arguments
-                            if child.kind() == "arguments" {
-                                let args_text =
-                                    child.utf8_text(parsed.content.as_bytes()).unwrap_or("");
-                                // Check for format! macro in arguments, but not in string literals
-                                if args_text.contains("format!(") || args_text.contains("&format!(")
-                                {
-                                    has_format_macro = true;
-                                    break;
-                                }
-                            }
-                            if !arg_cursor.goto_next_sibling() {
-                                break;
-                            }
-                        }
-                    }
-
-                    if has_format_macro {
-                        findings.push(create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Warning,
-                            "File path uses string interpolation - validate path to prevent directory traversal",
-                            Language::Rust,
-                        ));
-                    }
-                }
-            }
-        });
-        findings
-    }
-}
-
-/// Helper to find all nodes of a specific kind
+/// Find all nodes of a specific kind in tree
 fn find_nodes_by_kind<F>(cursor: &mut tree_sitter::TreeCursor, kind: &str, mut callback: F)
 where
     F: FnMut(Node),
@@ -609,6 +476,34 @@ where
                 break;
             }
             if !cursor.goto_parent() {
+                return;
+            }
+        }
+    }
+}
+
+/// Find nodes of a specific kind within a subtree
+fn find_nodes_in_subtree<F>(cursor: &mut tree_sitter::TreeCursor, kind: &str, mut callback: F)
+where
+    F: FnMut(Node),
+{
+    let start_depth = cursor.depth();
+
+    loop {
+        let node = cursor.node();
+        if node.kind() == kind {
+            callback(node);
+        }
+
+        if cursor.goto_first_child() {
+            continue;
+        }
+
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() || cursor.depth() < start_depth {
                 return;
             }
         }
@@ -640,6 +535,46 @@ fn main() {
         let findings = rule.check(&parsed);
 
         assert!(!findings.is_empty());
-        assert!(findings[0].rule_id.contains("unsafe"));
+        assert_eq!(findings[0].confidence, Confidence::High);
+    }
+
+    #[test]
+    fn test_transmute_detection() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+fn danger() {
+    let x: u32 = unsafe { std::mem::transmute(1.0f32) };
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("test.rs"), content).unwrap();
+        let rule = TransmuteRule;
+        let findings = rule.check(&parsed);
+
+        assert!(!findings.is_empty());
+        assert_eq!(findings[0].confidence, Confidence::High);
+    }
+
+    #[test]
+    fn test_command_shell_detection() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+use std::process::Command;
+
+fn run_shell(cmd: &str) {
+    Command::new("sh").arg("-c").arg(cmd).output().unwrap();
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("test.rs"), content).unwrap();
+        let rule = CommandInjectionRule;
+        let findings = rule.check(&parsed);
+
+        assert!(!findings.is_empty());
+        assert_eq!(findings[0].confidence, Confidence::High);
     }
 }

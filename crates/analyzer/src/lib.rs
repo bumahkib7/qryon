@@ -59,19 +59,25 @@ impl AnalyzerEngine {
 
     /// Register all default security and quality rules
     fn register_default_rules(&mut self) {
-        // Rust rules - DETECT dangerous patterns
+        // =====================================================================
+        // RUST RULES
+        // =====================================================================
+
+        // Section A: High-confidence sinks (precise detection)
         self.rules.push(Box::new(security::rust::UnsafeBlockRule));
-        self.rules.push(Box::new(security::rust::UnwrapRule));
-        self.rules.push(Box::new(security::rust::PanicRule));
         self.rules.push(Box::new(security::rust::TransmuteRule));
         self.rules
-            .push(Box::new(security::rust::RawPointerDerefRule));
-        self.rules
             .push(Box::new(security::rust::CommandInjectionRule));
-        self.rules.push(Box::new(security::rust::SqlInjectionRule));
         self.rules
-            .push(Box::new(security::rust::UncheckedIndexRule));
-        self.rules.push(Box::new(security::rust::PathTraversalRule));
+            .push(Box::new(security::rust::RawPointerDerefRule));
+
+        // Section B: Review hints (low confidence, need verification)
+        self.rules
+            .push(Box::new(security::rust::SqlInjectionHint));
+        self.rules
+            .push(Box::new(security::rust::PathTraversalHint));
+        self.rules.push(Box::new(security::rust::UnwrapHint));
+        self.rules.push(Box::new(security::rust::PanicHint));
 
         // JavaScript rules - DETECT dangerous patterns
         self.rules
