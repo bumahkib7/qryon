@@ -4,6 +4,7 @@ pub mod baseline;
 pub mod bench;
 pub mod config;
 pub mod daemon;
+pub mod doctor;
 pub mod init;
 pub mod plugin;
 pub mod scan;

@@ -249,6 +249,13 @@ pub enum Commands {
         shell: Shell,
     },
 
+    /// Check RMA installation health and diagnostics
+    Doctor {
+        /// Show detailed output with more information
+        #[arg(short, long)]
+        detailed: bool,
+    },
+
     /// Run benchmarks
     #[command(hide = true)]
     Bench {
@@ -520,6 +527,10 @@ fn main() -> Result<()> {
             let name = cmd.get_name().to_string();
             generate(shell, &mut cmd, name, &mut io::stdout());
             Ok(())
+        }
+
+        Commands::Doctor { detailed } => {
+            commands::doctor::run(commands::doctor::DoctorArgs { verbose: detailed })
         }
 
         Commands::Bench { path, iterations } => {
