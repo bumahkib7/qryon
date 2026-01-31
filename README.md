@@ -1,5 +1,7 @@
 # RMA - Rust Monorepo Analyzer
 
+[![CI](https://github.com/bumahkib7/rust-monorepo-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/bumahkib7/rust-monorepo-analyzer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/bumahkib7/rust-monorepo-analyzer)](https://github.com/bumahkib7/rust-monorepo-analyzer/releases)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
@@ -7,47 +9,66 @@
 
 RMA leverages tree-sitter for polyglot parsing, rayon for parallelism, and tantivy for blazing-fast indexing to deliver sub-minute scans on million-LOC codebases.
 
+## Quick Install
+
+**Linux/macOS (one command):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+```
+
+**Windows PowerShell:**
+```powershell
+iwr -useb https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.ps1 | iex
+```
+
+**Cargo:**
+```bash
+cargo install rma-cli
+```
+
+**Docker:**
+```bash
+docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rust-monorepo-analyzer scan /workspace
+```
+
 ## Features
 
 - **Polyglot Support**: Rust, JavaScript/TypeScript, Python, Go, Java
 - **Parallel Parsing**: Multi-threaded AST parsing with tree-sitter
 - **Security Analysis**: Detect vulnerabilities, unsafe patterns, hardcoded secrets
+- **AI-Powered Analysis**: Optional AI-assisted vulnerability detection with `--ai` flag
 - **Code Metrics**: Cyclomatic complexity, cognitive complexity, LOC
 - **Fast Indexing**: Tantivy-based full-text search
 - **Incremental Mode**: Only re-analyze changed files
-- **Multiple Output Formats**: Text, JSON, SARIF
+- **Multiple Output Formats**: Text, JSON, SARIF, Compact, Markdown
 - **Watch Mode**: Real-time analysis on file changes
 - **HTTP API**: Daemon mode for IDE integration
-
-## Installation
-
-```bash
-# From source
-git clone https://github.com/bumahkib7/rust-monorepo-analyzer.git
-cd rust-monorepo-analyzer
-cargo build --release
-
-# Install binary
-cargo install --path crates/cli
-```
+- **WASM Plugins**: Extend with custom analysis rules
+- **Shell Completions**: Bash, Zsh, Fish, PowerShell, Elvish
 
 ## Quick Start
 
 ```bash
 # Scan current directory
-rma scan
+rma scan .
 
-# Scan specific path with JSON output
-rma scan /path/to/repo --output json -f results.json
+# Scan with AI-powered analysis
+rma scan ./src --ai
 
-# Scan only Rust and Python files
-rma scan --languages rust,python
+# Scan with JSON output for CI/CD
+rma scan . --output json -f results.json
+
+# Scan with SARIF output for GitHub Code Scanning
+rma scan . --output sarif -f results.sarif
 
 # Watch mode for continuous analysis
-rma watch /path/to/repo
+rma watch .
 
-# Initialize configuration
-rma init
+# Search indexed code
+rma search "TODO" --type content
+
+# View statistics
+rma stats
 ```
 
 ## CLI Commands
@@ -55,10 +76,14 @@ rma init
 | Command | Description |
 |---------|-------------|
 | `scan` | Scan a repository for security issues and metrics |
+| `watch` | Watch for file changes and re-analyze in real-time |
 | `search` | Search the index for files or findings |
-| `stats` | Show index statistics |
-| `init` | Initialize RMA configuration |
-| `watch` | Watch for file changes and re-analyze |
+| `stats` | Show index and analysis statistics |
+| `init` | Initialize RMA configuration in current directory |
+| `daemon` | Start HTTP API server for IDE integration |
+| `plugin` | Manage WASM analysis plugins |
+| `config` | View and modify configuration |
+| `completions` | Generate shell completions |
 
 ### Scan Options
 
@@ -66,13 +91,49 @@ rma init
 rma scan [PATH] [OPTIONS]
 
 Options:
-  -o, --output <FORMAT>     Output format: text, json, sarif [default: text]
+  -o, --output <FORMAT>     Output format: text, json, sarif, compact, markdown [default: text]
   -f, --output-file <FILE>  Output file (stdout if not specified)
   -s, --severity <LEVEL>    Minimum severity: info, warning, error, critical
-  -i, --incremental         Enable incremental mode
-  -j, --parallelism <N>     Number of parallel workers (0 = auto)
+  -i, --incremental         Enable incremental mode (only scan changed files)
+  -j, --parallelism <N>     Number of parallel workers (0 = auto-detect)
   -l, --languages <LANGS>   Languages to scan (comma-separated)
-  -v, --verbose             Increase verbosity
+      --ai                  Enable AI-powered vulnerability analysis
+      --no-progress         Disable progress bars
+  -v, --verbose             Increase verbosity (-v, -vv, -vvv)
+  -q, --quiet               Suppress non-essential output
+```
+
+### Watch Options
+
+```
+rma watch [PATH] [OPTIONS]
+
+Options:
+  -d, --debounce <MS>       Debounce delay in milliseconds [default: 500]
+  -l, --languages <LANGS>   Languages to watch
+      --clear               Clear screen on each change
+```
+
+## Output Formats
+
+| Format | Use Case |
+|--------|----------|
+| `text` | Human-readable terminal output with colors |
+| `json` | Machine-readable for programmatic processing |
+| `sarif` | GitHub Code Scanning, Azure DevOps integration |
+| `compact` | Minimal output for CI logs |
+| `markdown` | Documentation and reports |
+
+### SARIF Integration (GitHub Actions)
+
+```yaml
+- name: Run RMA Security Scan
+  run: rma scan . --output sarif -f results.sarif
+
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v2
+  with:
+    sarif_file: results.sarif
 ```
 
 ## Architecture
@@ -85,7 +146,10 @@ rust-monorepo-analyzer/
 │   ├── analyzer/    # Security and code analysis engine
 │   ├── indexer/     # Tantivy/Sled based indexing
 │   ├── cli/         # Command-line interface
-│   └── daemon/      # HTTP API server
+│   ├── daemon/      # HTTP API server (Axum)
+│   ├── plugins/     # WASM plugin runtime (Wasmtime)
+│   ├── lsp/         # Language Server Protocol
+│   └── ai/          # AI-powered analysis
 ```
 
 ### Component Overview
@@ -98,6 +162,9 @@ rust-monorepo-analyzer/
 | `rma-indexer` | Full-text search and incremental updates |
 | `rma-cli` | User-facing CLI binary |
 | `rma-daemon` | Axum-based HTTP API server |
+| `rma-plugins` | Wasmtime-based WASM plugin system |
+| `rma-lsp` | Language Server Protocol implementation |
+| `rma-ai` | AI-powered vulnerability detection |
 
 ## Security Rules
 
@@ -107,26 +174,31 @@ rust-monorepo-analyzer/
 - `rust/panic-used` - Detects panic! macro usage
 
 ### JavaScript/TypeScript
-- `js/dynamic-code-execution` - Detects dangerous code evaluation patterns
-- `js/innerhtml-xss` - Detects innerHTML usage (XSS risk)
-- `js/console-log` - Detects console.log statements
+- `js/dynamic-code` - Detects dangerous dynamic code execution
+- `js/innerHTML-xss` - Detects innerHTML usage (XSS risk)
+- `js/hardcoded-secret` - Detects hardcoded credentials
 
 ### Python
-- `python/dynamic-execution` - Detects exec/compile calls
+- `python/exec-usage` - Detects exec/compile calls
 - `python/shell-injection` - Detects shell=True patterns
 - `python/hardcoded-secret` - Detects hardcoded credentials
 
-### Generic
+### Go
+- `go/unsafe-usage` - Detects unsafe package usage
+- `go/sql-injection` - Detects SQL injection patterns
+
+### Generic (All Languages)
 - `generic/todo-fixme` - Detects TODO/FIXME comments
 - `generic/long-function` - Detects functions over 100 lines
 - `generic/high-complexity` - Detects high cyclomatic complexity
+- `generic/hardcoded-secret` - Detects API keys and passwords
 
 ## HTTP API (Daemon Mode)
 
 Start the daemon:
 
 ```bash
-rma-daemon --host 127.0.0.1 --port 9876
+rma daemon --host 127.0.0.1 --port 9876
 ```
 
 ### Endpoints
@@ -138,75 +210,141 @@ rma-daemon --host 127.0.0.1 --port 9876
 | POST | `/api/v1/analyze` | Analyze a single file |
 | GET | `/api/v1/search` | Search indexed files |
 | GET | `/api/v1/stats` | Get daemon statistics |
+| POST | `/api/v1/index` | Trigger re-indexing |
 
 ### Example Request
 
 ```bash
 curl -X POST http://localhost:9876/api/v1/scan \
   -H "Content-Type: application/json" \
-  -d '{"path": "/path/to/repo"}'
+  -d '{"path": "/path/to/repo", "languages": ["rust", "python"]}'
+```
+
+## Plugin System
+
+RMA supports WASM plugins for custom analysis rules:
+
+```bash
+# List installed plugins
+rma plugin list
+
+# Install a plugin
+rma plugin install ./my-plugin.wasm
+
+# Test a plugin
+rma plugin test my-plugin --file src/main.rs
+
+# Remove a plugin
+rma plugin remove my-plugin
 ```
 
 ## Configuration
 
-Create `.rma/config.json` in your project:
+Initialize configuration:
+
+```bash
+rma init
+```
+
+This creates `.rma/config.json`:
 
 ```json
 {
   "exclude_patterns": [
     "**/node_modules/**",
     "**/target/**",
-    "**/vendor/**"
+    "**/vendor/**",
+    "**/.git/**"
   ],
   "languages": [],
   "min_severity": "warning",
   "max_file_size": 10485760,
   "parallelism": 0,
-  "incremental": false
+  "incremental": true,
+  "ai": {
+    "enabled": false,
+    "provider": "openai",
+    "model": "gpt-4"
+  }
 }
 ```
 
-## Benchmarks
+### Environment Variables
 
-Run benchmarks:
+| Variable | Description |
+|----------|-------------|
+| `RMA_CONFIG` | Path to config file |
+| `RMA_LOG` | Log level (trace, debug, info, warn, error) |
+| `OPENAI_API_KEY` | API key for AI-powered analysis |
+| `RMA_NO_COLOR` | Disable colored output |
+
+## Shell Completions
+
+Generate completions for your shell:
 
 ```bash
-cargo bench
-```
+# Bash
+rma completions bash > ~/.local/share/bash-completion/completions/rma
 
-Compare with Semgrep:
+# Zsh
+rma completions zsh > ~/.zfunc/_rma
 
-```bash
-hyperfine 'rma scan /path/to/repo' 'semgrep --config auto /path/to/repo'
+# Fish
+rma completions fish > ~/.config/fish/completions/rma.fish
+
+# PowerShell
+rma completions powershell > $PROFILE.CurrentUserAllHosts
 ```
 
 ## Development
 
 ```bash
 # Build all crates
-cargo build
+make build
 
 # Run tests
-cargo test
+make test
 
-# Run with logging
-RUST_LOG=debug cargo run -p rma-cli -- scan .
+# Run lints
+make lint
 
 # Format code
-cargo fmt
+make fmt
 
-# Lint
-cargo clippy
+# Full CI check
+make ci
+
+# Scan RMA's own codebase
+make self-scan
+
+# Build documentation
+make docs
+```
+
+## Benchmarks
+
+```bash
+# Run benchmarks
+make bench
+
+# Compare with Semgrep
+hyperfine 'rma scan /path/to/repo' 'semgrep --config auto /path/to/repo'
 ```
 
 ## Roadmap
 
-- [ ] WASM plugin system for custom rules
-- [ ] LSP integration
-- [ ] AI-powered vulnerability detection
-- [ ] Cloud SaaS deployment
-- [ ] GitHub Actions integration
+- [x] Multi-language tree-sitter parsing
+- [x] Parallel analysis with rayon
+- [x] SARIF output for CI/CD
+- [x] Watch mode
+- [x] HTTP API daemon
+- [x] WASM plugin system
+- [x] AI-powered analysis
+- [x] One-command installation
 - [ ] VS Code extension
+- [ ] GitHub Actions marketplace
+- [ ] LSP integration
+- [ ] Cloud SaaS deployment
 
 ## License
 
