@@ -93,6 +93,7 @@ pub fn create_finding(
 }
 
 /// Create a finding with explicit confidence level
+#[allow(clippy::too_many_arguments)]
 pub fn create_finding_with_confidence(
     rule_id: &str,
     node: &Node,

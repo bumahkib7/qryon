@@ -421,30 +421,28 @@ impl Rule for SqlInjectionRule {
         // Also check for raw string SQL with concatenation
         let mut cursor2 = parsed.tree.walk();
         find_nodes_by_kind(&mut cursor2, "binary_expression", |node: Node| {
-            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
-                if text.contains('+') {
-                    if let Some(confidence) =
-                        Self::determine_confidence(&parsed.path, &parsed.content, text)
-                    {
-                        let severity = match confidence {
-                            rma_common::Confidence::High => Severity::Critical,
-                            rma_common::Confidence::Medium => Severity::Error,
-                            rma_common::Confidence::Low => Severity::Warning,
-                        };
+            if let Ok(text) = node.utf8_text(parsed.content.as_bytes())
+                && text.contains('+')
+                && let Some(confidence) =
+                    Self::determine_confidence(&parsed.path, &parsed.content, text)
+            {
+                let severity = match confidence {
+                    rma_common::Confidence::High => Severity::Critical,
+                    rma_common::Confidence::Medium => Severity::Error,
+                    rma_common::Confidence::Low => Severity::Warning,
+                };
 
-                        let mut finding = create_finding(
-                            self.id(),
-                            &node,
-                            &parsed.path,
-                            &parsed.content,
-                            severity,
-                            "SQL query uses string concatenation - use parameterized queries",
-                            Language::Rust,
-                        );
-                        finding.confidence = confidence;
-                        findings.push(finding);
-                    }
-                }
+                let mut finding = create_finding(
+                    self.id(),
+                    &node,
+                    &parsed.path,
+                    &parsed.content,
+                    severity,
+                    "SQL query uses string concatenation - use parameterized queries",
+                    Language::Rust,
+                );
+                finding.confidence = confidence;
+                findings.push(finding);
             }
         });
 
