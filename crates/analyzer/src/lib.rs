@@ -63,6 +63,12 @@ impl AnalyzerEngine {
         self.rules.push(Box::new(security::rust::UnsafeBlockRule));
         self.rules.push(Box::new(security::rust::UnwrapRule));
         self.rules.push(Box::new(security::rust::PanicRule));
+        self.rules.push(Box::new(security::rust::TransmuteRule));
+        self.rules.push(Box::new(security::rust::RawPointerDerefRule));
+        self.rules.push(Box::new(security::rust::CommandInjectionRule));
+        self.rules.push(Box::new(security::rust::SqlInjectionRule));
+        self.rules.push(Box::new(security::rust::UncheckedIndexRule));
+        self.rules.push(Box::new(security::rust::PathTraversalRule));
 
         // JavaScript rules - DETECT dangerous patterns
         self.rules
@@ -82,12 +88,16 @@ impl AnalyzerEngine {
         self.rules
             .push(Box::new(security::python::HardcodedSecretRule));
 
-        // Generic rules
+        // Generic rules (apply to all languages)
         self.rules.push(Box::new(security::generic::TodoFixmeRule));
         self.rules
             .push(Box::new(security::generic::LongFunctionRule::new(100)));
         self.rules
             .push(Box::new(security::generic::HighComplexityRule::new(15)));
+        self.rules
+            .push(Box::new(security::generic::HardcodedSecretRule));
+        self.rules
+            .push(Box::new(security::generic::InsecureCryptoRule));
     }
 
     /// Analyze a single parsed file

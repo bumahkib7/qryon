@@ -2538,6 +2538,7 @@ dependencies = [
  "petgraph",
  "pretty_assertions",
  "rayon",
+ "regex",
  "rma-common",
  "rma-parser",
  "serde",

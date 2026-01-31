@@ -19,6 +19,34 @@ pub trait Rule: Send + Sync {
     fn check(&self, parsed: &ParsedFile) -> Vec<Finding>;
 }
 
+/// Helper to create a finding from a line number (for line-based checks)
+pub fn create_finding_at_line(
+    rule_id: &str,
+    path: &std::path::Path,
+    line: usize,
+    snippet: &str,
+    severity: rma_common::Severity,
+    message: &str,
+    language: Language,
+) -> Finding {
+    Finding {
+        id: format!("{}-{}-1", rule_id, line),
+        rule_id: rule_id.to_string(),
+        message: message.to_string(),
+        severity,
+        location: rma_common::SourceLocation::new(
+            path.to_path_buf(),
+            line,
+            1,
+            line,
+            snippet.len(),
+        ),
+        language,
+        snippet: Some(snippet.to_string()),
+        suggestion: None,
+    }
+}
+
 /// Helper to create a finding from a tree-sitter node
 pub fn create_finding(
     rule_id: &str,
