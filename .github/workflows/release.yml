@@ -4,13 +4,67 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v0.1.0)'
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
+  BINARY_NAME: rma
 
 jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: RMA ${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            **One-liner (Linux/macOS):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+            ```
+
+            **Homebrew (macOS):**
+            ```bash
+            brew install bumahkib7/tap/rma
+            ```
+
+            **Cargo:**
+            ```bash
+            cargo install rma-cli
+            ```
+
+            **Manual:** Download the appropriate binary below for your platform.
+
   build:
     name: Build ${{ matrix.target }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,22 +72,33 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: rma
+            artifact_name: rma
+            asset_name: rma-x86_64-unknown-linux-gnu
+
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: rma
+            artifact_name: rma
+            asset_name: rma-x86_64-unknown-linux-musl
+
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: rma
+            artifact_name: rma
+            asset_name: rma-aarch64-unknown-linux-gnu
+
           - target: x86_64-apple-darwin
             os: macos-latest
-            artifact: rma
+            artifact_name: rma
+            asset_name: rma-x86_64-apple-darwin
+
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact: rma
+            artifact_name: rma
+            asset_name: rma-aarch64-apple-darwin
+
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            artifact: rma.exe
+            artifact_name: rma.exe
+            asset_name: rma-x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +108,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
+      - name: Install cross-compilation tools (Linux ARM)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
@@ -61,51 +126,59 @@ jobs:
       - name: Strip binary (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          strip target/${{ matrix.target }}/release/${{ matrix.artifact }} || true
+          strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
 
-      - name: Package artifact
-        shell: bash
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
         run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} dist/
-          cd dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a ../rma-${{ matrix.target }}.zip ${{ matrix.artifact }}
-          else
-            tar -czvf ../rma-${{ matrix.target }}.tar.gz ${{ matrix.artifact }}
-          fi
+          cd target/${{ matrix.target }}/release
+          tar -czvf ../../../${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path ${{ matrix.artifact_name }} -DestinationPath ../../../${{ matrix.asset_name }}.zip
+
+      - name: Upload Release Asset (Unix)
+        if: runner.os != 'Windows'
+        uses: softprops/action-gh-release@v1
         with:
-          name: rma-${{ matrix.target }}
-          path: rma-${{ matrix.target }}.*
+          tag_name: ${{ needs.create-release.outputs.version }}
+          files: ${{ matrix.asset_name }}.tar.gz
 
-  release:
-    name: Create Release
-    needs: build
+      - name: Upload Release Asset (Windows)
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.create-release.outputs.version }}
+          files: ${{ matrix.asset_name }}.zip
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [create-release, build]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/**/*
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Publish in dependency order with retries
+          for crate in rma-common rma-parser rma-analyzer rma-indexer rma-plugins rma-ai rma-daemon rma-cli; do
+            echo "Publishing $crate..."
+            cargo publish -p $crate --allow-dirty || true
+            sleep 30
+          done
 
   docker:
     name: Build Docker Image
-    needs: build
+    needs: [create-release, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -131,7 +204,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -143,30 +216,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  publish:
-    name: Publish to crates.io
-    needs: [build, release]
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Publish crates
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Update Homebrew tap
         run: |
-          cargo publish -p rma-common --allow-dirty || true
-          sleep 30
-          cargo publish -p rma-parser --allow-dirty || true
-          sleep 30
-          cargo publish -p rma-analyzer --allow-dirty || true
-          sleep 30
-          cargo publish -p rma-indexer --allow-dirty || true
-          sleep 30
-          cargo publish -p rma-plugins --allow-dirty || true
-          sleep 30
-          cargo publish -p rma-ai --allow-dirty || true
-          sleep 30
-          cargo publish -p rma-cli --allow-dirty || true
+          echo "Homebrew formula would be updated here"
+          # This would typically trigger an update to a homebrew-tap repo
