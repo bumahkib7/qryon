@@ -86,9 +86,7 @@ jobs:
       actions: read
     with:
       path: './crates'
-      format: 'sarif'
       severity: 'warning'
-      verbose: true
       upload-sarif: true
 
   test-macos:
