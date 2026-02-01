@@ -4,6 +4,7 @@
 //! used across all RMA components.
 
 pub mod config;
+pub mod suppression;
 
 pub use config::{
     AllowConfig, AllowType, Baseline, BaselineConfig, BaselineEntry, BaselineMode,
@@ -12,8 +13,9 @@ pub use config::{
     GosecProviderConfig, InlineSuppression, OsvEcosystem, OsvProviderConfig, OxcProviderConfig,
     OxlintProviderConfig, PmdProviderConfig, Profile, ProfileThresholds, ProfilesConfig,
     ProviderType, ProvidersConfig, RULES_ALWAYS_ENABLED, RmaTomlConfig, RulesConfig,
-    RulesetsConfig, ScanConfig, SuppressionEngine, SuppressionResult, SuppressionSource,
-    SuppressionType, ThresholdOverride, WarningLevel, parse_inline_suppressions,
+    RulesetsConfig, ScanConfig, SuppressionConfig, SuppressionEngine, SuppressionResult,
+    SuppressionSource, SuppressionType, ThresholdOverride, WarningLevel,
+    parse_expiration_days, parse_inline_suppressions,
 };
 
 use serde::{Deserialize, Serialize};
@@ -98,10 +100,11 @@ impl std::fmt::Display for Language {
 }
 
 /// Severity levels for findings
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Info,
+    #[default]
     Warning,
     Error,
     Critical,

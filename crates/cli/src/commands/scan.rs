@@ -614,7 +614,7 @@ fn print_timings(timings: &[(&str, Duration)], total: Duration) {
 /// Apply suppression rules to findings
 /// Returns the count of suppressed findings
 fn apply_suppressions(
-    _args: &ScanArgs,
+    args: &ScanArgs,
     effective: &EffectiveScanSettings,
     results: &mut [rma_analyzer::FileAnalysis],
     summary: &mut rma_analyzer::AnalysisSummary,
@@ -622,7 +622,23 @@ fn apply_suppressions(
 ) -> usize {
     // Build suppression engine from config
     let rules_config = toml_config.map(|c| c.rules.clone()).unwrap_or_default();
-    let engine = SuppressionEngine::new(&rules_config, effective.use_default_presets);
+    let mut engine = SuppressionEngine::new(&rules_config, effective.use_default_presets);
+
+    // Load suppression store if enabled
+    let suppression_config = toml_config.map(|c| &c.suppressions);
+    let store_enabled = suppression_config.map(|c| c.enabled).unwrap_or(true);
+
+    if store_enabled {
+        let db_path = suppression_config
+            .map(|c| args.path.join(&c.database))
+            .unwrap_or_else(|| args.path.join(".rma/suppressions.db"));
+
+        if db_path.exists() {
+            if let Ok(store) = rma_common::suppression::SuppressionStore::open(&db_path) {
+                engine = engine.with_store(store);
+            }
+        }
+    }
 
     let mut suppressed_count = 0;
     let mut file_contents_cache: std::collections::HashMap<PathBuf, String> =

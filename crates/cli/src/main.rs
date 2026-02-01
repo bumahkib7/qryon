@@ -334,6 +334,113 @@ pub enum Commands {
         #[command(subcommand)]
         action: CacheAction,
     },
+
+    /// Manage finding suppressions
+    Suppress {
+        #[command(subcommand)]
+        action: SuppressAction,
+
+        /// Project path
+        #[arg(default_value = ".", global = true)]
+        path: PathBuf,
+    },
+}
+
+/// Suppress subcommands
+#[derive(Subcommand)]
+pub enum SuppressAction {
+    /// Add a new suppression
+    Add {
+        /// Fingerprint of the finding to suppress
+        #[arg(short, long)]
+        fingerprint: Option<String>,
+
+        /// Interactive mode - select from scan results
+        #[arg(short, long, conflicts_with = "fingerprint")]
+        interactive: bool,
+
+        /// Reason for suppression
+        #[arg(short, long)]
+        reason: Option<String>,
+
+        /// Ticket reference (e.g., JIRA-123)
+        #[arg(short, long)]
+        ticket: Option<String>,
+
+        /// Expiration period (e.g., "90d", "30d", "7d")
+        #[arg(short, long)]
+        expires: Option<String>,
+
+        /// Filter by rule ID (for interactive mode)
+        #[arg(long)]
+        rule: Option<String>,
+
+        /// Filter by file path (for interactive mode)
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+
+    /// List suppressions
+    List {
+        /// Filter by rule ID
+        #[arg(short, long)]
+        rule: Option<String>,
+
+        /// Filter by file path
+        #[arg(short, long)]
+        file: Option<PathBuf>,
+
+        /// Include all statuses (not just active)
+        #[arg(short, long)]
+        all: bool,
+
+        /// Limit number of results
+        #[arg(short, long)]
+        limit: Option<usize>,
+    },
+
+    /// Remove a suppression by ID
+    Remove {
+        /// Suppression ID to remove
+        id: String,
+    },
+
+    /// Show suppression details
+    Show {
+        /// Suppression ID to show
+        id: String,
+
+        /// Include audit history
+        #[arg(long)]
+        history: bool,
+    },
+
+    /// Export suppressions to JSON
+    Export {
+        /// Output file path
+        #[arg(short, long, default_value = ".rma/suppressions.json")]
+        output: PathBuf,
+    },
+
+    /// Import suppressions from JSON
+    Import {
+        /// Input file path
+        input: PathBuf,
+    },
+
+    /// Check for stale/expired suppressions
+    Check {
+        /// Prune stale suppressions
+        #[arg(long)]
+        prune: bool,
+    },
+
+    /// Show audit log
+    Log {
+        /// Limit number of entries
+        #[arg(short, long, default_value = "50")]
+        limit: usize,
+    },
 }
 
 /// Cache management subcommands
@@ -668,6 +775,54 @@ fn main() -> Result<()> {
         }),
 
         Commands::Cache { action } => commands::cache::run(action),
+
+        Commands::Suppress { action, path } => {
+            let suppress_action = match action {
+                SuppressAction::Add {
+                    fingerprint,
+                    interactive,
+                    reason,
+                    ticket,
+                    expires,
+                    rule,
+                    file,
+                } => commands::suppress::SuppressAction::Add {
+                    fingerprint,
+                    interactive,
+                    reason,
+                    ticket,
+                    expires,
+                    rule,
+                    file,
+                },
+                SuppressAction::List { rule, file, all, limit } => {
+                    commands::suppress::SuppressAction::List { rule, file, all, limit }
+                }
+                SuppressAction::Remove { id } => {
+                    commands::suppress::SuppressAction::Remove { id }
+                }
+                SuppressAction::Show { id, history } => {
+                    commands::suppress::SuppressAction::Show { id, history }
+                }
+                SuppressAction::Export { output } => {
+                    commands::suppress::SuppressAction::Export { output }
+                }
+                SuppressAction::Import { input } => {
+                    commands::suppress::SuppressAction::Import { input }
+                }
+                SuppressAction::Check { prune } => {
+                    commands::suppress::SuppressAction::Check { prune }
+                }
+                SuppressAction::Log { limit } => {
+                    commands::suppress::SuppressAction::Log { limit }
+                }
+            };
+            commands::suppress::run(commands::suppress::SuppressArgs {
+                action: suppress_action,
+                path,
+                quiet: cli.quiet,
+            })
+        }
     };
 
     // Handle errors with helpful suggestions
