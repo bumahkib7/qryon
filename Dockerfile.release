@@ -1,0 +1,33 @@
+# Optimized Dockerfile using pre-built binaries
+# This reduces Docker build time from 2+ hours to ~2 minutes
+FROM debian:bookworm-slim
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN useradd -m -u 1000 rma
+
+# Copy pre-built binary based on architecture
+ARG TARGETARCH
+COPY binaries/${TARGETARCH}/rma /usr/local/bin/rma
+
+# Set permissions
+RUN chmod +x /usr/local/bin/rma && chown rma:rma /usr/local/bin/rma
+
+# Switch to non-root user
+USER rma
+WORKDIR /workspace
+
+# Default command
+ENTRYPOINT ["rma"]
+CMD ["--help"]
+
+# Labels
+LABEL org.opencontainers.image.title="RMA - Rust Monorepo Analyzer"
+LABEL org.opencontainers.image.description="Ultra-fast code intelligence and security analysis"
+LABEL org.opencontainers.image.source="https://github.com/bumahkib7/rust-monorepo-analyzer"
