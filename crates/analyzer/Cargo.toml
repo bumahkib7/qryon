@@ -5,9 +5,21 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["oxc"]
+oxc = [
+    "dep:oxc_linter",
+    "dep:oxc_diagnostics",
+    "dep:oxc_span",
+    "dep:oxc_allocator",
+    "dep:oxc_parser",
+    "dep:oxc_semantic",
+    "dep:oxc_ast",
+]
+
 [dependencies]
-rma-common = { version = "0.9.0", path = "../common" }
-rma-parser = { version = "0.9.0", path = "../parser" }
+rma-common = { version = "0.10.0", path = "../common" }
+rma-parser = { version = "0.10.0", path = "../parser" }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -24,14 +36,14 @@ walkdir.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 toml = "0.8"
 
-# Native JS/TS linting via oxc
-oxc_linter.workspace = true
-oxc_diagnostics.workspace = true
-oxc_span.workspace = true
-oxc_allocator.workspace = true
-oxc_parser.workspace = true
-oxc_semantic.workspace = true
-oxc_ast.workspace = true
+# Native JS/TS linting via oxc (optional for crates.io publishing)
+oxc_linter = { workspace = true, optional = true }
+oxc_diagnostics = { workspace = true, optional = true }
+oxc_span = { workspace = true, optional = true }
+oxc_allocator = { workspace = true, optional = true }
+oxc_parser = { workspace = true, optional = true }
+oxc_semantic = { workspace = true, optional = true }
+oxc_ast = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

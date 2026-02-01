@@ -162,6 +162,7 @@ impl AnalyzerEngine {
                         );
                     }
                 }
+                #[cfg(feature = "oxc")]
                 ProviderType::Oxc => {
                     let oxc = providers::OxcNativeProvider::new();
                     if oxc.is_available() {
@@ -171,6 +172,10 @@ impl AnalyzerEngine {
                         );
                         self.provider_registry.register(Box::new(oxc));
                     }
+                }
+                #[cfg(not(feature = "oxc"))]
+                ProviderType::Oxc => {
+                    warn!("Oxc provider not available - compiled without oxc feature");
                 }
                 ProviderType::Osv => {
                     let osv = providers::OsvProvider::new(config.osv.clone());

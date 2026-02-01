@@ -151,11 +151,13 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          # Publish in dependency order
           cargo publish -p rma-common --allow-dirty || true
           sleep 15
           cargo publish -p rma-parser --allow-dirty || true
           sleep 15
-          cargo publish -p rma-analyzer --allow-dirty || true
+          # Analyzer without oxc feature (oxc uses git deps not on crates.io)
+          cargo publish -p rma-analyzer --allow-dirty --no-default-features || true
           sleep 15
           cargo publish -p rma-indexer --allow-dirty || true
           sleep 15

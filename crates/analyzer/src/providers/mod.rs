@@ -24,6 +24,7 @@
 
 pub mod gosec;
 pub mod osv;
+#[cfg(feature = "oxc")]
 pub mod oxc_native;
 pub mod oxlint;
 pub mod pmd;
@@ -31,6 +32,7 @@ pub mod rustsec;
 
 pub use gosec::GosecProvider;
 pub use osv::OsvProvider;
+#[cfg(feature = "oxc")]
 pub use oxc_native::OxcNativeProvider;
 pub use oxlint::OxlintProvider;
 pub use pmd::PmdProvider;
