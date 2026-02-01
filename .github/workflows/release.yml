@@ -147,6 +147,26 @@ jobs:
             ~/.cargo/git/db/
           key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Strip oxc deps from analyzer (not on crates.io)
+        run: |
+          # oxc_linter and related crates are NOT published to crates.io
+          # We need to remove them from Cargo.toml for publishing
+          cd crates/analyzer
+          # Remove the oxc feature definition and dependencies
+          sed -i '/^oxc = \[/,/^\]/d' Cargo.toml
+          sed -i '/^default = \["oxc"\]/d' Cargo.toml
+          sed -i '/oxc_linter/d' Cargo.toml
+          sed -i '/oxc_diagnostics/d' Cargo.toml
+          sed -i '/oxc_span/d' Cargo.toml
+          sed -i '/oxc_allocator/d' Cargo.toml
+          sed -i '/oxc_parser/d' Cargo.toml
+          sed -i '/oxc_semantic/d' Cargo.toml
+          sed -i '/oxc_ast/d' Cargo.toml
+          # Remove empty [features] section if it exists
+          sed -i '/^\[features\]$/,/^\[/{/^\[features\]$/d;/^$/d}' Cargo.toml
+          echo "Modified Cargo.toml for publishing:"
+          cat Cargo.toml
+
       - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -156,8 +176,8 @@ jobs:
           sleep 15
           cargo publish -p rma-parser --allow-dirty || true
           sleep 15
-          # Analyzer without oxc feature (oxc uses git deps not on crates.io)
-          cargo publish -p rma-analyzer --allow-dirty --no-default-features || true
+          # Analyzer (oxc deps stripped above)
+          cargo publish -p rma-analyzer --allow-dirty || true
           sleep 15
           cargo publish -p rma-indexer --allow-dirty || true
           sleep 15
