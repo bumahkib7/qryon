@@ -438,7 +438,9 @@ impl Default for ProvidersConfig {
 }
 
 fn default_enabled_providers() -> Vec<ProviderType> {
-    vec![ProviderType::Rma]
+    // Rma: built-in rules for all languages
+    // Oxc: native JS/TS linting (no external binary required)
+    vec![ProviderType::Rma, ProviderType::Oxc]
 }
 
 /// PMD Java provider configuration
@@ -768,6 +770,77 @@ fn default_baseline_file() -> PathBuf {
     PathBuf::from(".rma/baseline.json")
 }
 
+// =============================================================================
+// SUPPRESSION DATABASE CONFIGURATION
+// =============================================================================
+
+/// Configuration for the suppression database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuppressionConfig {
+    /// Path to the suppression database (relative to project root)
+    #[serde(default = "default_suppression_database")]
+    pub database: PathBuf,
+
+    /// Default expiration period for new suppressions (e.g., "90d", "30d", "7d")
+    #[serde(default = "default_expiration")]
+    pub default_expiration: String,
+
+    /// Whether a ticket reference is required for new suppressions
+    #[serde(default)]
+    pub require_ticket: bool,
+
+    /// Maximum expiration period allowed (e.g., "365d")
+    #[serde(default = "default_max_expiration")]
+    pub max_expiration: String,
+
+    /// Whether to enable the database suppression source
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+impl Default for SuppressionConfig {
+    fn default() -> Self {
+        Self {
+            database: default_suppression_database(),
+            default_expiration: default_expiration(),
+            require_ticket: false,
+            max_expiration: default_max_expiration(),
+            enabled: true,
+        }
+    }
+}
+
+fn default_suppression_database() -> PathBuf {
+    PathBuf::from(".rma/suppressions.db")
+}
+
+fn default_expiration() -> String {
+    "90d".to_string()
+}
+
+fn default_max_expiration() -> String {
+    "365d".to_string()
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+/// Parse a duration string (e.g., "90d", "30d", "7d") to days
+pub fn parse_expiration_days(s: &str) -> Option<u32> {
+    let s = s.trim().to_lowercase();
+    if let Some(days_str) = s.strip_suffix('d') {
+        days_str.parse().ok()
+    } else if let Some(weeks_str) = s.strip_suffix('w') {
+        weeks_str.parse::<u32>().ok().map(|w| w * 7)
+    } else if let Some(months_str) = s.strip_suffix('m') {
+        months_str.parse::<u32>().ok().map(|m| m * 30)
+    } else {
+        // Try parsing as plain number (days)
+        s.parse().ok()
+    }
+}
+
 /// Current supported config version
 pub const CURRENT_CONFIG_VERSION: u32 = 1;
 
@@ -813,6 +886,10 @@ pub struct RmaTomlConfig {
     /// Analysis providers configuration
     #[serde(default)]
     pub providers: ProvidersConfig,
+
+    /// Suppression database configuration
+    #[serde(default)]
+    pub suppressions: SuppressionConfig,
 }
 
 /// Result of loading a config file
@@ -1294,10 +1371,11 @@ mode = "all"
 # Providers can be enabled/disabled individually.
 
 [providers]
-# List of enabled providers (default: only "rma" built-in rules)
-enabled = ["rma"]
-# To enable PMD for Java: enabled = ["rma", "pmd"]
-# To enable Oxlint for JS/TS: enabled = ["rma", "oxlint"]
+# List of enabled providers
+# Default: ["rma", "oxc"] - built-in rules + native JS/TS linting
+enabled = ["rma", "oxc"]
+# To add PMD for Java: enabled = ["rma", "oxc", "pmd"]
+# To add external Oxlint: enabled = ["rma", "oxc", "oxlint"]
 
 # -----------------------------------------------------------------------------
 # PMD Provider - Java Static Analysis (optional)
@@ -1941,6 +2019,8 @@ pub enum SuppressionSource {
     Preset,
     /// Suppressed by baseline
     Baseline,
+    /// Suppressed by database entry
+    Database,
 }
 
 impl std::fmt::Display for SuppressionSource {
@@ -1951,6 +2031,7 @@ impl std::fmt::Display for SuppressionSource {
             SuppressionSource::PathRule => write!(f, "path-rule"),
             SuppressionSource::Preset => write!(f, "preset"),
             SuppressionSource::Baseline => write!(f, "baseline"),
+            SuppressionSource::Database => write!(f, "database"),
         }
     }
 }
@@ -1963,6 +2044,7 @@ impl std::fmt::Display for SuppressionSource {
 /// - Inline suppressions (rma-ignore comments)
 /// - Default test/example presets for PR/CI mode
 /// - Baseline filtering
+/// - Database suppressions (when enabled)
 pub struct SuppressionEngine {
     /// Global ignore paths
     global_ignore_paths: Vec<String>,
@@ -1980,6 +2062,8 @@ pub struct SuppressionEngine {
     test_patterns: Vec<regex::Regex>,
     /// Compiled regex patterns for default example paths
     example_patterns: Vec<regex::Regex>,
+    /// Optional suppression store for database-backed suppressions
+    suppression_store: Option<std::sync::Arc<crate::suppression::SuppressionStore>>,
 }
 
 impl SuppressionEngine {
@@ -2027,6 +2111,7 @@ impl SuppressionEngine {
             rule_patterns,
             test_patterns,
             example_patterns,
+            suppression_store: None,
         }
     }
 
@@ -2039,6 +2124,23 @@ impl SuppressionEngine {
     pub fn with_baseline(mut self, baseline: Baseline) -> Self {
         self.baseline = Some(baseline);
         self
+    }
+
+    /// Set the suppression store for database-backed suppressions
+    pub fn with_store(mut self, store: crate::suppression::SuppressionStore) -> Self {
+        self.suppression_store = Some(std::sync::Arc::new(store));
+        self
+    }
+
+    /// Set a shared suppression store reference
+    pub fn with_store_ref(mut self, store: std::sync::Arc<crate::suppression::SuppressionStore>) -> Self {
+        self.suppression_store = Some(store);
+        self
+    }
+
+    /// Get a reference to the suppression store (if available)
+    pub fn store(&self) -> Option<&crate::suppression::SuppressionStore> {
+        self.suppression_store.as_ref().map(|s| s.as_ref())
     }
 
     /// Compile a glob pattern to a regex
@@ -2208,6 +2310,19 @@ impl SuppressionEngine {
             }
         }
 
+        // 6. Check database suppressions (applies to all rules including always-enabled)
+        if let Some(ref store) = self.suppression_store
+            && let Some(fp) = fingerprint
+        {
+            if let Ok(Some(entry)) = store.is_suppressed(fp) {
+                return SuppressionResult::suppressed(
+                    SuppressionSource::Database,
+                    entry.reason.clone(),
+                    format!("database:{}", entry.id),
+                );
+            }
+        }
+
         SuppressionResult::not_suppressed()
     }
 
@@ -2250,6 +2365,18 @@ impl SuppressionEngine {
                     "suppression_source".to_string(),
                     serde_json::json!(source.to_string()),
                 );
+
+                // For database suppressions, extract the suppression_id
+                if *source == SuppressionSource::Database {
+                    if let Some(ref location) = result.location {
+                        if let Some(id) = location.strip_prefix("database:") {
+                            properties.insert(
+                                "suppression_id".to_string(),
+                                serde_json::json!(id),
+                            );
+                        }
+                    }
+                }
             }
             if let Some(ref location) = result.location {
                 properties.insert(
