@@ -121,6 +121,7 @@ impl RustSecProvider {
             confidence: Confidence::High,
             category: FindingCategory::Security,
             fingerprint: None,
+            properties: None,
         }
     }
 

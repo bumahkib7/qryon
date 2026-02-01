@@ -2,6 +2,7 @@
 
 pub mod baseline;
 pub mod bench;
+pub mod cache;
 pub mod config;
 pub mod daemon;
 pub mod doctor;

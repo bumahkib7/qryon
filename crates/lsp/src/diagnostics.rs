@@ -78,6 +78,7 @@ mod tests {
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Security,
             fingerprint: None,
+            properties: None,
         };
 
         let diagnostic = finding_to_diagnostic(&finding);

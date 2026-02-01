@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use rma_analyzer::FileAnalysis;
-use rma_common::Severity;
+use rma_common::{Confidence, FindingCategory, Severity};
 use std::path::PathBuf;
 
 /// Normalize a file path for SARIF output
@@ -17,6 +17,42 @@ fn normalize_sarif_path(path: &std::path::Path) -> String {
     normalized.to_string()
 }
 
+/// Check if a rule_id is an OSV vulnerability finding
+fn is_osv_finding(rule_id: &str) -> bool {
+    rule_id.starts_with("deps/osv/")
+}
+
+/// Extract OSV metadata from finding message for SARIF properties
+fn extract_osv_metadata(message: &str, rule_id: &str) -> Option<serde_json::Value> {
+    // OSV findings have messages like:
+    // "npm lodash is vulnerable: ... (GHSA-xxx). Fixed in version X.Y.Z"
+    // Rule ID format: deps/osv/GHSA-xxx or deps/osv/CVE-xxx
+
+    let osv_id = rule_id.strip_prefix("deps/osv/")?;
+
+    // Try to extract ecosystem and package from message
+    // Format: "<ecosystem> <package> is vulnerable: ..."
+    let parts: Vec<&str> = message.splitn(3, ' ').collect();
+    if parts.len() >= 2 {
+        let ecosystem = parts[0];
+        let package = parts[1];
+
+        return Some(serde_json::json!({
+            "osv": {
+                "id": osv_id,
+                "ecosystem": ecosystem,
+                "package": package
+            }
+        }));
+    }
+
+    Some(serde_json::json!({
+        "osv": {
+            "id": osv_id
+        }
+    }))
+}
+
 /// Output results in SARIF 2.1.0 format
 pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<()> {
     let rules: Vec<_> = results
@@ -26,13 +62,25 @@ pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .map(|rule_id| {
-            serde_json::json!({
+            let mut rule = serde_json::json!({
                 "id": rule_id,
                 "name": rule_id,
                 "shortDescription": {
                     "text": rule_id
                 }
-            })
+            });
+
+            // Add OSV-specific rule properties
+            if is_osv_finding(rule_id)
+                && let Some(osv_id) = rule_id.strip_prefix("deps/osv/")
+            {
+                rule["properties"] = serde_json::json!({
+                    "category": "security/vulnerability",
+                    "osvId": osv_id
+                });
+            }
+
+            rule
         })
         .collect();
 
@@ -91,6 +139,43 @@ pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<
                             }
                         }]);
                     }
+
+                    // Add properties with additional metadata
+                    let mut properties = serde_json::json!({
+                        "confidence": match f.confidence {
+                            Confidence::High => "high",
+                            Confidence::Medium => "medium",
+                            Confidence::Low => "low",
+                        },
+                        "category": match f.category {
+                            FindingCategory::Security => "security",
+                            FindingCategory::Quality => "quality",
+                            FindingCategory::Performance => "performance",
+                            FindingCategory::Style => "style",
+                        }
+                    });
+
+                    // Add fingerprint if available
+                    if let Some(ref fingerprint) = f.fingerprint {
+                        properties["fingerprint"] = serde_json::json!(fingerprint);
+                    }
+
+                    // Add OSV-specific metadata for vulnerability findings
+                    if is_osv_finding(&f.rule_id)
+                        && let Some(osv_meta) = extract_osv_metadata(&f.message, &f.rule_id)
+                        && let Some(osv_obj) = osv_meta.get("osv")
+                    {
+                        properties["osv"] = osv_obj.clone();
+                    }
+
+                    // Add custom properties from finding (reachability, import_hits, etc.)
+                    if let Some(ref finding_props) = f.properties {
+                        for (key, value) in finding_props {
+                            properties[key] = value.clone();
+                        }
+                    }
+
+                    result["properties"] = properties;
                     result
                 }).collect::<Vec<_>>()
             }).collect::<Vec<_>>(),

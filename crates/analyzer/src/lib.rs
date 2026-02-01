@@ -162,6 +162,26 @@ impl AnalyzerEngine {
                         );
                     }
                 }
+                ProviderType::Oxc => {
+                    let oxc = providers::OxcNativeProvider::new();
+                    if oxc.is_available() {
+                        info!(
+                            "Oxc native provider registered (version: {:?})",
+                            oxc.version()
+                        );
+                        self.provider_registry.register(Box::new(oxc));
+                    }
+                }
+                ProviderType::Osv => {
+                    let osv = providers::OsvProvider::new(config.osv.clone());
+                    if osv.is_available() {
+                        info!("OSV provider registered (version: {:?})", osv.version());
+                        self.provider_registry.register(Box::new(osv));
+                    } else {
+                        // This should never happen since OsvProvider is always available
+                        warn!("OSV provider unexpectedly unavailable");
+                    }
+                }
             }
         }
     }

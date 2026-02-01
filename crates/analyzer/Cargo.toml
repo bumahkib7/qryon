@@ -6,8 +6,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-rma-common = { version = "0.7.0", path = "../common" }
-rma-parser = { version = "0.7.0", path = "../parser" }
+rma-common = { version = "0.8.0", path = "../common" }
+rma-parser = { version = "0.8.0", path = "../parser" }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -21,6 +21,8 @@ quick-xml = { version = "0.31", features = ["serialize"] }
 shellexpand = "3"
 rustsec.workspace = true
 walkdir.workspace = true
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+toml = "0.8"
 
 # Native JS/TS linting via oxc
 oxc_linter.workspace = true

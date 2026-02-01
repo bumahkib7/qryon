@@ -336,6 +336,7 @@ mod tests {
             confidence: rma_common::Confidence::High,
             category: rma_common::FindingCategory::Security,
             fingerprint: None,
+            properties: None,
         };
 
         let dto = FindingDto::from(&finding);

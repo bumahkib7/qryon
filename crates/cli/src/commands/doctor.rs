@@ -3,7 +3,11 @@
 use crate::ui::theme::Theme;
 use anyhow::Result;
 use colored::Colorize;
-use rma_common::{Language, RmaConfig};
+use rma_analyzer::providers::{
+    AnalysisProvider, GosecProvider, OsvProvider, OxcNativeProvider, OxlintProvider, PmdProvider,
+    RustSecProvider,
+};
+use rma_common::{GosecProviderConfig, Language, OsvProviderConfig, PmdProviderConfig, RmaConfig};
 use rma_parser::ParserEngine;
 use std::path::Path;
 
@@ -118,7 +122,11 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         println!("      • generic/todo-fixme, generic/long-function");
     }
 
-    // 5. Plugin system
+    // 5. Analysis Providers
+    print_section("Analysis Providers");
+    check_providers(args.verbose);
+
+    // 6. Plugin system
     print_section("Plugin System");
     match check_plugins() {
         Ok((loaded, total)) => {
@@ -138,7 +146,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         }
     }
 
-    // 6. Quick scan test
+    // 7. Quick scan test
     print_section("Scan Test");
     match quick_scan_test() {
         Ok(duration_ms) => {
@@ -232,4 +240,144 @@ fn quick_scan_test() -> Result<u128, String> {
     let _findings = analyzer.analyze_file(&parsed);
 
     Ok(start.elapsed().as_millis())
+}
+
+fn check_providers(verbose: bool) {
+    // RMA native - always available
+    println!(
+        "  {} {} (built-in, always available)",
+        Theme::success_mark(),
+        "rma".green()
+    );
+
+    // Oxc native - native Rust linter using oxc_linter
+    let oxc = OxcNativeProvider::new();
+    if oxc.is_available() {
+        let version = oxc.version().unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "  {} {} v{} (native JS/TS linting, 520+ rules)",
+            Theme::success_mark(),
+            "oxc".green(),
+            version
+        );
+    } else {
+        println!(
+            "  {} {} (not available)",
+            Theme::info_mark(),
+            "oxc".dimmed()
+        );
+    }
+
+    // RustSec - Rust crates, always available
+    let rustsec = RustSecProvider::new();
+    if rustsec.is_available() {
+        let version = rustsec.version().unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "  {} {} v{} (Rust dependency vulnerabilities)",
+            Theme::success_mark(),
+            "rustsec".green(),
+            version
+        );
+    } else {
+        println!(
+            "  {} {} (database unavailable)",
+            Theme::info_mark(),
+            "rustsec".dimmed()
+        );
+    }
+
+    // Oxlint - external binary
+    let oxlint = OxlintProvider::new();
+    if oxlint.is_available() {
+        let version = oxlint.version().unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "  {} {} v{} (external binary)",
+            Theme::success_mark(),
+            "oxlint".green(),
+            version
+        );
+    } else {
+        println!(
+            "  {} {} (not installed - npm i -g oxlint)",
+            Theme::info_mark(),
+            "oxlint".dimmed()
+        );
+    }
+
+    // PMD - external binary
+    let pmd = PmdProvider::new(PmdProviderConfig::default());
+    if pmd.is_available() {
+        let version = pmd.version().unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "  {} {} v{} (Java analysis)",
+            Theme::success_mark(),
+            "pmd".green(),
+            version
+        );
+    } else {
+        println!(
+            "  {} {} (not installed)",
+            Theme::info_mark(),
+            "pmd".dimmed()
+        );
+    }
+
+    // Gosec - external binary
+    let gosec = GosecProvider::new(GosecProviderConfig::default());
+    if gosec.is_available() {
+        let version = gosec.version().unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "  {} {} v{} (Go security analysis)",
+            Theme::success_mark(),
+            "gosec".green(),
+            version
+        );
+    } else {
+        println!(
+            "  {} {} (not installed - go install github.com/securego/gosec/v2/cmd/gosec@latest)",
+            Theme::info_mark(),
+            "gosec".dimmed()
+        );
+    }
+
+    // OSV - multi-language dependency vulnerability scanning
+    let osv_config = OsvProviderConfig::default();
+    let osv = OsvProvider::new(osv_config.clone());
+    if osv.is_available() {
+        let version = osv.version().unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "  {} {} v{} (multi-language dep vulnerabilities)",
+            Theme::success_mark(),
+            "osv".green(),
+            version
+        );
+        if verbose {
+            // Show cache status
+            let cache_dir = super::cache::get_osv_cache_dir();
+            let cache_stats = super::cache::CacheStats::gather(&cache_dir);
+
+            println!("    Ecosystems: crates.io, npm, PyPI, Go, Maven");
+            println!(
+                "    Lockfiles: Cargo.lock, package-lock.json, go.mod, requirements.txt, pom.xml"
+            );
+            println!(
+                "    Cache: {} ({} entries, {})",
+                if cache_stats.exists {
+                    "present"
+                } else {
+                    "not initialized"
+                },
+                cache_stats.entry_count,
+                cache_stats.format_size()
+            );
+            println!("    Cache path: {}", cache_dir.display());
+            println!("    Offline support: yes (use --osv-offline)");
+        }
+    } else {
+        println!(
+            "  {} {} (offline mode or network unavailable)",
+            Theme::info_mark(),
+            "osv".dimmed()
+        );
+    }
 }

@@ -291,6 +291,7 @@ impl PmdProvider {
             confidence,
             category,
             fingerprint: None,
+            properties: None,
         };
 
         finding.compute_fingerprint();
