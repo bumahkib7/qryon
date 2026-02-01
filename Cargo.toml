@@ -105,10 +105,30 @@ comfy-table = "7.1"
 chrono = "0.4"
 dirs = "6.0"
 
+# Dev profile: optimize for fast compile times
+[profile.dev]
+opt-level = 0
+debug = 1                    # Minimal debug info (faster)
+split-debuginfo = "unpacked" # Faster incremental builds
+incremental = true
+
+# Dev dependencies: compile with some optimization for faster tests
+[profile.dev.package."*"]
+opt-level = 1
+
+# CI profile: balance between compile time and runtime
+[profile.ci]
+inherits = "dev"
+opt-level = 1
+debug = 0                    # No debug info in CI
+incremental = false          # More reliable caching
+
+# Release profile: maximum optimization
 [profile.release]
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+strip = true                 # Strip symbols for smaller binary
 
 [profile.bench]
 lto = "thin"

@@ -9,6 +9,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
   fmt:
@@ -31,6 +33,7 @@ jobs:
       - name: Install mold linker
         run: |
           sudo apt-get update && sudo apt-get install -y mold
+          mkdir -p ~/.cargo
           echo '[target.x86_64-unknown-linux-gnu]' >> ~/.cargo/config.toml
           echo 'linker = "clang"' >> ~/.cargo/config.toml
           echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> ~/.cargo/config.toml
@@ -38,48 +41,55 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Cache cargo
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: cargo-clippy-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-clippy-${{ runner.os }}-
+            cargo-registry-${{ runner.os }}-
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
-    name: Test Suite
+    name: Test (${{ matrix.partition }}/3)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - name: Install mold linker
         run: |
           sudo apt-get update && sudo apt-get install -y mold
+          mkdir -p ~/.cargo
           echo '[target.x86_64-unknown-linux-gnu]' >> ~/.cargo/config.toml
           echo 'linker = "clang"' >> ~/.cargo/config.toml
           echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> ~/.cargo/config.toml
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: cargo-test-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-test-${{ runner.os }}-
+            cargo-registry-${{ runner.os }}-
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: Run tests
-        run: cargo nextest run --workspace
+      - name: Run tests (partition ${{ matrix.partition }}/3)
+        run: cargo nextest run --workspace --partition count:${{ matrix.partition }}/3
 
   build:
     name: Build Release
@@ -90,22 +100,24 @@ jobs:
       - name: Install mold linker
         run: |
           sudo apt-get update && sudo apt-get install -y mold
+          mkdir -p ~/.cargo
           echo '[target.x86_64-unknown-linux-gnu]' >> ~/.cargo/config.toml
           echo 'linker = "clang"' >> ~/.cargo/config.toml
           echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> ~/.cargo/config.toml
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: cargo-build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-build-${{ runner.os }}-
+            cargo-registry-${{ runner.os }}-
       - name: Build release
         run: cargo build --release
 
