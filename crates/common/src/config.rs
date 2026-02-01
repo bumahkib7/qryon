@@ -2675,8 +2675,10 @@ function foo() {
 
     #[test]
     fn test_suppression_engine_global_path_ignore() {
-        let mut rules_config = RulesConfig::default();
-        rules_config.ignore_paths = vec!["**/vendor/**".to_string(), "**/generated/**".to_string()];
+        let rules_config = RulesConfig {
+            ignore_paths: vec!["**/vendor/**".to_string(), "**/generated/**".to_string()],
+            ..Default::default()
+        };
 
         let engine = SuppressionEngine::new(&rules_config, false);
 
@@ -2704,11 +2706,13 @@ function foo() {
 
     #[test]
     fn test_suppression_engine_per_rule_path_ignore() {
-        let mut rules_config = RulesConfig::default();
-        rules_config.ignore_paths_by_rule.insert(
-            "generic/long-function".to_string(),
-            vec!["**/tests/**".to_string()],
-        );
+        let rules_config = RulesConfig {
+            ignore_paths_by_rule: HashMap::from([(
+                "generic/long-function".to_string(),
+                vec!["**/tests/**".to_string()],
+            )]),
+            ..Default::default()
+        };
 
         let engine = SuppressionEngine::new(&rules_config, false);
 
