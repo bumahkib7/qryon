@@ -9,8 +9,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
 
 jobs:
   fmt:
@@ -43,6 +41,13 @@ jobs:
           components: clippy
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.6
+        continue-on-error: true
+      - name: Configure sccache
+        run: |
+          if command -v sccache &> /dev/null; then
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          fi
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -76,6 +81,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.6
+        continue-on-error: true
+      - name: Configure sccache
+        run: |
+          if command -v sccache &> /dev/null; then
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          fi
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -108,6 +120,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.6
+        continue-on-error: true
+      - name: Configure sccache
+        run: |
+          if command -v sccache &> /dev/null; then
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          fi
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:

@@ -11,8 +11,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
 
 jobs:
   build:
@@ -49,6 +47,18 @@ jobs:
       - name: Setup sccache
         if: matrix.use_cross != true
         uses: mozilla-actions/sccache-action@v0.0.6
+        continue-on-error: true
+
+      - name: Configure sccache env
+        if: matrix.use_cross != true
+        run: |
+          if command -v sccache &> /dev/null && sccache --version &> /dev/null; then
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          else
+            echo "sccache not available, building without cache"
+          fi
+        shell: bash
 
       - name: Cache cargo registry
         uses: actions/cache@v4
