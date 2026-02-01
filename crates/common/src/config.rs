@@ -2055,9 +2055,9 @@ impl SuppressionEngine {
 
         // Handle patterns that start with .*/ to also match paths that start
         // directly with the pattern (e.g., "tests/foo.rs" matching "**/tests/**")
-        let regex_pattern = if regex_pattern.starts_with(".*/") {
-            // Make the leading .*/ optional: (|.*/) matches empty or .*/
-            format!("(^|.*/){}", &regex_pattern[3..])
+        let regex_pattern = if let Some(rest) = regex_pattern.strip_prefix(".*/") {
+            // Make the leading .*/ optional: (^|.*/) matches start or .*/
+            format!("(^|.*/){}", rest)
         } else if regex_pattern.starts_with(".*") {
             // Pattern starts with ** but no trailing slash, just use as-is
             regex_pattern
@@ -2126,36 +2126,32 @@ impl SuppressionEngine {
             // 2. Check global path ignores
             if Self::matches_patterns(&path_str, &self.global_patterns) {
                 for (i, pattern) in self.global_ignore_paths.iter().enumerate() {
-                    if let Some(re) = self.global_patterns.get(i) {
-                        if re.is_match(&path_str.replace('\\', "/")) {
-                            return SuppressionResult::suppressed(
-                                SuppressionSource::PathGlobal,
-                                format!("Path matches global ignore pattern: {}", pattern),
-                                pattern.clone(),
-                            );
-                        }
+                    if let Some(re) = self.global_patterns.get(i)
+                        && re.is_match(&path_str.replace('\\', "/"))
+                    {
+                        return SuppressionResult::suppressed(
+                            SuppressionSource::PathGlobal,
+                            format!("Path matches global ignore pattern: {}", pattern),
+                            pattern.clone(),
+                        );
                     }
                 }
             }
 
             // 3. Check per-rule path ignores
-            if let Some(patterns) = self.rule_patterns.get(rule_id) {
-                if Self::matches_patterns(&path_str, patterns) {
-                    if let Some(rule_paths) = self.rule_ignore_paths.get(rule_id) {
-                        for (i, pattern) in rule_paths.iter().enumerate() {
-                            if let Some(re) = patterns.get(i) {
-                                if re.is_match(&path_str.replace('\\', "/")) {
-                                    return SuppressionResult::suppressed(
-                                        SuppressionSource::PathRule,
-                                        format!(
-                                            "Path matches rule-specific ignore pattern: {}",
-                                            pattern
-                                        ),
-                                        format!("{}:{}", rule_id, pattern),
-                                    );
-                                }
-                            }
-                        }
+            if let Some(patterns) = self.rule_patterns.get(rule_id)
+                && Self::matches_patterns(&path_str, patterns)
+                && let Some(rule_paths) = self.rule_ignore_paths.get(rule_id)
+            {
+                for (i, pattern) in rule_paths.iter().enumerate() {
+                    if let Some(re) = patterns.get(i)
+                        && re.is_match(&path_str.replace('\\', "/"))
+                    {
+                        return SuppressionResult::suppressed(
+                            SuppressionSource::PathRule,
+                            format!("Path matches rule-specific ignore pattern: {}", pattern),
+                            format!("{}:{}", rule_id, pattern),
+                        );
                     }
                 }
             }
@@ -2164,19 +2160,16 @@ impl SuppressionEngine {
             for (pattern_rule_id, patterns) in &self.rule_patterns {
                 if pattern_rule_id.ends_with("/*") {
                     let prefix = pattern_rule_id.trim_end_matches("/*");
-                    if rule_id.starts_with(prefix) && Self::matches_patterns(&path_str, patterns) {
-                        if let Some(rule_paths) = self.rule_ignore_paths.get(pattern_rule_id) {
-                            if let Some(pattern) = rule_paths.first() {
-                                return SuppressionResult::suppressed(
-                                    SuppressionSource::PathRule,
-                                    format!(
-                                        "Path matches rule-specific ignore pattern: {}",
-                                        pattern
-                                    ),
-                                    format!("{}:{}", pattern_rule_id, pattern),
-                                );
-                            }
-                        }
+                    if rule_id.starts_with(prefix)
+                        && Self::matches_patterns(&path_str, patterns)
+                        && let Some(rule_paths) = self.rule_ignore_paths.get(pattern_rule_id)
+                        && let Some(pattern) = rule_paths.first()
+                    {
+                        return SuppressionResult::suppressed(
+                            SuppressionSource::PathRule,
+                            format!("Path matches rule-specific ignore pattern: {}", pattern),
+                            format!("{}:{}", pattern_rule_id, pattern),
+                        );
                     }
                 }
             }
@@ -2202,16 +2195,16 @@ impl SuppressionEngine {
         }
 
         // 5. Check baseline (applies to all rules including always-enabled)
-        if let Some(ref baseline) = self.baseline {
-            if let Some(fp) = fingerprint {
-                let fingerprint_obj = Fingerprint::from_string(fp.to_string());
-                if baseline.contains_fingerprint(&fingerprint_obj) {
-                    return SuppressionResult::suppressed(
-                        SuppressionSource::Baseline,
-                        "Finding is in baseline".to_string(),
-                        "baseline".to_string(),
-                    );
-                }
+        if let Some(ref baseline) = self.baseline
+            && let Some(fp) = fingerprint
+        {
+            let fingerprint_obj = Fingerprint::from_string(fp.to_string());
+            if baseline.contains_fingerprint(&fingerprint_obj) {
+                return SuppressionResult::suppressed(
+                    SuppressionSource::Baseline,
+                    "Finding is in baseline".to_string(),
+                    "baseline".to_string(),
+                );
             }
         }
 
