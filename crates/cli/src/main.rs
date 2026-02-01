@@ -126,11 +126,26 @@ pub enum Commands {
         #[arg(long, default_value = "origin/main", requires = "changed_only")]
         base: String,
 
-        /// Analysis providers to use (comma-separated: rma,pmd,oxlint,rustsec)
+        /// Analysis providers to use (comma-separated: rma,oxc,pmd,oxlint,rustsec,gosec,osv)
         /// Default: rma (built-in rules only)
-        /// Example: --providers rma,rustsec (enables RustSec for Rust dependency scanning)
+        /// oxc: Rust-native JS/TS linting (no external binary needed)
+        /// osv: Multi-language dependency vulnerability scanning via OSV.dev
+        /// Example: --providers rma,oxc,osv (enables native Oxc + OSV scanning)
         #[arg(long, value_delimiter = ',', default_value = "rma")]
         providers: Vec<String>,
+
+        /// Scan mode preset (local, ci, pr)
+        /// pr mode sets: changed_only=true, baseline_mode=true, format=sarif, severity=warning
+        #[arg(long, value_enum)]
+        mode: Option<ScanMode>,
+
+        /// OSV: Use cache only, no network requests (emit warning if cache miss)
+        #[arg(long)]
+        osv_offline: bool,
+
+        /// OSV: Cache time-to-live (e.g., 1h, 24h, 7d). Default: 24h
+        #[arg(long, default_value = "24h")]
+        osv_cache_ttl: String,
     },
 
     /// Watch for file changes and re-analyze in real-time
@@ -313,6 +328,25 @@ pub enum Commands {
         #[arg(short, long, default_value = "text", value_enum)]
         format: BenchFormat,
     },
+
+    /// Manage RMA cache (OSV vulnerability data, etc.)
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
+}
+
+/// Cache management subcommands
+#[derive(Subcommand)]
+pub enum CacheAction {
+    /// Show cache status (path, size, TTL, entries)
+    Status,
+    /// Clear all cache files
+    Clear {
+        /// Don't ask for confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -420,6 +454,18 @@ pub enum BenchFormat {
     Json,
 }
 
+/// Scan mode presets for common workflows
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Default)]
+pub enum ScanMode {
+    /// Local development (default settings)
+    #[default]
+    Local,
+    /// CI pipeline (optimized for automated builds)
+    Ci,
+    /// Pull request review (changed files only, SARIF output, baseline mode)
+    Pr,
+}
+
 impl From<SeverityArg> for rma_common::Severity {
     fn from(arg: SeverityArg) -> Self {
         match arg {
@@ -483,6 +529,9 @@ fn main() -> Result<()> {
             changed_only,
             base,
             providers,
+            mode,
+            osv_offline,
+            osv_cache_ttl,
         } => commands::scan::run(commands::scan::ScanArgs {
             path,
             format,
@@ -504,6 +553,9 @@ fn main() -> Result<()> {
             changed_only,
             base,
             providers,
+            mode,
+            osv_offline,
+            osv_cache_ttl,
         }),
 
         Commands::Watch {
@@ -614,6 +666,8 @@ fn main() -> Result<()> {
             exclude,
             format,
         }),
+
+        Commands::Cache { action } => commands::cache::run(action),
     };
 
     // Handle errors with helpful suggestions

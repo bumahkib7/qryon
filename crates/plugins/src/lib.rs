@@ -128,6 +128,7 @@ impl From<PluginFinding> for Finding {
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Quality,
             fingerprint: None,
+            properties: None,
         };
         finding.compute_fingerprint();
         finding

@@ -7,11 +7,13 @@ pub mod config;
 
 pub use config::{
     AllowConfig, AllowType, Baseline, BaselineConfig, BaselineEntry, BaselineMode,
-    CURRENT_CONFIG_VERSION, ConfigLoadResult, ConfigSource, ConfigWarning, EffectiveConfig,
-    Fingerprint, GosecProviderConfig, InlineSuppression, OxlintProviderConfig, PmdProviderConfig,
-    Profile, ProfileThresholds, ProfilesConfig, ProviderType, ProvidersConfig, RmaTomlConfig,
-    RulesConfig, RulesetsConfig, ScanConfig, SuppressionType, ThresholdOverride, WarningLevel,
-    parse_inline_suppressions,
+    CURRENT_CONFIG_VERSION, ConfigLoadResult, ConfigSource, ConfigWarning,
+    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS, EffectiveConfig, Fingerprint,
+    GosecProviderConfig, InlineSuppression, OsvEcosystem, OsvProviderConfig, OxcProviderConfig,
+    OxlintProviderConfig, PmdProviderConfig, Profile, ProfileThresholds, ProfilesConfig,
+    ProviderType, ProvidersConfig, RULES_ALWAYS_ENABLED, RmaTomlConfig, RulesConfig,
+    RulesetsConfig, ScanConfig, SuppressionEngine, SuppressionResult, SuppressionSource,
+    SuppressionType, ThresholdOverride, WarningLevel, parse_inline_suppressions,
 };
 
 use serde::{Deserialize, Serialize};
@@ -229,6 +231,9 @@ pub struct Finding {
     /// Stable fingerprint for baseline comparison (sha256 hash)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,
+    /// Additional properties (e.g., import_hits, import_files_sample for OSV findings)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub properties: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 impl Finding {

@@ -41,6 +41,7 @@ pub fn create_finding_at_line(
         confidence: Confidence::Medium,
         category: infer_category(rule_id),
         fingerprint: None,
+        properties: None,
     };
     finding.compute_fingerprint();
     finding
@@ -87,6 +88,7 @@ pub fn create_finding(
         confidence: Confidence::Medium,
         category: infer_category(rule_id),
         fingerprint: None,
+        properties: None,
     };
     finding.compute_fingerprint();
     finding

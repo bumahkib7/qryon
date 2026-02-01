@@ -1,14 +1,14 @@
 //! Scan command implementation
 
-use crate::OutputFormat;
 use crate::output;
 use crate::ui::{progress, theme::Theme};
+use crate::{OutputFormat, ScanMode};
 use anyhow::Result;
 use colored::Colorize;
 use rma_analyzer::AnalyzerEngine;
 use rma_common::{
     Baseline, BaselineMode, Language, Profile, ProviderType, ProvidersConfig, RmaConfig,
-    RmaTomlConfig, Severity,
+    RmaTomlConfig, Severity, SuppressionEngine, parse_inline_suppressions,
 };
 use rma_indexer::{IndexConfig, IndexerEngine};
 use rma_parser::ParserEngine;
@@ -38,11 +38,34 @@ pub struct ScanArgs {
     pub base: String,
     /// Comma-separated list of providers to use (rma,pmd,oxlint)
     pub providers: Vec<String>,
+    /// Scan mode preset (local, ci, pr)
+    pub mode: Option<ScanMode>,
+    /// OSV offline mode
+    pub osv_offline: bool,
+    /// OSV cache TTL
+    pub osv_cache_ttl: String,
+}
+
+/// Effective scan settings after applying mode defaults
+struct EffectiveScanSettings {
+    format: OutputFormat,
+    #[allow(dead_code)] // Reserved for future use
+    severity: Severity,
+    changed_only: bool,
+    baseline_mode: bool,
+    timing: bool,
+    /// Whether to apply default test/example suppression presets
+    use_default_presets: bool,
+    /// Whether to include suppressed findings in output
+    include_suppressed: bool,
 }
 
 pub fn run(args: ScanArgs) -> Result<()> {
     let total_start = Instant::now();
     let mut timings: Vec<(&str, Duration)> = Vec::new();
+
+    // Apply mode defaults (pr mode sets specific defaults unless explicitly overridden)
+    let effective = apply_mode_defaults(&args);
 
     // Discover TOML configuration
     let toml_config = RmaTomlConfig::discover(&args.path);
@@ -55,9 +78,14 @@ pub fn run(args: ScanArgs) -> Result<()> {
         .or_else(|| toml_config.as_ref().map(|(_, c)| c.profiles.default))
         .unwrap_or(Profile::Balanced);
 
-    // Print header
-    if !args.quiet && args.format == OutputFormat::Text {
-        print_scan_header(&args, toml_config.as_ref().map(|(_, c)| c), profile);
+    // Print header (only for text format)
+    if !args.quiet && effective.format == OutputFormat::Text {
+        print_scan_header(
+            &args,
+            toml_config.as_ref().map(|(_, c)| c),
+            profile,
+            &effective,
+        );
     }
 
     // Build configuration
@@ -65,14 +93,14 @@ pub fn run(args: ScanArgs) -> Result<()> {
 
     // Phase 1: Parse files
     let parse_start = Instant::now();
-    let (mut parsed_files, _parse_stats) = run_parse_phase(&args, &config)?;
+    let (mut parsed_files, _parse_stats) = run_parse_phase(&args, &effective, &config)?;
     timings.push(("Parse", parse_start.elapsed()));
 
     // Phase 1.5: Filter to changed files only (for PR workflows)
-    if args.changed_only {
+    if effective.changed_only {
         let changed_files = get_changed_files(&args.path, &args.base)?;
 
-        if !args.quiet && args.format == OutputFormat::Text {
+        if !args.quiet && effective.format == OutputFormat::Text {
             println!(
                 "  {} {} files changed since {}",
                 Theme::info_mark(),
@@ -89,7 +117,10 @@ pub fn run(args: ScanArgs) -> Result<()> {
             })
         });
 
-        if !args.quiet && args.format == OutputFormat::Text && before_count != parsed_files.len() {
+        if !args.quiet
+            && effective.format == OutputFormat::Text
+            && before_count != parsed_files.len()
+        {
             println!(
                 "  {} Scanning {} of {} files",
                 Theme::info_mark(),
@@ -103,20 +134,40 @@ pub fn run(args: ScanArgs) -> Result<()> {
     let analyze_start = Instant::now();
     let (mut results, mut summary) = run_analyze_phase(
         &args,
+        &effective,
         &config,
         &parsed_files,
         toml_config.as_ref().map(|(_, c)| c),
     )?;
     timings.push(("Analyze", analyze_start.elapsed()));
 
-    // Phase 2.5: Apply baseline filtering if enabled
-    let baseline_mode = args.baseline_mode
+    // Phase 2.5: Apply suppression filtering
+    let suppression_start = Instant::now();
+    let suppressed_count = apply_suppressions(
+        &args,
+        &effective,
+        &mut results,
+        &mut summary,
+        toml_config.as_ref().map(|(_, c)| c),
+    );
+    timings.push(("Suppressions", suppression_start.elapsed()));
+
+    if !args.quiet && effective.format == OutputFormat::Text && suppressed_count > 0 {
+        println!(
+            "  {} Suppressed {} findings (use --include-suppressed to show)",
+            Theme::info_mark(),
+            suppressed_count.to_string().dimmed()
+        );
+    }
+
+    // Phase 2.6: Apply baseline filtering if enabled
+    let baseline_active = effective.baseline_mode
         || toml_config
             .as_ref()
             .map(|(_, c)| c.baseline.mode == BaselineMode::NewOnly)
             .unwrap_or(false);
 
-    if baseline_mode {
+    if baseline_active {
         let baseline_path = toml_config
             .as_ref()
             .map(|(_, c)| c.baseline.file.clone())
@@ -128,7 +179,7 @@ pub fn run(args: ScanArgs) -> Result<()> {
             let before_count = summary.total_findings;
             filter_baseline_findings(&mut results, &mut summary, &baseline);
 
-            if !args.quiet && args.format == OutputFormat::Text {
+            if !args.quiet && effective.format == OutputFormat::Text {
                 let filtered = before_count - summary.total_findings;
                 if filtered > 0 {
                     println!(
@@ -156,12 +207,18 @@ pub fn run(args: ScanArgs) -> Result<()> {
     let total_duration = total_start.elapsed();
 
     // Print timing information
-    if args.timing && !args.quiet {
+    if effective.timing && !args.quiet {
         print_timings(&timings, total_duration);
     }
 
     // Output results
-    output::format_results(&results, &summary, total_duration, args.format, args.output)?;
+    output::format_results(
+        &results,
+        &summary,
+        total_duration,
+        effective.format,
+        args.output.clone(),
+    )?;
 
     // Exit with error code if critical/error findings
     if summary.critical_count > 0 || summary.error_count > 0 {
@@ -171,7 +228,59 @@ pub fn run(args: ScanArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_scan_header(args: &ScanArgs, toml_config: Option<&RmaTomlConfig>, profile: Profile) {
+/// Apply mode defaults - pr mode sets specific defaults unless explicitly overridden
+fn apply_mode_defaults(args: &ScanArgs) -> EffectiveScanSettings {
+    match args.mode {
+        Some(ScanMode::Pr) => {
+            // PR mode defaults: changed_only=true, baseline_mode=true, format=sarif, severity=warning, timing=false
+            // Also enables default test/example suppressions
+            EffectiveScanSettings {
+                format: if args.format != OutputFormat::Text {
+                    args.format // User explicitly set format
+                } else {
+                    OutputFormat::Sarif // Default for PR mode
+                },
+                severity: args.severity, // Keep user's choice (already defaults to warning)
+                changed_only: true,      // Always true for PR mode
+                baseline_mode: true,     // Always true for PR mode
+                timing: false,           // Disabled for PR mode (cleaner output)
+                use_default_presets: true, // Enable test/example suppressions
+                include_suppressed: args.include_suppressed,
+            }
+        }
+        Some(ScanMode::Ci) => {
+            // CI mode: optimize for automation, enable default suppressions
+            EffectiveScanSettings {
+                format: args.format,
+                severity: args.severity,
+                changed_only: args.changed_only,
+                baseline_mode: args.baseline_mode,
+                timing: false,             // Disabled for cleaner CI output
+                use_default_presets: true, // Enable test/example suppressions
+                include_suppressed: args.include_suppressed,
+            }
+        }
+        Some(ScanMode::Local) | None => {
+            // Local mode: use all explicit settings, no default presets
+            EffectiveScanSettings {
+                format: args.format,
+                severity: args.severity,
+                changed_only: args.changed_only,
+                baseline_mode: args.baseline_mode,
+                timing: args.timing,
+                use_default_presets: false, // No default suppressions in local mode
+                include_suppressed: args.include_suppressed,
+            }
+        }
+    }
+}
+
+fn print_scan_header(
+    args: &ScanArgs,
+    toml_config: Option<&RmaTomlConfig>,
+    profile: Profile,
+    effective: &EffectiveScanSettings,
+) {
     println!();
     println!("{}", "🔍 RMA - Rust Monorepo Analyzer".cyan().bold());
     println!("{}", Theme::separator(50));
@@ -182,6 +291,16 @@ fn print_scan_header(args: &ScanArgs, toml_config: Option<&RmaTomlConfig>, profi
     );
 
     println!("  {} {}", "Profile:".dimmed(), profile.to_string().cyan());
+
+    // Show scan mode if set
+    if let Some(mode) = args.mode {
+        let mode_str = match mode {
+            ScanMode::Local => "local",
+            ScanMode::Ci => "ci",
+            ScanMode::Pr => "pr",
+        };
+        println!("  {} {}", "Scan Mode:".dimmed(), mode_str.cyan());
+    }
 
     if toml_config.is_some() {
         println!("  {} {}", "Config:".dimmed(), "rma.toml".green());
@@ -212,11 +331,11 @@ fn print_scan_header(args: &ScanArgs, toml_config: Option<&RmaTomlConfig>, profi
         println!("  {} {}", "Mode:".dimmed(), "incremental".yellow());
     }
 
-    if args.baseline_mode {
+    if effective.baseline_mode {
         println!("  {} {}", "Baseline:".dimmed(), "new-only".yellow());
     }
 
-    if args.changed_only {
+    if effective.changed_only {
         println!(
             "  {} {} (base: {})",
             "Mode:".dimmed(),
@@ -232,6 +351,20 @@ fn print_scan_header(args: &ScanArgs, toml_config: Option<&RmaTomlConfig>, profi
             "Providers:".dimmed(),
             args.providers.join(", ").cyan()
         );
+    }
+
+    // Show OSV options if OSV is enabled
+    if args.providers.iter().any(|p| p == "osv") {
+        if args.osv_offline {
+            println!("  {} {}", "OSV:".dimmed(), "offline mode".yellow());
+        }
+        if args.osv_cache_ttl != "24h" {
+            println!(
+                "  {} cache TTL: {}",
+                "OSV:".dimmed(),
+                args.osv_cache_ttl.cyan()
+            );
+        }
     }
 
     println!();
@@ -293,6 +426,8 @@ fn parse_language(s: &str) -> Option<Language> {
 fn build_providers_config(
     providers: &[String],
     toml_config: Option<&RmaTomlConfig>,
+    osv_offline: bool,
+    osv_cache_ttl: &str,
 ) -> ProvidersConfig {
     // Start with TOML config or defaults
     let mut config = toml_config.map(|c| c.providers.clone()).unwrap_or_default();
@@ -304,8 +439,11 @@ fn build_providers_config(
             .filter_map(|p| match p.trim().to_lowercase().as_str() {
                 "rma" => Some(ProviderType::Rma),
                 "pmd" => Some(ProviderType::Pmd),
-                "oxlint" | "oxc" => Some(ProviderType::Oxlint),
+                "oxlint" => Some(ProviderType::Oxlint),
+                "oxc" => Some(ProviderType::Oxc),
                 "rustsec" => Some(ProviderType::RustSec),
+                "gosec" => Some(ProviderType::Gosec),
+                "osv" => Some(ProviderType::Osv),
                 _ => None,
             })
             .collect();
@@ -316,14 +454,23 @@ fn build_providers_config(
         config.enabled.insert(0, ProviderType::Rma);
     }
 
+    // Apply OSV CLI options
+    if osv_offline {
+        config.osv.offline = true;
+    }
+    if osv_cache_ttl != "24h" {
+        config.osv.cache_ttl = osv_cache_ttl.to_string();
+    }
+
     config
 }
 
 fn run_parse_phase(
     args: &ScanArgs,
+    effective: &EffectiveScanSettings,
     config: &RmaConfig,
 ) -> Result<(Vec<rma_parser::ParsedFile>, rma_parser::ParseStats)> {
-    let spinner = if !args.quiet && args.format == OutputFormat::Text {
+    let spinner = if !args.quiet && effective.format == OutputFormat::Text {
         let s = progress::create_spinner("Parsing files...");
         Some(s)
     } else {
@@ -347,6 +494,7 @@ fn run_parse_phase(
 
 fn run_analyze_phase(
     args: &ScanArgs,
+    effective: &EffectiveScanSettings,
     config: &RmaConfig,
     parsed_files: &[rma_parser::ParsedFile],
     toml_config: Option<&RmaTomlConfig>,
@@ -354,7 +502,7 @@ fn run_analyze_phase(
     Vec<rma_analyzer::FileAnalysis>,
     rma_analyzer::AnalysisSummary,
 )> {
-    let spinner = if !args.quiet && args.format == OutputFormat::Text {
+    let spinner = if !args.quiet && effective.format == OutputFormat::Text {
         let s = progress::create_spinner("Analyzing code...");
         Some(s)
     } else {
@@ -362,7 +510,12 @@ fn run_analyze_phase(
     };
 
     // Build providers config from CLI args and TOML config
-    let providers_config = build_providers_config(&args.providers, toml_config);
+    let providers_config = build_providers_config(
+        &args.providers,
+        toml_config,
+        args.osv_offline,
+        &args.osv_cache_ttl,
+    );
 
     let analyzer = AnalyzerEngine::with_providers(config.clone(), providers_config);
 
@@ -456,6 +609,105 @@ fn print_timings(timings: &[(&str, Duration)], total: Duration) {
         total.as_secs_f64() * 1000.0
     );
     println!();
+}
+
+/// Apply suppression rules to findings
+/// Returns the count of suppressed findings
+fn apply_suppressions(
+    _args: &ScanArgs,
+    effective: &EffectiveScanSettings,
+    results: &mut [rma_analyzer::FileAnalysis],
+    summary: &mut rma_analyzer::AnalysisSummary,
+    toml_config: Option<&RmaTomlConfig>,
+) -> usize {
+    // Build suppression engine from config
+    let rules_config = toml_config.map(|c| c.rules.clone()).unwrap_or_default();
+    let engine = SuppressionEngine::new(&rules_config, effective.use_default_presets);
+
+    let mut suppressed_count = 0;
+    let mut file_contents_cache: std::collections::HashMap<PathBuf, String> =
+        std::collections::HashMap::new();
+
+    for result in results.iter_mut() {
+        let file_path = PathBuf::from(&result.path);
+
+        // Get or cache file contents for inline suppression parsing
+        let inline_suppressions = if !file_contents_cache.contains_key(&file_path) {
+            // Try to read file contents
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                let suppressions = parse_inline_suppressions(&content);
+                file_contents_cache.insert(file_path.clone(), content);
+                suppressions
+            } else {
+                Vec::new()
+            }
+        } else {
+            // Parse from cached content
+            file_contents_cache
+                .get(&file_path)
+                .map(|c| parse_inline_suppressions(c))
+                .unwrap_or_default()
+        };
+
+        for finding in &mut result.findings {
+            let finding_line = finding.location.start_line;
+            let fingerprint = finding.fingerprint.as_deref();
+
+            let suppression_result = engine.check(
+                &finding.rule_id,
+                &file_path,
+                finding_line,
+                &inline_suppressions,
+                fingerprint,
+            );
+
+            if suppression_result.suppressed {
+                // Add suppression metadata to finding properties
+                let properties = finding
+                    .properties
+                    .get_or_insert_with(std::collections::HashMap::new);
+                SuppressionEngine::add_suppression_metadata(properties, &suppression_result);
+                suppressed_count += 1;
+            }
+        }
+    }
+
+    // If not including suppressed findings, filter them out
+    if !effective.include_suppressed {
+        for result in results.iter_mut() {
+            result.findings.retain(|f| {
+                if let Some(ref props) = f.properties {
+                    !props
+                        .get("suppressed")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                } else {
+                    true
+                }
+            });
+        }
+
+        // Recalculate summary
+        summary.total_findings = 0;
+        summary.critical_count = 0;
+        summary.error_count = 0;
+        summary.warning_count = 0;
+        summary.info_count = 0;
+
+        for result in results.iter() {
+            for finding in &result.findings {
+                summary.total_findings += 1;
+                match finding.severity {
+                    Severity::Critical => summary.critical_count += 1,
+                    Severity::Error => summary.error_count += 1,
+                    Severity::Warning => summary.warning_count += 1,
+                    Severity::Info => summary.info_count += 1,
+                }
+            }
+        }
+    }
+
+    suppressed_count
 }
 
 fn filter_baseline_findings(
@@ -576,4 +828,127 @@ fn get_changed_files(repo_path: &PathBuf, base_ref: &str) -> Result<Vec<String>>
     files.dedup();
 
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_args() -> ScanArgs {
+        ScanArgs {
+            path: PathBuf::from("."),
+            format: OutputFormat::Text,
+            output: None,
+            severity: Severity::Warning,
+            profile: None,
+            ruleset: None,
+            incremental: false,
+            jobs: 0,
+            languages: None,
+            ai_analysis: false,
+            ai_provider: "claude".to_string(),
+            timing: false,
+            exclude: None,
+            config_path: None,
+            quiet: false,
+            baseline_mode: false,
+            include_suppressed: false,
+            changed_only: false,
+            base: "origin/main".to_string(),
+            providers: vec!["rma".to_string()],
+            mode: None,
+            osv_offline: false,
+            osv_cache_ttl: "24h".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_mode_local_uses_explicit_settings() {
+        let args = ScanArgs {
+            mode: Some(ScanMode::Local),
+            format: OutputFormat::Json,
+            changed_only: true,
+            baseline_mode: true,
+            timing: true,
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        assert_eq!(effective.format, OutputFormat::Json);
+        assert!(effective.changed_only);
+        assert!(effective.baseline_mode);
+        assert!(effective.timing);
+        assert!(!effective.use_default_presets); // Local mode doesn't use presets
+    }
+
+    #[test]
+    fn test_mode_pr_applies_defaults() {
+        let args = ScanArgs {
+            mode: Some(ScanMode::Pr),
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        // PR mode defaults
+        assert_eq!(effective.format, OutputFormat::Sarif);
+        assert!(effective.changed_only);
+        assert!(effective.baseline_mode);
+        assert!(!effective.timing);
+        assert!(effective.use_default_presets); // PR mode enables presets
+    }
+
+    #[test]
+    fn test_mode_pr_respects_explicit_format() {
+        let args = ScanArgs {
+            mode: Some(ScanMode::Pr),
+            format: OutputFormat::Json, // User explicitly set JSON
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        // User's explicit format is respected
+        assert_eq!(effective.format, OutputFormat::Json);
+        // But other PR defaults still apply
+        assert!(effective.changed_only);
+        assert!(effective.baseline_mode);
+        assert!(effective.use_default_presets);
+    }
+
+    #[test]
+    fn test_mode_ci_disables_timing() {
+        let args = ScanArgs {
+            mode: Some(ScanMode::Ci),
+            timing: true, // User wants timing but CI mode overrides
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        // CI mode disables timing for cleaner output
+        assert!(!effective.timing);
+        // CI mode enables default presets
+        assert!(effective.use_default_presets);
+    }
+
+    #[test]
+    fn test_no_mode_uses_all_explicit_settings() {
+        let args = ScanArgs {
+            mode: None,
+            format: OutputFormat::Compact,
+            changed_only: true,
+            baseline_mode: true,
+            timing: true,
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        assert_eq!(effective.format, OutputFormat::Compact);
+        assert!(effective.changed_only);
+        assert!(effective.baseline_mode);
+        assert!(effective.timing);
+    }
 }

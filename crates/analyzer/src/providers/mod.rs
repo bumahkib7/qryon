@@ -15,6 +15,7 @@
 //! ## Native Rust (preferred - no external dependencies)
 //! - `oxc_native` - Native oxc_linter integration (520+ JS/TS rules)
 //! - `rustsec` - RustSec Advisory Database for Rust dependencies
+//! - `osv` - OSV.dev multi-language dependency vulnerability scanning
 //!
 //! ## External CLI (fallback - requires installation)
 //! - `oxlint` - oxlint CLI for JS/TS (if native not suitable)
@@ -22,12 +23,14 @@
 //! - `gosec` - Go Security Checker for Go security analysis
 
 pub mod gosec;
+pub mod osv;
 pub mod oxc_native;
 pub mod oxlint;
 pub mod pmd;
 pub mod rustsec;
 
 pub use gosec::GosecProvider;
+pub use osv::OsvProvider;
 pub use oxc_native::OxcNativeProvider;
 pub use oxlint::OxlintProvider;
 pub use pmd::PmdProvider;

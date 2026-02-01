@@ -93,7 +93,68 @@ pub struct RulesConfig {
     /// Rules to disable (takes precedence over enable)
     #[serde(default)]
     pub disable: Vec<String>,
+
+    /// Global ignore paths - findings in these paths are suppressed for all rules
+    /// Supports glob patterns (e.g., "**/tests/**", "**/examples/**")
+    #[serde(default)]
+    pub ignore_paths: Vec<String>,
+
+    /// Per-rule ignore paths - findings for specific rules in these paths are suppressed
+    /// Maps rule_id or pattern to a list of glob patterns
+    /// e.g., "generic/long-function" -> ["**/tests/**", "**/examples/**"]
+    #[serde(default)]
+    pub ignore_paths_by_rule: HashMap<String, Vec<String>>,
 }
+
+/// Default ignore path presets for common test/example directories
+/// Used automatically in --mode pr and --mode ci unless overridden
+pub const DEFAULT_TEST_IGNORE_PATHS: &[&str] = &[
+    "**/test/**",
+    "**/tests/**",
+    "**/testing/**",
+    "**/__tests__/**",
+    "**/__test__/**",
+    "**/*.test.ts",
+    "**/*.test.js",
+    "**/*.test.tsx",
+    "**/*.test.jsx",
+    "**/*.spec.ts",
+    "**/*.spec.js",
+    "**/*.spec.tsx",
+    "**/*.spec.jsx",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/tests_*.py",
+    "**/*_test.go",
+    "**/*_test.rs",
+];
+
+/// Default ignore paths for examples/fixtures (less strict rules)
+pub const DEFAULT_EXAMPLE_IGNORE_PATHS: &[&str] = &[
+    "**/examples/**",
+    "**/example/**",
+    "**/fixtures/**",
+    "**/fixture/**",
+    "**/testdata/**",
+    "**/test_data/**",
+    "**/demo/**",
+    "**/demos/**",
+    "**/mocks/**",
+    "**/mock/**",
+    "**/__mocks__/**",
+    "**/stubs/**",
+];
+
+/// Rules that should NOT be suppressed in test/example paths
+/// Security rules should still fire in tests to catch issues
+pub const RULES_ALWAYS_ENABLED: &[&str] = &[
+    "rust/command-injection",
+    "python/shell-injection",
+    "go/command-injection",
+    "java/command-execution",
+    "js/dynamic-code-execution",
+    "generic/hardcoded-secret",
+];
 
 /// Ruleset configuration - named groups of rules
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -289,12 +350,16 @@ pub enum ProviderType {
     Rma,
     /// PMD for Java analysis (optional)
     Pmd,
-    /// Oxlint for JavaScript/TypeScript (optional)
+    /// Oxlint for JavaScript/TypeScript via external binary (optional)
     Oxlint,
+    /// Native Oxc for JavaScript/TypeScript via Rust crates (optional)
+    Oxc,
     /// RustSec for Rust dependency vulnerabilities (optional)
     RustSec,
     /// Gosec for Go security analysis (optional)
     Gosec,
+    /// OSV for multi-language dependency vulnerability scanning (optional)
+    Osv,
 }
 
 impl std::fmt::Display for ProviderType {
@@ -303,8 +368,10 @@ impl std::fmt::Display for ProviderType {
             ProviderType::Rma => write!(f, "rma"),
             ProviderType::Pmd => write!(f, "pmd"),
             ProviderType::Oxlint => write!(f, "oxlint"),
+            ProviderType::Oxc => write!(f, "oxc"),
             ProviderType::RustSec => write!(f, "rustsec"),
             ProviderType::Gosec => write!(f, "gosec"),
+            ProviderType::Osv => write!(f, "osv"),
         }
     }
 }
@@ -317,10 +384,12 @@ impl std::str::FromStr for ProviderType {
             "rma" => Ok(ProviderType::Rma),
             "pmd" => Ok(ProviderType::Pmd),
             "oxlint" => Ok(ProviderType::Oxlint),
+            "oxc" => Ok(ProviderType::Oxc),
             "rustsec" => Ok(ProviderType::RustSec),
             "gosec" => Ok(ProviderType::Gosec),
+            "osv" => Ok(ProviderType::Osv),
             _ => Err(format!(
-                "Unknown provider: {}. Available: rma, pmd, oxlint, gosec",
+                "Unknown provider: {}. Available: rma, pmd, oxlint, oxc, rustsec, gosec, osv",
                 s
             )),
         }
@@ -338,13 +407,21 @@ pub struct ProvidersConfig {
     #[serde(default)]
     pub pmd: PmdProviderConfig,
 
-    /// Oxlint provider configuration
+    /// Oxlint provider configuration (external binary)
     #[serde(default)]
     pub oxlint: OxlintProviderConfig,
+
+    /// Native Oxc provider configuration (Rust crates)
+    #[serde(default)]
+    pub oxc: OxcProviderConfig,
 
     /// Gosec provider configuration
     #[serde(default)]
     pub gosec: GosecProviderConfig,
+
+    /// OSV provider configuration (multi-language dependency vulnerabilities)
+    #[serde(default)]
+    pub osv: OsvProviderConfig,
 }
 
 impl Default for ProvidersConfig {
@@ -353,7 +430,9 @@ impl Default for ProvidersConfig {
             enabled: default_enabled_providers(),
             pmd: PmdProviderConfig::default(),
             oxlint: OxlintProviderConfig::default(),
+            oxc: OxcProviderConfig::default(),
             gosec: GosecProviderConfig::default(),
+            osv: OsvProviderConfig::default(),
         }
     }
 }
@@ -554,6 +633,123 @@ impl Default for GosecProviderConfig {
 
 fn default_gosec_timeout() -> u64 {
     300_000 // 5 minutes
+}
+
+/// Native Oxc provider configuration (Rust-native JS/TS linting)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OxcProviderConfig {
+    /// Whether Oxc provider is configured
+    #[serde(default)]
+    pub configured: bool,
+
+    /// Rules to enable (empty = all rules)
+    #[serde(default)]
+    pub enable_rules: Vec<String>,
+
+    /// Rules to disable
+    #[serde(default)]
+    pub disable_rules: Vec<String>,
+
+    /// Severity overrides per rule ID (e.g., "js/oxc/no-debugger" -> "info")
+    #[serde(default)]
+    pub severity_overrides: HashMap<String, Severity>,
+}
+
+/// OSV ecosystem identifiers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OsvEcosystem {
+    /// crates.io (Rust)
+    #[serde(rename = "crates.io")]
+    CratesIo,
+    /// npm (JavaScript/TypeScript)
+    Npm,
+    /// PyPI (Python)
+    PyPI,
+    /// Go modules
+    Go,
+    /// Maven (Java)
+    Maven,
+}
+
+impl std::fmt::Display for OsvEcosystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OsvEcosystem::CratesIo => write!(f, "crates.io"),
+            OsvEcosystem::Npm => write!(f, "npm"),
+            OsvEcosystem::PyPI => write!(f, "PyPI"),
+            OsvEcosystem::Go => write!(f, "Go"),
+            OsvEcosystem::Maven => write!(f, "Maven"),
+        }
+    }
+}
+
+/// OSV provider configuration (multi-language dependency vulnerability scanning)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsvProviderConfig {
+    /// Whether OSV provider is configured
+    #[serde(default)]
+    pub configured: bool,
+
+    /// Include dev dependencies in scan (default: false)
+    #[serde(default)]
+    pub include_dev_deps: bool,
+
+    /// Cache TTL as duration string (default: "24h")
+    /// Supported formats: "1h", "30m", "24h", "7d"
+    #[serde(default = "default_osv_cache_ttl")]
+    pub cache_ttl: String,
+
+    /// Enabled ecosystems (default: all)
+    #[serde(default = "default_osv_ecosystems")]
+    pub enabled_ecosystems: Vec<OsvEcosystem>,
+
+    /// Severity overrides by OSV ID or CVE ID
+    /// e.g., "GHSA-xxx" -> "warning", "CVE-2024-xxx" -> "info"
+    #[serde(default)]
+    pub severity_overrides: HashMap<String, Severity>,
+
+    /// Allowlist/ignore list by OSV ID or CVE ID
+    /// Vulnerabilities in this list will not be reported
+    #[serde(default)]
+    pub ignore_list: Vec<String>,
+
+    /// Offline mode - use cache only, no network requests
+    #[serde(default)]
+    pub offline: bool,
+
+    /// Custom cache directory (default: .rma/cache)
+    #[serde(default)]
+    pub cache_dir: Option<PathBuf>,
+}
+
+impl Default for OsvProviderConfig {
+    fn default() -> Self {
+        Self {
+            configured: false,
+            include_dev_deps: false,
+            cache_ttl: default_osv_cache_ttl(),
+            enabled_ecosystems: default_osv_ecosystems(),
+            severity_overrides: HashMap::new(),
+            ignore_list: Vec::new(),
+            offline: false,
+            cache_dir: None,
+        }
+    }
+}
+
+fn default_osv_cache_ttl() -> String {
+    "24h".to_string()
+}
+
+fn default_osv_ecosystems() -> Vec<OsvEcosystem> {
+    vec![
+        OsvEcosystem::CratesIo,
+        OsvEcosystem::Npm,
+        OsvEcosystem::PyPI,
+        OsvEcosystem::Go,
+        OsvEcosystem::Maven,
+    ]
 }
 
 /// Baseline configuration
@@ -1019,6 +1215,20 @@ enable = ["*"]
 
 # Rules to disable (takes precedence over enable)
 disable = []
+
+# Global ignore paths - findings in these paths are suppressed for all rules
+# Supports glob patterns. Uncomment to customize.
+# ignore_paths = ["**/vendor/**", "**/generated/**"]
+
+# Per-rule ignore paths - suppress specific rules in specific paths
+# Note: Security rules (command-injection, hardcoded-secret, etc.) cannot be
+# suppressed via path ignores, only via inline comments with reason.
+# [rules.ignore_paths_by_rule]
+# "generic/long-function" = ["**/tests/**", "**/examples/**"]
+# "js/console-log" = ["**/debug/**"]
+
+# Default test/example suppressions are automatically applied in --mode pr/ci
+# This reduces noise from test files. Security rules are NOT suppressed.
 
 [profiles]
 # Default profile: fast, balanced, or strict
@@ -1678,6 +1888,392 @@ impl Baseline {
     }
 }
 
+// =============================================================================
+// SUPPRESSION ENGINE
+// =============================================================================
+
+/// Result of checking if a finding should be suppressed
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuppressionResult {
+    /// Whether the finding is suppressed
+    pub suppressed: bool,
+    /// Reason for suppression (if suppressed)
+    pub reason: Option<String>,
+    /// Source of suppression (path, inline, baseline, preset)
+    pub source: Option<SuppressionSource>,
+    /// Location of the suppression (e.g., line number for inline, glob pattern for path)
+    pub location: Option<String>,
+}
+
+impl SuppressionResult {
+    /// Create a not-suppressed result
+    pub fn not_suppressed() -> Self {
+        Self {
+            suppressed: false,
+            reason: None,
+            source: None,
+            location: None,
+        }
+    }
+
+    /// Create a suppressed result
+    pub fn suppressed(source: SuppressionSource, reason: String, location: String) -> Self {
+        Self {
+            suppressed: true,
+            reason: Some(reason),
+            source: Some(source),
+            location: Some(location),
+        }
+    }
+}
+
+/// Source of a suppression
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SuppressionSource {
+    /// Suppressed by inline comment
+    Inline,
+    /// Suppressed by global ignore_paths config
+    PathGlobal,
+    /// Suppressed by per-rule ignore_paths_by_rule config
+    PathRule,
+    /// Suppressed by default test/example preset (--mode pr/ci)
+    Preset,
+    /// Suppressed by baseline
+    Baseline,
+}
+
+impl std::fmt::Display for SuppressionSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SuppressionSource::Inline => write!(f, "inline"),
+            SuppressionSource::PathGlobal => write!(f, "path-global"),
+            SuppressionSource::PathRule => write!(f, "path-rule"),
+            SuppressionSource::Preset => write!(f, "preset"),
+            SuppressionSource::Baseline => write!(f, "baseline"),
+        }
+    }
+}
+
+/// Engine for checking if findings should be suppressed
+///
+/// Consolidates all suppression logic:
+/// - Global path ignores (rules.ignore_paths)
+/// - Per-rule path ignores (rules.ignore_paths_by_rule)
+/// - Inline suppressions (rma-ignore comments)
+/// - Default test/example presets for PR/CI mode
+/// - Baseline filtering
+pub struct SuppressionEngine {
+    /// Global ignore paths
+    global_ignore_paths: Vec<String>,
+    /// Per-rule ignore paths
+    rule_ignore_paths: HashMap<String, Vec<String>>,
+    /// Whether to apply default presets (for --mode pr/ci)
+    use_default_presets: bool,
+    /// Baseline for filtering existing findings
+    baseline: Option<Baseline>,
+    /// Compiled regex patterns for global ignores
+    global_patterns: Vec<regex::Regex>,
+    /// Compiled regex patterns for per-rule ignores
+    rule_patterns: HashMap<String, Vec<regex::Regex>>,
+    /// Compiled regex patterns for default test paths
+    test_patterns: Vec<regex::Regex>,
+    /// Compiled regex patterns for default example paths
+    example_patterns: Vec<regex::Regex>,
+}
+
+impl SuppressionEngine {
+    /// Create a new suppression engine from config
+    pub fn new(rules_config: &RulesConfig, use_default_presets: bool) -> Self {
+        let global_patterns = rules_config
+            .ignore_paths
+            .iter()
+            .filter_map(|p| Self::compile_glob(p))
+            .collect();
+
+        let mut rule_patterns = HashMap::new();
+        for (rule_id, paths) in &rules_config.ignore_paths_by_rule {
+            let patterns: Vec<regex::Regex> =
+                paths.iter().filter_map(|p| Self::compile_glob(p)).collect();
+            if !patterns.is_empty() {
+                rule_patterns.insert(rule_id.clone(), patterns);
+            }
+        }
+
+        let test_patterns = if use_default_presets {
+            DEFAULT_TEST_IGNORE_PATHS
+                .iter()
+                .filter_map(|p| Self::compile_glob(p))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let example_patterns = if use_default_presets {
+            DEFAULT_EXAMPLE_IGNORE_PATHS
+                .iter()
+                .filter_map(|p| Self::compile_glob(p))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            global_ignore_paths: rules_config.ignore_paths.clone(),
+            rule_ignore_paths: rules_config.ignore_paths_by_rule.clone(),
+            use_default_presets,
+            baseline: None,
+            global_patterns,
+            rule_patterns,
+            test_patterns,
+            example_patterns,
+        }
+    }
+
+    /// Create a suppression engine with just default presets (no config)
+    pub fn with_defaults_only() -> Self {
+        Self::new(&RulesConfig::default(), true)
+    }
+
+    /// Set the baseline for filtering
+    pub fn with_baseline(mut self, baseline: Baseline) -> Self {
+        self.baseline = Some(baseline);
+        self
+    }
+
+    /// Compile a glob pattern to a regex
+    ///
+    /// Handles cases like:
+    /// - `**/tests/**` matches `src/tests/foo.rs` AND `tests/foo.rs`
+    /// - `**/*.test.ts` matches `app.test.ts` AND `src/app.test.ts`
+    fn compile_glob(pattern: &str) -> Option<regex::Regex> {
+        let regex_pattern = pattern
+            .replace('.', r"\.")
+            .replace("**", "§")
+            .replace('*', "[^/]*")
+            .replace('§', ".*");
+
+        // Handle patterns that start with .*/ to also match paths that start
+        // directly with the pattern (e.g., "tests/foo.rs" matching "**/tests/**")
+        let regex_pattern = if regex_pattern.starts_with(".*/") {
+            // Make the leading .*/ optional: (|.*/) matches empty or .*/
+            format!("(^|.*/){}", &regex_pattern[3..])
+        } else if regex_pattern.starts_with(".*") {
+            // Pattern starts with ** but no trailing slash, just use as-is
+            regex_pattern
+        } else {
+            // Pattern doesn't start with **, anchor to start
+            format!("^{}", regex_pattern)
+        };
+
+        regex::Regex::new(&format!("(?i){}$", regex_pattern)).ok()
+    }
+
+    /// Check if a path matches any of the given patterns
+    fn matches_patterns(path: &str, patterns: &[regex::Regex]) -> bool {
+        let normalized = path.replace('\\', "/");
+        patterns.iter().any(|re| re.is_match(&normalized))
+    }
+
+    /// Check if a rule is in the always-enabled list (security rules)
+    pub fn is_always_enabled(rule_id: &str) -> bool {
+        RULES_ALWAYS_ENABLED.iter().any(|r| {
+            rule_id == *r
+                || rule_id.starts_with(&format!("{}:", r))
+                || r.ends_with("*") && rule_id.starts_with(r.trim_end_matches('*'))
+        })
+    }
+
+    /// Check if a finding should be suppressed
+    ///
+    /// Returns a SuppressionResult with details about why it was suppressed (or not).
+    /// Order of checks:
+    /// 1. Always-enabled rules (never suppressed by path/preset)
+    /// 2. Inline suppressions
+    /// 3. Global path ignores
+    /// 4. Per-rule path ignores
+    /// 5. Default test/example presets
+    /// 6. Baseline
+    pub fn check(
+        &self,
+        rule_id: &str,
+        file_path: &Path,
+        finding_line: usize,
+        inline_suppressions: &[InlineSuppression],
+        fingerprint: Option<&str>,
+    ) -> SuppressionResult {
+        let path_str = file_path.to_string_lossy();
+
+        // 1. Check inline suppressions first (they apply regardless of always-enabled)
+        for suppression in inline_suppressions {
+            if suppression.applies_to(finding_line, rule_id) {
+                let reason = suppression
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "No reason provided".to_string());
+                return SuppressionResult::suppressed(
+                    SuppressionSource::Inline,
+                    reason,
+                    format!("line {}", suppression.line),
+                );
+            }
+        }
+
+        // Security rules should not be suppressed by path/preset (only inline or baseline)
+        let is_always_enabled = Self::is_always_enabled(rule_id);
+
+        if !is_always_enabled {
+            // 2. Check global path ignores
+            if Self::matches_patterns(&path_str, &self.global_patterns) {
+                for (i, pattern) in self.global_ignore_paths.iter().enumerate() {
+                    if let Some(re) = self.global_patterns.get(i) {
+                        if re.is_match(&path_str.replace('\\', "/")) {
+                            return SuppressionResult::suppressed(
+                                SuppressionSource::PathGlobal,
+                                format!("Path matches global ignore pattern: {}", pattern),
+                                pattern.clone(),
+                            );
+                        }
+                    }
+                }
+            }
+
+            // 3. Check per-rule path ignores
+            if let Some(patterns) = self.rule_patterns.get(rule_id) {
+                if Self::matches_patterns(&path_str, patterns) {
+                    if let Some(rule_paths) = self.rule_ignore_paths.get(rule_id) {
+                        for (i, pattern) in rule_paths.iter().enumerate() {
+                            if let Some(re) = patterns.get(i) {
+                                if re.is_match(&path_str.replace('\\', "/")) {
+                                    return SuppressionResult::suppressed(
+                                        SuppressionSource::PathRule,
+                                        format!(
+                                            "Path matches rule-specific ignore pattern: {}",
+                                            pattern
+                                        ),
+                                        format!("{}:{}", rule_id, pattern),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Also check wildcard rule patterns
+            for (pattern_rule_id, patterns) in &self.rule_patterns {
+                if pattern_rule_id.ends_with("/*") {
+                    let prefix = pattern_rule_id.trim_end_matches("/*");
+                    if rule_id.starts_with(prefix) && Self::matches_patterns(&path_str, patterns) {
+                        if let Some(rule_paths) = self.rule_ignore_paths.get(pattern_rule_id) {
+                            if let Some(pattern) = rule_paths.first() {
+                                return SuppressionResult::suppressed(
+                                    SuppressionSource::PathRule,
+                                    format!(
+                                        "Path matches rule-specific ignore pattern: {}",
+                                        pattern
+                                    ),
+                                    format!("{}:{}", pattern_rule_id, pattern),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Check default test/example presets
+            if self.use_default_presets {
+                if Self::matches_patterns(&path_str, &self.test_patterns) {
+                    return SuppressionResult::suppressed(
+                        SuppressionSource::Preset,
+                        "File is in test directory (suppressed by default preset)".to_string(),
+                        "test-preset".to_string(),
+                    );
+                }
+                if Self::matches_patterns(&path_str, &self.example_patterns) {
+                    return SuppressionResult::suppressed(
+                        SuppressionSource::Preset,
+                        "File is in example/fixture directory (suppressed by default preset)"
+                            .to_string(),
+                        "example-preset".to_string(),
+                    );
+                }
+            }
+        }
+
+        // 5. Check baseline (applies to all rules including always-enabled)
+        if let Some(ref baseline) = self.baseline {
+            if let Some(fp) = fingerprint {
+                let fingerprint_obj = Fingerprint::from_string(fp.to_string());
+                if baseline.contains_fingerprint(&fingerprint_obj) {
+                    return SuppressionResult::suppressed(
+                        SuppressionSource::Baseline,
+                        "Finding is in baseline".to_string(),
+                        "baseline".to_string(),
+                    );
+                }
+            }
+        }
+
+        SuppressionResult::not_suppressed()
+    }
+
+    /// Check if a path should be completely ignored (before parsing/analysis)
+    ///
+    /// This is a fast path check that doesn't require inline suppressions.
+    /// Only checks path-based ignores, not inline or baseline.
+    pub fn should_skip_path(&self, file_path: &Path) -> bool {
+        let path_str = file_path.to_string_lossy();
+
+        // Check global path ignores
+        if Self::matches_patterns(&path_str, &self.global_patterns) {
+            return true;
+        }
+
+        // Check default presets (for tests/examples)
+        if self.use_default_presets {
+            // For path skipping, we only skip if ALL rules would be suppressed
+            // Security rules can still fire, so we don't skip the path entirely
+            // This is a conservative approach - we still parse the file
+            // but suppress non-security findings later
+            false
+        } else {
+            false
+        }
+    }
+
+    /// Add suppression metadata to a finding's properties
+    pub fn add_suppression_metadata(
+        properties: &mut HashMap<String, serde_json::Value>,
+        result: &SuppressionResult,
+    ) {
+        if result.suppressed {
+            properties.insert("suppressed".to_string(), serde_json::json!(true));
+            if let Some(ref reason) = result.reason {
+                properties.insert("suppression_reason".to_string(), serde_json::json!(reason));
+            }
+            if let Some(ref source) = result.source {
+                properties.insert(
+                    "suppression_source".to_string(),
+                    serde_json::json!(source.to_string()),
+                );
+            }
+            if let Some(ref location) = result.location {
+                properties.insert(
+                    "suppression_location".to_string(),
+                    serde_json::json!(location),
+                );
+            }
+        }
+    }
+}
+
+impl Default for SuppressionEngine {
+    fn default() -> Self {
+        Self::new(&RulesConfig::default(), false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2078,5 +2674,317 @@ function foo() {
         // Does NOT apply to other rules
         assert!(!suppression.applies_to(11, "js/console-log"));
         assert!(!suppression.applies_to(11, "generic/long-function"));
+    }
+
+    // =========================================================================
+    // SUPPRESSION ENGINE TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_suppression_engine_global_path_ignore() {
+        let mut rules_config = RulesConfig::default();
+        rules_config.ignore_paths = vec!["**/vendor/**".to_string(), "**/generated/**".to_string()];
+
+        let engine = SuppressionEngine::new(&rules_config, false);
+
+        // Should be suppressed
+        let result = engine.check(
+            "generic/long-function",
+            Path::new("src/vendor/lib.js"),
+            10,
+            &[],
+            None,
+        );
+        assert!(result.suppressed);
+        assert_eq!(result.source, Some(SuppressionSource::PathGlobal));
+
+        // Should NOT be suppressed
+        let result = engine.check(
+            "generic/long-function",
+            Path::new("src/app.js"),
+            10,
+            &[],
+            None,
+        );
+        assert!(!result.suppressed);
+    }
+
+    #[test]
+    fn test_suppression_engine_per_rule_path_ignore() {
+        let mut rules_config = RulesConfig::default();
+        rules_config.ignore_paths_by_rule.insert(
+            "generic/long-function".to_string(),
+            vec!["**/tests/**".to_string()],
+        );
+
+        let engine = SuppressionEngine::new(&rules_config, false);
+
+        // Should be suppressed for this specific rule in tests
+        let result = engine.check(
+            "generic/long-function",
+            Path::new("src/tests/test_app.js"),
+            10,
+            &[],
+            None,
+        );
+        assert!(result.suppressed);
+        assert_eq!(result.source, Some(SuppressionSource::PathRule));
+
+        // Should NOT be suppressed for a different rule in tests
+        let result = engine.check(
+            "js/console-log",
+            Path::new("src/tests/test_app.js"),
+            10,
+            &[],
+            None,
+        );
+        assert!(!result.suppressed);
+    }
+
+    #[test]
+    fn test_suppression_engine_inline_suppression() {
+        let rules_config = RulesConfig::default();
+        let engine = SuppressionEngine::new(&rules_config, false);
+
+        let inline_suppressions = vec![InlineSuppression {
+            rule_id: "js/console-log".to_string(),
+            reason: Some("debug output".to_string()),
+            line: 10,
+            suppression_type: SuppressionType::NextLine,
+        }];
+
+        // Should be suppressed by inline comment
+        let result = engine.check(
+            "js/console-log",
+            Path::new("src/app.js"),
+            11, // Line after the suppression comment
+            &inline_suppressions,
+            None,
+        );
+        assert!(result.suppressed);
+        assert_eq!(result.source, Some(SuppressionSource::Inline));
+        assert_eq!(result.reason, Some("debug output".to_string()));
+
+        // Should NOT be suppressed for different line
+        let result = engine.check(
+            "js/console-log",
+            Path::new("src/app.js"),
+            12,
+            &inline_suppressions,
+            None,
+        );
+        assert!(!result.suppressed);
+    }
+
+    #[test]
+    fn test_suppression_engine_default_presets() {
+        let rules_config = RulesConfig::default();
+        let engine = SuppressionEngine::new(&rules_config, true); // Enable presets
+
+        // Test files should be suppressed
+        let result = engine.check(
+            "generic/long-function",
+            Path::new("src/tests/test_app.rs"),
+            10,
+            &[],
+            None,
+        );
+        assert!(result.suppressed);
+        assert_eq!(result.source, Some(SuppressionSource::Preset));
+
+        // .test.ts files should be suppressed
+        let result = engine.check(
+            "js/console-log",
+            Path::new("src/app.test.ts"),
+            10,
+            &[],
+            None,
+        );
+        assert!(result.suppressed);
+
+        // Example files should be suppressed
+        let result = engine.check(
+            "generic/long-function",
+            Path::new("examples/demo.rs"),
+            10,
+            &[],
+            None,
+        );
+        assert!(result.suppressed);
+
+        // Regular source files should NOT be suppressed
+        let result = engine.check(
+            "generic/long-function",
+            Path::new("src/lib.rs"),
+            10,
+            &[],
+            None,
+        );
+        assert!(!result.suppressed);
+    }
+
+    #[test]
+    fn test_suppression_engine_security_rules_not_suppressed_by_preset() {
+        let rules_config = RulesConfig::default();
+        let engine = SuppressionEngine::new(&rules_config, true); // Enable presets
+
+        // Security rules should NOT be suppressed by preset in test files
+        let result = engine.check(
+            "rust/command-injection",
+            Path::new("src/tests/test_app.rs"),
+            10,
+            &[],
+            None,
+        );
+        assert!(!result.suppressed);
+
+        let result = engine.check(
+            "generic/hardcoded-secret",
+            Path::new("examples/demo.py"),
+            10,
+            &[],
+            None,
+        );
+        assert!(!result.suppressed);
+
+        let result = engine.check(
+            "python/shell-injection",
+            Path::new("tests/test_shell.py"),
+            10,
+            &[],
+            None,
+        );
+        assert!(!result.suppressed);
+    }
+
+    #[test]
+    fn test_suppression_engine_security_rules_can_be_suppressed_inline() {
+        let rules_config = RulesConfig::default();
+        let engine = SuppressionEngine::new(&rules_config, true);
+
+        let inline_suppressions = vec![InlineSuppression {
+            rule_id: "rust/command-injection".to_string(),
+            reason: Some("sanitized input validated upstream".to_string()),
+            line: 10,
+            suppression_type: SuppressionType::NextLine,
+        }];
+
+        // Security rules CAN be suppressed by inline comment
+        let result = engine.check(
+            "rust/command-injection",
+            Path::new("src/app.rs"),
+            11,
+            &inline_suppressions,
+            None,
+        );
+        assert!(result.suppressed);
+        assert_eq!(result.source, Some(SuppressionSource::Inline));
+    }
+
+    #[test]
+    fn test_suppression_engine_is_always_enabled() {
+        assert!(SuppressionEngine::is_always_enabled(
+            "rust/command-injection"
+        ));
+        assert!(SuppressionEngine::is_always_enabled(
+            "python/shell-injection"
+        ));
+        assert!(SuppressionEngine::is_always_enabled(
+            "generic/hardcoded-secret"
+        ));
+        assert!(SuppressionEngine::is_always_enabled("go/command-injection"));
+        assert!(SuppressionEngine::is_always_enabled(
+            "java/command-execution"
+        ));
+        assert!(SuppressionEngine::is_always_enabled(
+            "js/dynamic-code-execution"
+        ));
+
+        // These should NOT be always-enabled
+        assert!(!SuppressionEngine::is_always_enabled(
+            "generic/long-function"
+        ));
+        assert!(!SuppressionEngine::is_always_enabled("js/console-log"));
+        assert!(!SuppressionEngine::is_always_enabled("rust/unsafe-block"));
+    }
+
+    #[test]
+    fn test_suppression_engine_add_metadata() {
+        let result = SuppressionResult::suppressed(
+            SuppressionSource::Inline,
+            "debug output".to_string(),
+            "line 10".to_string(),
+        );
+
+        let mut properties = HashMap::new();
+        SuppressionEngine::add_suppression_metadata(&mut properties, &result);
+
+        assert_eq!(properties.get("suppressed"), Some(&serde_json::json!(true)));
+        assert_eq!(
+            properties.get("suppression_reason"),
+            Some(&serde_json::json!("debug output"))
+        );
+        assert_eq!(
+            properties.get("suppression_source"),
+            Some(&serde_json::json!("inline"))
+        );
+        assert_eq!(
+            properties.get("suppression_location"),
+            Some(&serde_json::json!("line 10"))
+        );
+    }
+
+    #[test]
+    fn test_suppression_result_not_suppressed() {
+        let result = SuppressionResult::not_suppressed();
+        assert!(!result.suppressed);
+        assert!(result.reason.is_none());
+        assert!(result.source.is_none());
+        assert!(result.location.is_none());
+    }
+
+    #[test]
+    fn test_rules_config_with_ignore_paths() {
+        let toml = r#"
+config_version = 1
+
+[rules]
+enable = ["*"]
+disable = []
+ignore_paths = ["**/vendor/**", "**/generated/**"]
+
+[rules.ignore_paths_by_rule]
+"generic/long-function" = ["**/tests/**", "**/examples/**"]
+"js/console-log" = ["**/debug/**"]
+"#;
+        let config: RmaTomlConfig = toml::from_str(toml).unwrap();
+
+        assert_eq!(config.rules.ignore_paths.len(), 2);
+        assert!(
+            config
+                .rules
+                .ignore_paths
+                .contains(&"**/vendor/**".to_string())
+        );
+        assert!(
+            config
+                .rules
+                .ignore_paths
+                .contains(&"**/generated/**".to_string())
+        );
+
+        assert_eq!(config.rules.ignore_paths_by_rule.len(), 2);
+        assert!(
+            config
+                .rules
+                .ignore_paths_by_rule
+                .contains_key("generic/long-function")
+        );
+        assert!(
+            config
+                .rules
+                .ignore_paths_by_rule
+                .contains_key("js/console-log")
+        );
     }
 }

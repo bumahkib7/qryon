@@ -255,6 +255,7 @@ impl OxlintProvider {
             confidence,
             category,
             fingerprint: None,
+            properties: None,
         })
     }
 }

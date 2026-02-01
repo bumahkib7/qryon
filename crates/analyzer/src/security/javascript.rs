@@ -764,35 +764,58 @@ impl Rule for ValidTypeofRule {
         ];
 
         find_nodes_by_kind(&mut cursor, "binary_expression", |node: Node| {
-            let text = node.utf8_text(parsed.content.as_bytes()).unwrap_or("");
-            if !text.contains("typeof") {
+            // Get left and right operands
+            let left = node.child_by_field_name("left");
+            let right = node.child_by_field_name("right");
+
+            // Check if this is actually a typeof comparison:
+            // typeof x === "string" or "string" === typeof x
+            let (typeof_side, string_side) = match (&left, &right) {
+                (Some(l), Some(r)) if is_typeof_expression(l) => (Some(l), Some(r)),
+                (Some(l), Some(r)) if is_typeof_expression(r) => (Some(r), Some(l)),
+                _ => (None, None),
+            };
+
+            // Only proceed if we have a typeof expression on one side
+            if typeof_side.is_none() {
                 return;
             }
 
-            // Check string literals in comparison
-            for i in 0..node.child_count() {
-                if let Some(child) = node.child(i)
-                    && child.kind() == "string"
-                    && let Ok(str_text) = child.utf8_text(parsed.content.as_bytes())
-                {
-                    let inner = str_text.trim_matches(|c| c == '"' || c == '\'' || c == '`');
-                    if !valid_types.contains(&inner) {
-                        findings.push(create_finding_with_confidence(
-                            self.id(),
-                            &child,
-                            &parsed.path,
-                            &parsed.content,
-                            Severity::Error,
-                            &format!("Invalid typeof comparison: '{}' is not a valid type", inner),
-                            Language::JavaScript,
-                            Confidence::High,
-                        ));
-                    }
+            // Check if the other side is a string literal
+            if let Some(str_node) = string_side
+                && str_node.kind() == "string"
+                && let Ok(str_text) = str_node.utf8_text(parsed.content.as_bytes())
+            {
+                let inner = str_text.trim_matches(|c| c == '"' || c == '\'' || c == '`');
+                if !valid_types.contains(&inner) {
+                    findings.push(create_finding_with_confidence(
+                        self.id(),
+                        str_node,
+                        &parsed.path,
+                        &parsed.content,
+                        Severity::Error,
+                        &format!("Invalid typeof comparison: '{}' is not a valid type", inner),
+                        Language::JavaScript,
+                        Confidence::High,
+                    ));
                 }
             }
         });
         findings
     }
+}
+
+/// Check if a node is a typeof unary expression
+fn is_typeof_expression(node: &Node) -> bool {
+    // typeof produces a "unary_expression" in tree-sitter-javascript
+    // with the operator as "typeof"
+    if node.kind() == "unary_expression" {
+        // Check if first child is "typeof" operator
+        if let Some(first_child) = node.child(0) {
+            return first_child.kind() == "typeof";
+        }
+    }
+    false
 }
 
 /// DETECTS with statements
@@ -1284,5 +1307,54 @@ mod tests {
         let rule = ValidTypeofRule;
         let findings = rule.check(&parsed);
         assert!(findings.is_empty(), "Valid typeof should not be flagged");
+    }
+
+    #[test]
+    fn test_valid_typeof_jsx_classname_not_flagged() {
+        // JSX className strings should NOT be flagged as invalid typeof comparisons
+        // This was a false positive: className="h-3 w-3" was incorrectly flagged
+        let content = r#"<X className="h-3 w-3" />"#;
+        let parsed = parse_js(content);
+        let rule = ValidTypeofRule;
+        let findings = rule.check(&parsed);
+        assert!(
+            findings.is_empty(),
+            "JSX className should not be flagged as typeof comparison"
+        );
+    }
+
+    #[test]
+    fn test_valid_typeof_jsx_with_ternary_not_flagged() {
+        // JSX with ternary and typeof elsewhere should not false-positive on className
+        let content = r#"
+            function Component({ activeTab }) {
+                return (
+                    <div className="border-b px-2">
+                        <Tabs value={activeTab} onValueChange={(v) => {
+                            setActiveTab(v as typeof activeTab);
+                        }}>
+                            <TabsList className="h-9 bg-transparent p-0" />
+                        </Tabs>
+                    </div>
+                );
+            }
+        "#;
+        let parsed = parse_js(content);
+        let rule = ValidTypeofRule;
+        let findings = rule.check(&parsed);
+        // Should not flag className strings as invalid typeof comparisons
+        let false_positives: Vec<_> = findings
+            .iter()
+            .filter(|f| {
+                f.message.contains("border-b")
+                    || f.message.contains("h-9")
+                    || f.message.contains("h-3")
+            })
+            .collect();
+        assert!(
+            false_positives.is_empty(),
+            "Should not flag className strings: {:?}",
+            false_positives
+        );
     }
 }
