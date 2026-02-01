@@ -4379,7 +4379,7 @@ dependencies = [
 
 [[package]]
 name = "rma-ai"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4396,7 +4396,7 @@ dependencies = [
 
 [[package]]
 name = "rma-analyzer"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "oxc_allocator",
@@ -4428,7 +4428,7 @@ dependencies = [
 
 [[package]]
 name = "rma-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4464,7 +4464,7 @@ dependencies = [
 
 [[package]]
 name = "rma-common"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4481,7 +4481,7 @@ dependencies = [
 
 [[package]]
 name = "rma-daemon"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4505,7 +4505,7 @@ dependencies = [
 
 [[package]]
 name = "rma-indexer"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "notify",
@@ -4524,7 +4524,7 @@ dependencies = [
 
 [[package]]
 name = "rma-lsp"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4543,7 +4543,7 @@ dependencies = [
 
 [[package]]
 name = "rma-parser"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -4568,7 +4568,7 @@ dependencies = [
 
 [[package]]
 name = "rma-plugins"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "dirs",
