@@ -14,8 +14,10 @@ use std::path::PathBuf;
 /// Status of a suppression entry
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SuppressionStatus {
     /// Suppression is active
+    #[default]
     Active,
     /// Suppression has expired
     Expired,
@@ -29,12 +31,6 @@ pub enum SuppressionStatus {
     Rejected,
     /// Scheduled for auto-revocation
     ScheduledRevocation,
-}
-
-impl Default for SuppressionStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 impl std::fmt::Display for SuppressionStatus {
@@ -186,8 +182,7 @@ impl RevocationSchedule {
             return false;
         }
         if let Ok(scheduled) = chrono::DateTime::parse_from_rfc3339(&self.scheduled_at) {
-            let notify_time =
-                scheduled - chrono::Duration::days(self.notify_days_before as i64);
+            let notify_time = scheduled - chrono::Duration::days(self.notify_days_before as i64);
             let now = chrono::Utc::now();
             return now >= notify_time && now < scheduled;
         }
@@ -436,11 +431,8 @@ impl SuppressionEntry {
         reason: impl Into<String>,
         scheduled_by: impl Into<String>,
     ) -> Self {
-        self.scheduled_revocation = Some(RevocationSchedule::new(
-            scheduled_at,
-            reason,
-            scheduled_by,
-        ));
+        self.scheduled_revocation =
+            Some(RevocationSchedule::new(scheduled_at, reason, scheduled_by));
         self
     }
 
@@ -468,10 +460,10 @@ impl SuppressionEntry {
 
     /// Check if the suppression has expired
     pub fn is_expired(&self) -> bool {
-        if let Some(ref expires_at) = self.expires_at {
-            if let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(expires_at) {
-                return expiry < chrono::Utc::now();
-            }
+        if let Some(ref expires_at) = self.expires_at
+            && let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(expires_at)
+        {
+            return expiry < chrono::Utc::now();
         }
         false
     }
@@ -488,7 +480,10 @@ impl SuppressionEntry {
 
     /// Check if the suppression has been approved
     pub fn is_approved(&self) -> bool {
-        self.approval.as_ref().map(|a| a.is_approved()).unwrap_or(true)
+        self.approval
+            .as_ref()
+            .map(|a| a.is_approved())
+            .unwrap_or(true)
     }
 
     /// Approve the suppression
@@ -599,23 +594,23 @@ impl SuppressionEntry {
 
     /// Get a human-readable description of time until expiration
     pub fn time_until_expiry(&self) -> Option<String> {
-        if let Some(ref expires_at) = self.expires_at {
-            if let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(expires_at) {
-                let now = chrono::Utc::now();
-                if expiry < now {
-                    return Some("expired".to_string());
-                }
-                let duration = expiry.signed_duration_since(now);
-                let days = duration.num_days();
-                if days > 0 {
-                    return Some(format!("{}d", days));
-                }
-                let hours = duration.num_hours();
-                if hours > 0 {
-                    return Some(format!("{}h", hours));
-                }
-                return Some("< 1h".to_string());
+        if let Some(ref expires_at) = self.expires_at
+            && let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(expires_at)
+        {
+            let now = chrono::Utc::now();
+            if expiry < now {
+                return Some("expired".to_string());
             }
+            let duration = expiry.signed_duration_since(now);
+            let days = duration.num_days();
+            if days > 0 {
+                return Some(format!("{}d", days));
+            }
+            let hours = duration.num_hours();
+            if hours > 0 {
+                return Some(format!("{}h", hours));
+            }
+            return Some("< 1h".to_string());
         }
         None
     }
@@ -710,14 +705,8 @@ mod tests {
 
     #[test]
     fn test_expiration() {
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .with_expiration_days(30);
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .with_expiration_days(30);
 
         assert!(!entry.is_expired());
         assert!(entry.is_active());
@@ -727,14 +716,8 @@ mod tests {
 
     #[test]
     fn test_staleness_detection() {
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .with_snippet("let password = \"secret\";");
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .with_snippet("let password = \"secret\";");
 
         assert!(entry.snippet_hash.is_some());
         assert!(!entry.is_stale(Some("let password = \"secret\";")));
@@ -757,13 +740,7 @@ mod tests {
 
     #[test]
     fn test_revoke() {
-        let mut entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        );
+        let mut entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason");
 
         assert!(entry.is_active());
         entry.revoke();
@@ -773,16 +750,10 @@ mod tests {
 
     #[test]
     fn test_tags_and_groups() {
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .with_tag("security")
-        .with_tag("false-positive")
-        .with_group("team-backend");
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .with_tag("security")
+            .with_tag("false-positive")
+            .with_group("team-backend");
 
         assert!(entry.has_tag("security"));
         assert!(entry.has_tag("false-positive"));
@@ -793,14 +764,8 @@ mod tests {
 
     #[test]
     fn test_approval_workflow() {
-        let mut entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .require_approval(2);
+        let mut entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .require_approval(2);
 
         assert!(entry.is_pending_approval());
         assert!(!entry.is_approved());
@@ -815,14 +780,8 @@ mod tests {
 
     #[test]
     fn test_approval_rejection() {
-        let mut entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .require_approval(1);
+        let mut entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .require_approval(1);
 
         entry.reject("security-team", "This is a real vulnerability");
         assert_eq!(entry.status, SuppressionStatus::Rejected);
@@ -831,14 +790,8 @@ mod tests {
 
     #[test]
     fn test_scheduled_revocation() {
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .schedule_revocation_days(30, "Temporary suppression", "admin");
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .schedule_revocation_days(30, "Temporary suppression", "admin");
 
         assert!(entry.scheduled_revocation.is_some());
         assert!(!entry.is_revocation_due());
@@ -846,14 +799,8 @@ mod tests {
 
     #[test]
     fn test_priority() {
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .with_priority(1);
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .with_priority(1);
 
         assert_eq!(entry.priority, 1);
 
@@ -863,17 +810,14 @@ mod tests {
 
     #[test]
     fn test_metadata() {
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        )
-        .with_metadata("custom_field", "custom_value")
-        .with_metadata("another", "value");
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason")
+            .with_metadata("custom_field", "custom_value")
+            .with_metadata("another", "value");
 
-        assert_eq!(entry.metadata.get("custom_field"), Some(&"custom_value".to_string()));
+        assert_eq!(
+            entry.metadata.get("custom_field"),
+            Some(&"custom_value".to_string())
+        );
         assert_eq!(entry.metadata.get("another"), Some(&"value".to_string()));
     }
 }

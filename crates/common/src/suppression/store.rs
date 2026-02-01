@@ -108,12 +108,11 @@ pub struct SuppressionStore {
 impl SuppressionStore {
     /// Open or create a suppression store at the given path
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let db = sled::open(path.as_ref())
-            .with_context(|| format!("Failed to open suppression database at {:?}", path.as_ref()))?;
+        let db = sled::open(path.as_ref()).with_context(|| {
+            format!("Failed to open suppression database at {:?}", path.as_ref())
+        })?;
 
-        let by_id = db
-            .open_tree("by_id")
-            .context("Failed to open by_id tree")?;
+        let by_id = db.open_tree("by_id").context("Failed to open by_id tree")?;
         let by_fingerprint = db
             .open_tree("by_fingerprint")
             .context("Failed to open by_fingerprint tree")?;
@@ -292,16 +291,17 @@ impl SuppressionStore {
             }
 
             // Apply filters
-            if !filter.include_all && !entry.is_active() {
-                if filter.status.is_none() || filter.status != Some(entry.status) {
-                    continue;
-                }
+            if !filter.include_all
+                && !entry.is_active()
+                && (filter.status.is_none() || filter.status != Some(entry.status))
+            {
+                continue;
             }
 
-            if let Some(ref status) = filter.status {
-                if entry.status != *status {
-                    continue;
-                }
+            if let Some(ref status) = filter.status
+                && entry.status != *status
+            {
+                continue;
             }
 
             if let Some(ref rule_id) = filter.rule_id {
@@ -315,18 +315,21 @@ impl SuppressionStore {
                 }
             }
 
-            if let Some(ref file_path) = filter.file_path {
-                if !entry.file_path.to_string_lossy().contains(&file_path.to_string_lossy().as_ref()) {
-                    continue;
-                }
+            if let Some(ref file_path) = filter.file_path
+                && !entry
+                    .file_path
+                    .to_string_lossy()
+                    .contains(file_path.to_string_lossy().as_ref())
+            {
+                continue;
             }
 
             results.push(entry);
 
-            if let Some(limit) = filter.limit {
-                if results.len() >= limit {
-                    break;
-                }
+            if let Some(limit) = filter.limit
+                && results.len() >= limit
+            {
+                break;
             }
         }
 
@@ -543,8 +546,7 @@ impl SuppressionStore {
     pub fn update(&self, entry: &SuppressionEntry, actor: &str) -> Result<()> {
         self.update_entry(entry)?;
         self.log_audit(
-            AuditEvent::new(&entry.id, AuditAction::Updated, actor)
-                .description("Entry updated"),
+            AuditEvent::new(&entry.id, AuditAction::Updated, actor).description("Entry updated"),
         )?;
         self.db.flush()?;
         Ok(())
@@ -605,9 +607,7 @@ impl SuppressionStore {
             entry.reject(rejector, reason);
             self.update_entry(&entry)?;
 
-            self.log_audit(
-                AuditEvent::new(id, AuditAction::Rejected, rejector).reason(reason),
-            )?;
+            self.log_audit(AuditEvent::new(id, AuditAction::Rejected, rejector).reason(reason))?;
 
             self.db.flush()?;
             return Ok(true);
@@ -703,14 +703,14 @@ impl SuppressionStore {
 
     /// Cancel a scheduled revocation
     pub fn cancel_revocation(&self, id: &str, actor: &str) -> Result<bool> {
-        if let Some(mut entry) = self.get(id)? {
-            if entry.status == SuppressionStatus::ScheduledRevocation {
-                entry.cancel_scheduled_revocation();
-                self.update_entry(&entry)?;
-                self.log_audit(AuditEvent::new(id, AuditAction::RevocationCancelled, actor))?;
-                self.db.flush()?;
-                return Ok(true);
-            }
+        if let Some(mut entry) = self.get(id)?
+            && entry.status == SuppressionStatus::ScheduledRevocation
+        {
+            entry.cancel_scheduled_revocation();
+            self.update_entry(&entry)?;
+            self.log_audit(AuditEvent::new(id, AuditAction::RevocationCancelled, actor))?;
+            self.db.flush()?;
+            return Ok(true);
         }
         Ok(false)
     }
@@ -724,26 +724,25 @@ impl SuppressionStore {
             let (_, value) = item?;
             let mut entry: SuppressionEntry = serde_json::from_slice(&value)?;
 
-            if entry.status == SuppressionStatus::ScheduledRevocation {
-                if let Some(ref schedule) = entry.scheduled_revocation {
-                    if schedule.scheduled_at <= now {
-                        entry.revoke();
-                        self.update_entry(&entry)?;
+            if entry.status == SuppressionStatus::ScheduledRevocation
+                && let Some(ref schedule) = entry.scheduled_revocation
+                && schedule.scheduled_at <= now
+            {
+                entry.revoke();
+                self.update_entry(&entry)?;
 
-                        // Remove from indexes
-                        self.by_fingerprint.remove(entry.fingerprint.as_bytes())?;
-                        let rule_key = format!("{}:{}", entry.rule_id, entry.id);
-                        self.by_rule.remove(rule_key.as_bytes())?;
-                        let file_key = format!("{}:{}", entry.file_path.display(), entry.id);
-                        self.by_file.remove(file_key.as_bytes())?;
+                // Remove from indexes
+                self.by_fingerprint.remove(entry.fingerprint.as_bytes())?;
+                let rule_key = format!("{}:{}", entry.rule_id, entry.id);
+                self.by_rule.remove(rule_key.as_bytes())?;
+                let file_key = format!("{}:{}", entry.file_path.display(), entry.id);
+                self.by_file.remove(file_key.as_bytes())?;
 
-                        self.log_audit(
-                            AuditEvent::new(&entry.id, AuditAction::Revoked, actor)
-                                .description("Auto-revoked as scheduled"),
-                        )?;
-                        revoked.push(entry.id.clone());
-                    }
-                }
+                self.log_audit(
+                    AuditEvent::new(&entry.id, AuditAction::Revoked, actor)
+                        .description("Auto-revoked as scheduled"),
+                )?;
+                revoked.push(entry.id.clone());
             }
         }
 
@@ -907,18 +906,17 @@ mod tests {
     fn test_revoke() {
         let (store, _temp) = create_test_store();
 
-        let entry = SuppressionEntry::new(
-            "sha256:abc123",
-            "rule",
-            "file.rs",
-            "user",
-            "reason",
-        );
+        let entry = SuppressionEntry::new("sha256:abc123", "rule", "file.rs", "user", "reason");
         store.suppress(entry).unwrap();
 
         assert!(store.is_suppressed("sha256:abc123").unwrap().is_some());
 
-        store.revoke(&store.list(SuppressionFilter::all()).unwrap()[0].id, "admin").unwrap();
+        store
+            .revoke(
+                &store.list(SuppressionFilter::all()).unwrap()[0].id,
+                "admin",
+            )
+            .unwrap();
 
         assert!(store.is_suppressed("sha256:abc123").unwrap().is_none());
     }
@@ -1009,13 +1007,7 @@ mod tests {
     fn test_audit_log() {
         let (store, _temp) = create_test_store();
 
-        let entry = SuppressionEntry::new(
-            "sha256:abc",
-            "rule",
-            "file.rs",
-            "user1",
-            "reason",
-        );
+        let entry = SuppressionEntry::new("sha256:abc", "rule", "file.rs", "user1", "reason");
         let id = entry.id.clone();
 
         store.suppress(entry).unwrap();
@@ -1070,8 +1062,7 @@ mod tests {
             .unwrap();
 
         // Create suppression engine with the store
-        let engine = SuppressionEngine::new(&RulesConfig::default(), false)
-            .with_store(store);
+        let engine = SuppressionEngine::new(&RulesConfig::default(), false).with_store(store);
 
         // Check that a finding with the known fingerprint is suppressed
         let result = engine.check(

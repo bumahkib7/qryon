@@ -446,28 +446,26 @@ impl AuditQuery {
 
     /// Check if an event matches this query
     pub fn matches(&self, event: &AuditEvent) -> bool {
-        if let Some(ref id) = self.suppression_id {
-            if event.suppression_id != *id {
-                return false;
-            }
+        if let Some(ref id) = self.suppression_id
+            && event.suppression_id != *id
+        {
+            return false;
         }
 
-        if let Some(ref actor) = self.actor {
-            if event.actor != *actor {
-                return false;
-            }
+        if let Some(ref actor) = self.actor
+            && event.actor != *actor
+        {
+            return false;
         }
 
-        if let Some(action) = self.action {
-            if event.action != action {
-                return false;
-            }
+        if let Some(action) = self.action
+            && event.action != action
+        {
+            return false;
         }
 
-        if !self.tags.is_empty() {
-            if !self.tags.iter().any(|t| event.tags.contains(t)) {
-                return false;
-            }
+        if !self.tags.is_empty() && !self.tags.iter().any(|t| event.tags.contains(t)) {
+            return false;
         }
 
         true
@@ -508,18 +506,19 @@ mod tests {
 
     #[test]
     fn test_audit_context() {
-        let ctx = AuditContext::from_environment()
-            .with_metadata("custom_key", "custom_value");
+        let ctx = AuditContext::from_environment().with_metadata("custom_key", "custom_value");
 
         // Context should capture working dir at minimum
         assert!(ctx.working_dir.is_some());
-        assert_eq!(ctx.metadata.get("custom_key"), Some(&"custom_value".to_string()));
+        assert_eq!(
+            ctx.metadata.get("custom_key"),
+            Some(&"custom_value".to_string())
+        );
     }
 
     #[test]
     fn test_audit_query() {
-        let event = AuditEvent::new("supp-1", AuditAction::Created, "user1")
-            .add_tag("security");
+        let event = AuditEvent::new("supp-1", AuditAction::Created, "user1").add_tag("security");
 
         let query1 = AuditQuery::for_suppression("supp-1");
         assert!(query1.matches(&event));

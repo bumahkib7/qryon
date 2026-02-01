@@ -795,12 +795,18 @@ fn main() -> Result<()> {
                     rule,
                     file,
                 },
-                SuppressAction::List { rule, file, all, limit } => {
-                    commands::suppress::SuppressAction::List { rule, file, all, limit }
-                }
-                SuppressAction::Remove { id } => {
-                    commands::suppress::SuppressAction::Remove { id }
-                }
+                SuppressAction::List {
+                    rule,
+                    file,
+                    all,
+                    limit,
+                } => commands::suppress::SuppressAction::List {
+                    rule,
+                    file,
+                    all,
+                    limit,
+                },
+                SuppressAction::Remove { id } => commands::suppress::SuppressAction::Remove { id },
                 SuppressAction::Show { id, history } => {
                     commands::suppress::SuppressAction::Show { id, history }
                 }
@@ -813,9 +819,7 @@ fn main() -> Result<()> {
                 SuppressAction::Check { prune } => {
                     commands::suppress::SuppressAction::Check { prune }
                 }
-                SuppressAction::Log { limit } => {
-                    commands::suppress::SuppressAction::Log { limit }
-                }
+                SuppressAction::Log { limit } => commands::suppress::SuppressAction::Log { limit },
             };
             commands::suppress::run(commands::suppress::SuppressArgs {
                 action: suppress_action,

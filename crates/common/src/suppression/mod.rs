@@ -45,10 +45,10 @@ mod store;
 
 pub use audit::{AuditAction, AuditContext, AuditEvent, AuditQuery, AuditSeverity, FieldChange};
 pub use entry::{
-    hash_snippet, Approval, ApprovalInfo, Rejection, RevocationSchedule, SuppressionEntry,
-    SuppressionStatus,
+    Approval, ApprovalInfo, Rejection, RevocationSchedule, SuppressionEntry, SuppressionStatus,
+    hash_snippet,
 };
-pub use store::{SuppressionExport, SuppressionFilter, SuppressionStore, StoreStats};
+pub use store::{StoreStats, SuppressionExport, SuppressionFilter, SuppressionStore};
 
 /// Default path for the suppression database within a project
 pub const DEFAULT_DB_PATH: &str = ".rma/suppressions.db";

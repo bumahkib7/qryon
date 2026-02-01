@@ -2133,7 +2133,10 @@ impl SuppressionEngine {
     }
 
     /// Set a shared suppression store reference
-    pub fn with_store_ref(mut self, store: std::sync::Arc<crate::suppression::SuppressionStore>) -> Self {
+    pub fn with_store_ref(
+        mut self,
+        store: std::sync::Arc<crate::suppression::SuppressionStore>,
+    ) -> Self {
         self.suppression_store = Some(store);
         self
     }
@@ -2313,14 +2316,13 @@ impl SuppressionEngine {
         // 6. Check database suppressions (applies to all rules including always-enabled)
         if let Some(ref store) = self.suppression_store
             && let Some(fp) = fingerprint
+            && let Ok(Some(entry)) = store.is_suppressed(fp)
         {
-            if let Ok(Some(entry)) = store.is_suppressed(fp) {
-                return SuppressionResult::suppressed(
-                    SuppressionSource::Database,
-                    entry.reason.clone(),
-                    format!("database:{}", entry.id),
-                );
-            }
+            return SuppressionResult::suppressed(
+                SuppressionSource::Database,
+                entry.reason.clone(),
+                format!("database:{}", entry.id),
+            );
         }
 
         SuppressionResult::not_suppressed()
@@ -2367,15 +2369,11 @@ impl SuppressionEngine {
                 );
 
                 // For database suppressions, extract the suppression_id
-                if *source == SuppressionSource::Database {
-                    if let Some(ref location) = result.location {
-                        if let Some(id) = location.strip_prefix("database:") {
-                            properties.insert(
-                                "suppression_id".to_string(),
-                                serde_json::json!(id),
-                            );
-                        }
-                    }
+                if *source == SuppressionSource::Database
+                    && let Some(ref location) = result.location
+                    && let Some(id) = location.strip_prefix("database:")
+                {
+                    properties.insert("suppression_id".to_string(), serde_json::json!(id));
                 }
             }
             if let Some(ref location) = result.location {

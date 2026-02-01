@@ -633,10 +633,10 @@ fn apply_suppressions(
             .map(|c| args.path.join(&c.database))
             .unwrap_or_else(|| args.path.join(".rma/suppressions.db"));
 
-        if db_path.exists() {
-            if let Ok(store) = rma_common::suppression::SuppressionStore::open(&db_path) {
-                engine = engine.with_store(store);
-            }
+        if db_path.exists()
+            && let Ok(store) = rma_common::suppression::SuppressionStore::open(&db_path)
+        {
+            engine = engine.with_store(store);
         }
     }
 
