@@ -28,6 +28,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: |
+          sudo apt-get update && sudo apt-get install -y mold
+          echo '[target.x86_64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "clang"' >> ~/.cargo/config.toml
+          echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> ~/.cargo/config.toml
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -51,6 +57,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: |
+          sudo apt-get update && sudo apt-get install -y mold
+          echo '[target.x86_64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "clang"' >> ~/.cargo/config.toml
+          echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> ~/.cargo/config.toml
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
@@ -64,8 +76,10 @@ jobs:
           key: cargo-test-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             cargo-test-${{ runner.os }}-
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
 
   build:
     name: Build Release
@@ -73,6 +87,12 @@ jobs:
     needs: [fmt, clippy, test]
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: |
+          sudo apt-get update && sudo apt-get install -y mold
+          echo '[target.x86_64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "clang"' >> ~/.cargo/config.toml
+          echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> ~/.cargo/config.toml
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo

@@ -88,14 +88,14 @@ gix = { version = "0.70", default-features = false, features = ["max-performance
 # Rust security advisory database
 rustsec = "0.31"
 
-# JavaScript/TypeScript linting (oxc project)
-oxc_linter = { git = "https://github.com/oxc-project/oxc", branch = "main" }
-oxc_diagnostics = { git = "https://github.com/oxc-project/oxc", branch = "main" }
-oxc_span = { git = "https://github.com/oxc-project/oxc", branch = "main" }
-oxc_allocator = { git = "https://github.com/oxc-project/oxc", branch = "main" }
-oxc_parser = { git = "https://github.com/oxc-project/oxc", branch = "main" }
-oxc_semantic = { git = "https://github.com/oxc-project/oxc", branch = "main" }
-oxc_ast = { git = "https://github.com/oxc-project/oxc", branch = "main" }
+# JavaScript/TypeScript linting (oxc project) - pinned for reproducible builds
+oxc_linter = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
+oxc_diagnostics = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
+oxc_span = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
+oxc_allocator = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
+oxc_parser = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
+oxc_semantic = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
+oxc_ast = { git = "https://github.com/oxc-project/oxc", rev = "1d34b426" }
 
 # Output formats
 termtree = "0.5"
