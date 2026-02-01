@@ -21,7 +21,7 @@ quick-xml = { version = "0.31", features = ["serialize"] }
 shellexpand = "3"
 rustsec.workspace = true
 walkdir.workspace = true
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 toml = "0.8"
 
 # Native JS/TS linting via oxc
