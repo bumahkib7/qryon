@@ -1,0 +1,52 @@
+name: RMA Security Scan
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:  # Allow manual triggers
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  rma-scan:
+    name: RMA Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build RMA
+        run: cargo build --release --package rma-cli
+
+      - name: Run RMA scan
+        id: scan
+        run: |
+          ./target/release/rma scan . \
+            --format sarif \
+            --output rma-results.sarif \
+            --severity info \
+            2>&1 || true
+
+          # Output scan summary
+          echo "Scan complete. SARIF file generated."
+
+          # Check if SARIF was created
+          if [ -f rma-results.sarif ]; then
+            echo "sarif-file=rma-results.sarif" >> "$GITHUB_OUTPUT"
+            # Show scan stats from SARIF
+            jq -r '.runs[0].invocations[0].properties.metrics // "No metrics"' rma-results.sarif || true
+          fi
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rma-results.sarif
+          category: rma-security-scan
