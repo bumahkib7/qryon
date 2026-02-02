@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **Test Files Excluded by Default**: Tests are now excluded from scans by default across all languages
+  - Use `--include-tests` to opt-in to scanning test files
+  - Unified test pattern detection: 70+ patterns for JS/TS, Python, Go, Rust, Java, Kotlin
+  - `--skip-tests` flag deprecated (tests excluded by default)
+  - `security` command now uses same comprehensive patterns as `scan` command
+
 ## [0.15.1] - 2026-02-02
 
 ### Fixed
