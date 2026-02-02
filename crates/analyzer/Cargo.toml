@@ -18,8 +18,8 @@ oxc = [
 ]
 
 [dependencies]
-rma-common = { version = "0.15.0", path = "../common" }
-rma-parser = { version = "0.15.0", path = "../parser" }
+rma-common = { version = "0.15.1", path = "../common" }
+rma-parser = { version = "0.15.1", path = "../parser" }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

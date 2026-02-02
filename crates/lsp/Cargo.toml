@@ -10,9 +10,9 @@ name = "rma-lsp"
 path = "src/main.rs"
 
 [dependencies]
-rma-common = { version = "0.15.0", path = "../common" }
-rma-parser = { version = "0.15.0", path = "../parser" }
-rma-analyzer = { version = "0.15.0", path = "../analyzer" }
+rma-common = { version = "0.15.1", path = "../common" }
+rma-parser = { version = "0.15.1", path = "../parser" }
+rma-analyzer = { version = "0.15.1", path = "../analyzer" }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
