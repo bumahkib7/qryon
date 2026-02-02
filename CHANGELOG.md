@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-02-02
+
 ### Added
 - **Typestate Analysis Framework**: Track object state transitions through their lifecycle
   - `generic/file-typestate`: Detect use-after-close, unclosed files, double-open
@@ -18,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Safe pattern recognition: `with`, `defer`, try-with-resources, RAII
   - FlowContext integration with `compute_typestate()` and `typestate_violations()` methods
   - `builtin_typestate_rules()` convenience function for all typestate rules
+- **Interactive TUI**: Browse findings with keyboard navigation (`j/k`, `Enter` for details, `s` filter severity)
+- **Smart Progress Display**: Real-time progress bar with ETA, file counts, and severity breakdown
+- **Powerful Filtering**: `--severity`, `--rules`, `--exclude-rules`, `--files`, `--category`, `--search`
+- **Output Limiting**: `--limit N` and `--group-by` (file/rule/severity) for large codebases
+
+### Fixed
+- **Database Typestate False Positives**: Rule now requires database imports in file before flagging
+- **API Client Detection**: `cartApi.update()`, `userService.create()` no longer flagged as DB queries
+- **Array.find() False Positives**: Removed generic `.find(` from DB patterns, use specific ORM patterns
+- Compiler warnings eliminated across all crates
 
 ## [0.13.0] - 2026-02-02
 

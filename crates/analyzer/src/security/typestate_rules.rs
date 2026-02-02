@@ -3315,35 +3315,84 @@ impl DatabaseTypestateRule {
         let db_indicators = match language {
             Language::JavaScript | Language::TypeScript => &[
                 // Database drivers
-                "mysql", "mysql2", "pg", "postgres", "mongodb", "mongoose",
-                "sequelize", "prisma", "typeorm", "knex", "drizzle",
-                "better-sqlite3", "sql.js", "sqlite3",
+                "mysql",
+                "mysql2",
+                "pg",
+                "postgres",
+                "mongodb",
+                "mongoose",
+                "sequelize",
+                "prisma",
+                "typeorm",
+                "knex",
+                "drizzle",
+                "better-sqlite3",
+                "sql.js",
+                "sqlite3",
                 // Database-specific imports
-                "PrismaClient", "MongoClient", "createConnection", "createPool",
+                "PrismaClient",
+                "MongoClient",
+                "createConnection",
+                "createPool",
                 // ORM indicators
-                "@prisma/client", "@nestjs/typeorm", "mikro-orm",
+                "@prisma/client",
+                "@nestjs/typeorm",
+                "mikro-orm",
             ][..],
             Language::Python => &[
-                "psycopg2", "pymysql", "mysql.connector", "sqlite3", "sqlalchemy",
-                "asyncpg", "databases", "tortoise", "peewee", "mongoengine",
-                "pymongo", "motor", "django.db", "flask_sqlalchemy",
+                "psycopg2",
+                "pymysql",
+                "mysql.connector",
+                "sqlite3",
+                "sqlalchemy",
+                "asyncpg",
+                "databases",
+                "tortoise",
+                "peewee",
+                "mongoengine",
+                "pymongo",
+                "motor",
+                "django.db",
+                "flask_sqlalchemy",
             ][..],
             Language::Go => &[
-                "database/sql", "gorm", "sqlx", "pgx", "mongo-driver",
-                "go-redis", "ent", "sql.Open", "gorm.Open",
+                "database/sql",
+                "gorm",
+                "sqlx",
+                "pgx",
+                "mongo-driver",
+                "go-redis",
+                "ent",
+                "sql.Open",
+                "gorm.Open",
             ][..],
             Language::Java => &[
-                "java.sql", "javax.sql", "jdbc", "hibernate", "jpa",
-                "spring.data", "mybatis", "mongodb", "EntityManager",
+                "java.sql",
+                "javax.sql",
+                "jdbc",
+                "hibernate",
+                "jpa",
+                "spring.data",
+                "mybatis",
+                "mongodb",
+                "EntityManager",
             ][..],
             Language::Rust => &[
-                "sqlx", "diesel", "sea-orm", "mongodb", "tokio-postgres",
-                "rusqlite", "postgres", "mysql_async",
+                "sqlx",
+                "diesel",
+                "sea-orm",
+                "mongodb",
+                "tokio-postgres",
+                "rusqlite",
+                "postgres",
+                "mysql_async",
             ][..],
             _ => &[][..],
         };
 
-        db_indicators.iter().any(|indicator| content.contains(indicator))
+        db_indicators
+            .iter()
+            .any(|indicator| content.contains(indicator))
     }
 
     /// Check if line looks like an API client call (not a database call)
@@ -3351,15 +3400,28 @@ impl DatabaseTypestateRule {
         // Patterns that indicate HTTP API clients, not database operations
         let api_patterns = [
             // Common API client naming patterns (case-insensitive check)
-            "api.", "Api.", "API.",
-            "service.", "Service.",
-            "client.", "Client.",  // Only when followed by HTTP-like methods
-            "http.", "Http.", "HTTP.",
-            "axios.", "fetch(", "request.",
+            "api.",
+            "Api.",
+            "API.",
+            "service.",
+            "Service.",
+            "client.",
+            "Client.", // Only when followed by HTTP-like methods
+            "http.",
+            "Http.",
+            "HTTP.",
+            "axios.",
+            "fetch(",
+            "request.",
             // React Query / TanStack patterns
-            "useMutation", "useQuery",
+            "useMutation",
+            "useQuery",
             // Common API method patterns
-            ".get(", ".post(", ".put(", ".patch(", ".delete(",
+            ".get(",
+            ".post(",
+            ".put(",
+            ".patch(",
+            ".delete(",
         ];
 
         // Check for API client naming convention: variableApi.method() or variableService.method()
@@ -3378,12 +3440,12 @@ impl DatabaseTypestateRule {
         }
 
         // Check for await with API patterns
-        if trimmed.contains("await") && (
-            trimmed.contains("Api.") ||
-            trimmed.contains("Service.") ||
-            trimmed.contains("api.") ||
-            trimmed.contains("service.")
-        ) {
+        if trimmed.contains("await")
+            && (trimmed.contains("Api.")
+                || trimmed.contains("Service.")
+                || trimmed.contains("api.")
+                || trimmed.contains("service."))
+        {
             return true;
         }
 
