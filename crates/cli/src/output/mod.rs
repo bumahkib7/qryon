@@ -96,7 +96,7 @@ pub fn format_results_with_options(
     match format {
         OutputFormat::Text => text::output_with_options(results, summary, duration, options),
         OutputFormat::Json => json::output(results, summary, duration, output_file),
-        OutputFormat::Sarif => sarif::output(results, output_file),
+        OutputFormat::Sarif => sarif::output(results, summary, duration, output_file),
         OutputFormat::Compact => text::output_compact(results, summary, duration),
         OutputFormat::Markdown => tables::output_markdown(results, summary, duration, output_file),
         OutputFormat::Github => github::output(results, summary, duration),
