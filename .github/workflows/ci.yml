@@ -43,10 +43,13 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.6
         continue-on-error: true
       - name: Configure sccache
+        continue-on-error: true
         run: |
-          if command -v sccache &> /dev/null; then
+          if command -v sccache &> /dev/null && sccache --start-server 2>/dev/null; then
             echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
             echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          else
+            echo "sccache unavailable, running without cache"
           fi
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -83,10 +86,13 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.6
         continue-on-error: true
       - name: Configure sccache
+        continue-on-error: true
         run: |
-          if command -v sccache &> /dev/null; then
+          if command -v sccache &> /dev/null && sccache --start-server 2>/dev/null; then
             echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
             echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          else
+            echo "sccache unavailable, running without cache"
           fi
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -122,10 +128,13 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.6
         continue-on-error: true
       - name: Configure sccache
+        continue-on-error: true
         run: |
-          if command -v sccache &> /dev/null; then
+          if command -v sccache &> /dev/null && sccache --start-server 2>/dev/null; then
             echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
             echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          else
+            echo "sccache unavailable, running without cache"
           fi
       - name: Cache cargo registry
         uses: actions/cache@v4
