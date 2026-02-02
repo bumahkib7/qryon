@@ -1,6 +1,6 @@
 {
   "name": "rma-cli",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "Static security analyzer for polyglot projects (JS/TS, Python, Rust, Go, Java)",
   "keywords": [
     "security",
@@ -16,16 +16,16 @@
     "go",
     "java"
   ],
-  "homepage": "https://github.com/anthropics/rma",
+  "homepage": "https://github.com/bumahkib7/rust-monorepo-analyzer",
   "bugs": {
-    "url": "https://github.com/anthropics/rma/issues"
+    "url": "https://github.com/bumahkib7/rust-monorepo-analyzer/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anthropics/rma.git"
+    "url": "git+https://github.com/bumahkib7/rust-monorepo-analyzer.git"
   },
   "license": "MIT OR Apache-2.0",
-  "author": "RMA Team",
+  "author": "bumahkib7",
   "bin": {
     "rma": "./bin/rma-wrapper.js"
   },

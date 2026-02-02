@@ -12,7 +12,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const os = require('os');
 
-const REPO = 'anthropics/rma';
+const REPO = 'bumahkib7/rust-monorepo-analyzer';
 const BINARY_NAME = process.platform === 'win32' ? 'rma.exe' : 'rma';
 const BIN_DIR = path.join(__dirname, 'bin');
 
@@ -141,8 +141,8 @@ async function install() {
     console.error(`\nFailed to download pre-built binary: ${error.message}`);
     console.error('\nAlternative installation methods:');
     console.error('  1. cargo install rma-cli');
-    console.error('  2. curl -fsSL https://raw.githubusercontent.com/anthropics/rma/master/install.sh | bash');
-    console.error('  3. brew install anthropics/tap/rma (macOS)');
+    console.error('  2. curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash');
+    console.error('  3. brew install bumahkib7/tap/rma (macOS)');
     process.exit(1);
   }
 }
