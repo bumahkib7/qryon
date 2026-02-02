@@ -496,7 +496,7 @@ impl MultiPhaseProgress {
         if let Some(phase) = self.phases.get_mut(index) {
             if let Some(ref bar) = phase.bar {
                 bar.enable_steady_tick(Duration::from_millis(80));
-                bar.set_message(format!("{}", phase.name));
+                bar.set_message(phase.name.clone());
             }
             self.current_phase = index;
         }

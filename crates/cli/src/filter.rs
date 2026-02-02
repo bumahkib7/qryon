@@ -138,7 +138,7 @@ pub struct FilterProfile {
 }
 
 /// Comprehensive finding filter
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FindingFilter {
     /// Minimum severity threshold
     pub min_severity: Option<Severity>,
@@ -169,27 +169,6 @@ pub struct FindingFilter {
     /// Collected statistics (only when track_stats is true)
     #[allow(dead_code)] // Used for explain mode statistics tracking
     stats: FilterStats,
-}
-
-impl Default for FindingFilter {
-    fn default() -> Self {
-        Self {
-            min_severity: None,
-            rules: HashSet::new(),
-            rules_patterns: Vec::new(),
-            exclude_rules: HashSet::new(),
-            exclude_rules_patterns: Vec::new(),
-            file_patterns: Vec::new(),
-            exclude_patterns: Vec::new(),
-            category: None,
-            fixable_only: false,
-            high_confidence_only: false,
-            search_text: None,
-            search_regex: None,
-            track_stats: false,
-            stats: FilterStats::default(),
-        }
-    }
 }
 
 impl FindingFilter {
