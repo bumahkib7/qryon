@@ -36,7 +36,7 @@ cargo install rma-cli
 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 
 # Install specific version
-VERSION=0.14.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+VERSION=0.15.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 ```
 
 **Windows PowerShell:**
@@ -51,7 +51,7 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
 
 **GitHub Actions:**
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer@v0.14.0
+- uses: bumahkib7/rust-monorepo-analyzer@v0.15.0
   with:
     path: '.'
     upload-sarif: true
@@ -62,7 +62,7 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/bumahkib7/rust-monorepo-analyzer
-    rev: v0.14.0
+    rev: v0.15.0
     hooks:
       - id: rma
 ```
@@ -256,7 +256,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run RMA Security Scan
-        uses: bumahkib7/rust-monorepo-analyzer@v0.14.0
+        uses: bumahkib7/rust-monorepo-analyzer@v0.15.0
         with:
           path: '.'
           severity: 'warning'
@@ -282,7 +282,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run RMA Security Scan
-        uses: bumahkib7/rust-monorepo-analyzer@v0.14.0
+        uses: bumahkib7/rust-monorepo-analyzer@v0.15.0
         with:
           path: '.'
           format: 'sarif'

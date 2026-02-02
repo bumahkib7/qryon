@@ -1,6 +1,6 @@
 {
   "name": "rma-cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Static security analyzer for polyglot projects (JS/TS, Python, Rust, Go, Java)",
   "keywords": [
     "security",

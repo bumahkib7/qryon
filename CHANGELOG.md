@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-02-02
+
+### Added
+- **SARIF Scanned Files Summary**: GitHub Code Scanning now displays scanned files and timing metrics
+  - Added `artifacts` array with all analyzed files (path, language, LOC, complexity)
+  - Added `invocations` array with execution timing and performance stats
+  - Metrics include files/second throughput, total findings breakdown
+- **Dedicated RMA Scan Workflow**: New `rma-scan.yml` workflow for GitHub Code Scanning integration
+- **Open Source Community Files**:
+  - `CODEOWNERS` for maintainer control
+  - `CODE_OF_CONDUCT.md` (Contributor Covenant)
+  - `SECURITY.md` vulnerability reporting policy
+  - Issue templates (bug report, feature request)
+  - Pull request template
+
+### Fixed
+- npm package URLs now point to correct repository
+- GitHub Actions workflow permissions for code scanning
+- README version references updated to current release
+
+### Changed
+- Branch protection configured for solo maintainer workflow
+- GitHub Discussions enabled
+- Repository topics added for discoverability
+
 ## [0.14.0] - 2026-02-02
 
 ### Added
