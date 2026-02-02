@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/bumahkib7/rust-monorepo-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/bumahkib7/rust-monorepo-analyzer/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/bumahkib7/rust-monorepo-analyzer)](https://github.com/bumahkib7/rust-monorepo-analyzer/releases)
+[![npm](https://img.shields.io/npm/v/rma-cli)](https://www.npmjs.com/package/rma-cli)
 [![crates.io](https://img.shields.io/crates/v/rma-cli.svg)](https://crates.io/crates/rma-cli)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fbumahkib7%2Frma-blue)](https://ghcr.io/bumahkib7/rma)
 [![Homebrew](https://img.shields.io/badge/homebrew-bumahkib7%2Ftap%2Frma-orange)](https://github.com/bumahkib7/homebrew-tap)
@@ -35,7 +36,7 @@ cargo install rma-cli
 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 
 # Install specific version
-VERSION=0.12.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+VERSION=0.14.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 ```
 
 **Windows PowerShell:**
@@ -50,7 +51,7 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
 
 **GitHub Actions:**
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/rust-monorepo-analyzer@v0.14.0
   with:
     path: '.'
     upload-sarif: true
@@ -61,7 +62,7 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/bumahkib7/rust-monorepo-analyzer
-    rev: v0.12.0
+    rev: v0.14.0
     hooks:
       - id: rma
 ```
@@ -235,28 +236,9 @@ critical[RMA-S005]: SQL query built with format! - use parameterized queries ins
 
 ### GitHub Actions Integration
 
-RMA provides a reusable GitHub Action for easy CI/CD integration with automatic SARIF upload to GitHub Security tab.
+RMA provides a GitHub Action for easy CI/CD integration with automatic SARIF upload to GitHub Security tab.
 
-#### Quick Setup (Reusable Workflow)
-
-```yaml
-name: Security Scan
-
-on: [push, pull_request]
-
-jobs:
-  security-scan:
-    uses: bumahkib7/rust-monorepo-analyzer/.github/workflows/rma-scan-reusable.yml@master
-    permissions:
-      contents: read
-      security-events: write
-    with:
-      path: './src'
-      severity: 'warning'
-      upload-sarif: true
-```
-
-#### Composite Action (More Control)
+#### Basic Usage
 
 ```yaml
 name: Security Scan
@@ -274,12 +256,39 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run RMA Security Scan
-        uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+        uses: bumahkib7/rust-monorepo-analyzer@v0.14.0
+        with:
+          path: '.'
+          severity: 'warning'
+          upload-sarif: 'true'
+```
+
+#### With PR Comments
+
+```yaml
+name: Security Scan
+
+on: [push, pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run RMA Security Scan
+        uses: bumahkib7/rust-monorepo-analyzer@v0.14.0
         with:
           path: '.'
           format: 'sarif'
           severity: 'warning'
           upload-sarif: 'true'
+          comment-on-pr: 'true'
 ```
 
 #### Action Inputs
