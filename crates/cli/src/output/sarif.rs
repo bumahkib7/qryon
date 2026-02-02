@@ -183,10 +183,11 @@ pub fn output(
                                     "uriBaseId": "%SRCROOT%"
                                 },
                                 "region": {
-                                    "startLine": f.location.start_line,
-                                    "startColumn": f.location.start_column,
-                                    "endLine": f.location.end_line,
-                                    "endColumn": f.location.end_column,
+                                    // SARIF spec requires line/column >= 1
+                                    "startLine": f.location.start_line.max(1),
+                                    "startColumn": f.location.start_column.max(1),
+                                    "endLine": f.location.end_line.max(1),
+                                    "endColumn": f.location.end_column.max(1),
                                     "snippet": f.snippet.as_ref().map(|s| serde_json::json!({
                                         "text": s
                                     }))
@@ -206,10 +207,10 @@ pub fn output(
                                 },
                                 "replacements": [{
                                     "deletedRegion": {
-                                        "startLine": f.location.start_line,
-                                        "startColumn": f.location.start_column,
-                                        "endLine": f.location.end_line,
-                                        "endColumn": f.location.end_column,
+                                        "startLine": f.location.start_line.max(1),
+                                        "startColumn": f.location.start_column.max(1),
+                                        "endLine": f.location.end_line.max(1),
+                                        "endColumn": f.location.end_column.max(1),
                                         "byteOffset": fix.start_byte,
                                         "byteLength": fix.end_byte - fix.start_byte
                                     },
