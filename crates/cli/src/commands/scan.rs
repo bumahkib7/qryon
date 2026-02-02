@@ -55,10 +55,12 @@ pub struct ScanArgs {
     pub diff_base: String,
     /// Read unified diff from stdin instead of running git diff
     pub diff_stdin: bool,
-    /// Skip test files and directories (security rules still apply)
-    pub skip_tests: bool,
+    /// Include test files in analysis (tests excluded by default)
+    pub include_tests: bool,
     /// Skip ALL findings in tests including security rules
     pub skip_tests_all: bool,
+    /// [DEPRECATED] Tests are now excluded by default
+    pub skip_tests: bool,
     /// Maximum findings to display
     pub limit: usize,
     /// Show all findings without limit
@@ -464,14 +466,14 @@ fn apply_mode_defaults(args: &ScanArgs) -> EffectiveScanSettings {
         }
         Some(ScanMode::Local) | None => {
             // Local mode: use all explicit settings
-            // --skip-tests or --skip-tests-all enables default test/example suppressions
+            // Tests are excluded by default; use --include-tests to scan them
             EffectiveScanSettings {
                 format: args.format,
                 severity: args.severity,
                 changed_only: args.changed_only,
                 baseline_mode: args.baseline_mode,
                 timing: args.timing,
-                use_default_presets: args.skip_tests || args.skip_tests_all,
+                use_default_presets: !args.include_tests,
                 skip_security_in_tests: args.skip_tests_all,
                 include_suppressed: args.include_suppressed,
                 diff: args.diff,
@@ -1557,6 +1559,7 @@ mod tests {
             diff: false,
             diff_base: "origin/main".to_string(),
             diff_stdin: false,
+            include_tests: false,
             skip_tests: false,
             skip_tests_all: false,
             limit: 20,
@@ -1603,7 +1606,20 @@ mod tests {
         assert!(effective.changed_only);
         assert!(effective.baseline_mode);
         assert!(effective.timing);
-        assert!(!effective.use_default_presets); // Local mode doesn't use presets
+        assert!(effective.use_default_presets); // Tests excluded by default
+    }
+
+    #[test]
+    fn test_include_tests_disables_presets() {
+        let args = ScanArgs {
+            mode: Some(ScanMode::Local),
+            include_tests: true, // Opt-in to scan test files
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        assert!(!effective.use_default_presets); // Tests included when flag is set
     }
 
     #[test]

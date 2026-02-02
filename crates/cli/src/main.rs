@@ -181,15 +181,19 @@ pub enum Commands {
         #[arg(long, requires = "diff")]
         diff_stdin: bool,
 
-        /// Skip test files and test directories (security rules still apply)
-        /// Automatically excludes common test patterns: *_test.go, *.test.ts, test_*.py, src/test/**, etc.
+        /// Include test files in analysis (tests are excluded by default)
+        /// Use this flag to scan test files: *_test.go, *.test.ts, test_*.py, src/test/**, etc.
         #[arg(long)]
-        skip_tests: bool,
+        include_tests: bool,
 
         /// Skip ALL findings in test files including security rules
-        /// Use with caution - security vulnerabilities in tests can still be exploited
+        /// By default, tests are excluded but security rules still apply if tests are included
         #[arg(long)]
         skip_tests_all: bool,
+
+        /// [DEPRECATED] Tests are now excluded by default. Use --include-tests to scan them.
+        #[arg(long, hide = true)]
+        skip_tests: bool,
 
         /// Maximum findings to display (default: 20, use --all for unlimited)
         #[arg(long, default_value = "20")]
@@ -929,6 +933,7 @@ fn main() -> Result<()> {
             diff,
             diff_base,
             diff_stdin,
+            include_tests,
             skip_tests,
             skip_tests_all,
             limit,
@@ -981,6 +986,7 @@ fn main() -> Result<()> {
             diff,
             diff_base,
             diff_stdin,
+            include_tests,
             skip_tests,
             skip_tests_all,
             limit,
