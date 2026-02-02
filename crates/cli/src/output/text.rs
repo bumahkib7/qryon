@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// Output results in human-readable text format (legacy, uses defaults)
+#[allow(dead_code)] // Public API for text output
 pub fn output(
     results: &[FileAnalysis],
     summary: &AnalysisSummary,

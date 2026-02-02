@@ -71,7 +71,8 @@ pub struct TuiApp {
     filtered_findings: Vec<usize>,
     /// Currently selected index in filtered_findings
     selected: usize,
-    /// Scroll offset for the list view
+    /// Scroll offset for the list view (reserved for virtual scrolling)
+    #[allow(dead_code)]
     scroll_offset: usize,
     /// Severity filter (None = show all)
     filter_severity: Option<Severity>,

@@ -1112,6 +1112,7 @@ mod tests {
     use rma_parser::ParserEngine;
     use std::path::Path;
 
+    #[allow(dead_code)]
     fn parse_file(code: &str, lang: Language) -> ParsedFile {
         let config = rma_common::RmaConfig::default();
         let parser = ParserEngine::new(config);

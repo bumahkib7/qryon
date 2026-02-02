@@ -175,7 +175,8 @@ impl XssDetectionRule {
         "request.META",
     ];
 
-    // Java XSS sinks (Thymeleaf, JSP)
+    // Java XSS sinks (Thymeleaf, JSP) - reserved for future Java XSS detection
+    #[allow(dead_code)]
     const JAVA_SINKS: &'static [&'static str] = &[
         "th:utext",
         "response.getWriter().print",
@@ -183,7 +184,7 @@ impl XssDetectionRule {
         "out.print",
     ];
 
-    // Java XSS sources
+    // Java XSS sources - reserved for future Java XSS detection
     #[allow(dead_code)]
     const JAVA_SOURCES: &'static [&'static str] = &[
         "request.getParameter",
@@ -193,7 +194,8 @@ impl XssDetectionRule {
         "request.getCookies",
     ];
 
-    // Sanitizers (cross-language)
+    // Sanitizers (cross-language) - reserved for future sanitizer detection
+    #[allow(dead_code)]
     const SANITIZERS: &'static [&'static str] = &[
         "DOMPurify.sanitize",
         "sanitize",
@@ -222,6 +224,7 @@ impl XssDetectionRule {
     }
 
     /// Check if a function/method name is a sanitizer
+    #[allow(dead_code)]
     fn is_sanitizer(name: &str) -> bool {
         Self::SANITIZERS
             .iter()
