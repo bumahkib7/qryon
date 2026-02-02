@@ -1,9 +1,10 @@
 //! SARIF output formatting
 
 use anyhow::Result;
-use rma_analyzer::FileAnalysis;
+use rma_analyzer::{AnalysisSummary, FileAnalysis};
 use rma_common::{Confidence, FindingCategory, Severity};
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Normalize a file path for SARIF output
 /// Removes ./ prefix and ensures it's a clean relative path
@@ -54,7 +55,37 @@ fn extract_osv_metadata(message: &str, rule_id: &str) -> Option<serde_json::Valu
 }
 
 /// Output results in SARIF 2.1.0 format
-pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<()> {
+pub fn output(
+    results: &[FileAnalysis],
+    summary: &AnalysisSummary,
+    duration: Duration,
+    output_file: Option<PathBuf>,
+) -> Result<()> {
+    let start_time = chrono::Utc::now() - chrono::Duration::from_std(duration).unwrap_or_default();
+    let end_time = chrono::Utc::now();
+
+    // Build artifacts array from all analyzed files
+    let artifacts: Vec<_> = results
+        .iter()
+        .enumerate()
+        .map(|(idx, r)| {
+            serde_json::json!({
+                "location": {
+                    "uri": normalize_sarif_path(std::path::Path::new(&r.path)),
+                    "uriBaseId": "%SRCROOT%"
+                },
+                "length": r.metrics.lines_of_code,
+                "sourceLanguage": format!("{:?}", r.language).to_lowercase(),
+                "roles": ["analysisTarget"],
+                "properties": {
+                    "index": idx,
+                    "complexity": r.metrics.cyclomatic_complexity,
+                    "findingsCount": r.findings.len()
+                }
+            })
+        })
+        .collect();
+
     let rules: Vec<_> = results
         .iter()
         .flat_map(|r| &r.findings)
@@ -94,9 +125,41 @@ pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<
                     "fullName": "Rust Monorepo Analyzer",
                     "version": env!("CARGO_PKG_VERSION"),
                     "informationUri": "https://github.com/bumahkib7/rust-monorepo-analyzer",
-                    "rules": rules
+                    "rules": rules,
+                    "properties": {
+                        "scanCoverage": {
+                            "filesAnalyzed": summary.files_analyzed,
+                            "totalLinesOfCode": summary.total_loc,
+                            "totalComplexity": summary.total_complexity
+                        }
+                    }
                 }
             },
+            "invocations": [{
+                "executionSuccessful": true,
+                "startTimeUtc": start_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                "endTimeUtc": end_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                "toolExecutionNotifications": [],
+                "properties": {
+                    "executionTimeMs": duration.as_millis(),
+                    "filesPerSecond": if duration.as_secs_f64() > 0.0 {
+                        (summary.files_analyzed as f64 / duration.as_secs_f64()).round() as u64
+                    } else {
+                        summary.files_analyzed as u64
+                    },
+                    "metrics": {
+                        "filesAnalyzed": summary.files_analyzed,
+                        "totalFindings": summary.total_findings,
+                        "criticalCount": summary.critical_count,
+                        "errorCount": summary.error_count,
+                        "warningCount": summary.warning_count,
+                        "infoCount": summary.info_count,
+                        "linesOfCode": summary.total_loc,
+                        "totalComplexity": summary.total_complexity
+                    }
+                }
+            }],
+            "artifacts": artifacts,
             "results": results.iter().flat_map(|r| {
                 r.findings.iter().map(|f| {
                     let mut result = serde_json::json!({
