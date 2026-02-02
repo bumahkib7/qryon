@@ -316,7 +316,6 @@ fn initial_scan(
     state: &mut WatchState,
     quiet: bool,
 ) {
-    let extensions = ["rs", "js", "ts", "tsx", "jsx", "py", "go", "java"];
     let start = Instant::now();
     let mut files_with_findings = 0;
 
@@ -328,28 +327,25 @@ fn initial_scan(
     for entry in entries {
         let file_path = entry.path();
 
-        // Skip non-files and hidden/target directories
+        // Skip non-files
         if !file_path.is_file() {
             continue;
         }
-        let path_str = file_path.to_string_lossy();
-        if path_str.contains("/target/")
-            || path_str.contains("/node_modules/")
-            || path_str.contains("/.")
-        {
+
+        // Use centralized filtering from watcher module
+        if watcher::is_ignored_path(file_path) {
+            continue;
+        }
+
+        if !watcher::is_source_file(file_path) {
             continue;
         }
 
         // Apply pattern filter
+        let path_str = file_path.to_string_lossy();
         if let Some(pat) = pattern
             && !path_str.contains(pat)
         {
-            continue;
-        }
-
-        // Check extension
-        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !extensions.contains(&ext) {
             continue;
         }
 

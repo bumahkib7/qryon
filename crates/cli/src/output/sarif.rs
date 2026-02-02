@@ -131,8 +131,33 @@ pub fn output(results: &[FileAnalysis], output_file: Option<PathBuf>) -> Result<
                             }
                         }]
                     });
-                    // Only add fixes if there's a suggestion
-                    if let Some(suggestion) = &f.suggestion {
+                    // Add structured fix if available (preferred), otherwise fall back to suggestion
+                    if let Some(fix) = &f.fix {
+                        result["fixes"] = serde_json::json!([{
+                            "description": {
+                                "text": &fix.description
+                            },
+                            "artifactChanges": [{
+                                "artifactLocation": {
+                                    "uri": normalize_sarif_path(&f.location.file)
+                                },
+                                "replacements": [{
+                                    "deletedRegion": {
+                                        "startLine": f.location.start_line,
+                                        "startColumn": f.location.start_column,
+                                        "endLine": f.location.end_line,
+                                        "endColumn": f.location.end_column,
+                                        "byteOffset": fix.start_byte,
+                                        "byteLength": fix.end_byte - fix.start_byte
+                                    },
+                                    "insertedContent": {
+                                        "text": &fix.replacement
+                                    }
+                                }]
+                            }]
+                        }]);
+                    } else if let Some(suggestion) = &f.suggestion {
+                        // Fall back to simple description-only fix for backward compatibility
                         result["fixes"] = serde_json::json!([{
                             "description": {
                                 "text": suggestion

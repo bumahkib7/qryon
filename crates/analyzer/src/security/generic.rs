@@ -218,6 +218,7 @@ impl Rule for TodoFixmeRule {
                     language: parsed.language,
                     snippet: Some(line.trim().to_string()),
                     suggestion: None,
+                    fix: None,
                     confidence: rma_common::Confidence::High,
                     category: rma_common::FindingCategory::Style,
                     fingerprint: None,
@@ -553,6 +554,7 @@ impl Rule for DuplicateFunctionRule {
                             "Extract shared logic from '{}' and '{}'",
                             first.name, dup.name
                         )),
+                        fix: None,
                         confidence: rma_common::Confidence::High,
                         category: rma_common::FindingCategory::Style,
                         fingerprint: None,
@@ -1077,6 +1079,174 @@ fn count_branches(node: &Node, lang: Language) -> usize {
     }
 }
 
+// =============================================================================
+// CFG-POWERED RULES
+// =============================================================================
+
+use crate::flow::FlowContext;
+
+/// DETECTS dead code after return/throw/break statements
+///
+/// Uses CFG reachability analysis to find code that can never execute.
+pub struct DeadCodeRule;
+
+impl Rule for DeadCodeRule {
+    fn id(&self) -> &str {
+        "generic/dead-code-after-return"
+    }
+
+    fn description(&self) -> &str {
+        "Detects code that is unreachable after return, throw, or break statements"
+    }
+
+    fn applies_to(&self, _lang: Language) -> bool {
+        true
+    }
+
+    fn uses_flow(&self) -> bool {
+        true
+    }
+
+    fn check(&self, _parsed: &ParsedFile) -> Vec<Finding> {
+        Vec::new() // Requires flow analysis
+    }
+
+    fn check_with_flow(&self, parsed: &ParsedFile, flow: &FlowContext) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        // Get all unreachable blocks with statements
+        for block_id in flow.cfg.unreachable_blocks() {
+            if let Some(block) = flow.cfg.blocks.get(block_id) {
+                // Report the first statement in the unreachable block
+                if let Some(&first_stmt) = block.statements.first() {
+                    // Find the node in the AST to get location
+                    let mut cursor = parsed.tree.walk();
+                    if let Some(node) = find_node_by_id(&mut cursor, first_stmt) {
+                        findings.push(create_finding(
+                            self.id(),
+                            &node,
+                            &parsed.path,
+                            &parsed.content,
+                            Severity::Warning,
+                            "Unreachable code detected - this code will never execute",
+                            parsed.language,
+                        ));
+                    }
+                }
+            }
+        }
+
+        findings
+    }
+}
+
+/// DETECTS empty catch blocks that silently swallow exceptions
+///
+/// Uses CFG to identify catch handler blocks with no statements.
+pub struct EmptyCatchRule;
+
+impl Rule for EmptyCatchRule {
+    fn id(&self) -> &str {
+        "generic/empty-catch-block"
+    }
+
+    fn description(&self) -> &str {
+        "Detects empty catch blocks that silently swallow exceptions"
+    }
+
+    fn applies_to(&self, lang: Language) -> bool {
+        matches!(
+            lang,
+            Language::JavaScript | Language::TypeScript | Language::Java | Language::Python
+        )
+    }
+
+    fn uses_flow(&self) -> bool {
+        true
+    }
+
+    fn check(&self, _parsed: &ParsedFile) -> Vec<Finding> {
+        Vec::new() // Requires flow analysis
+    }
+
+    fn check_with_flow(&self, parsed: &ParsedFile, flow: &FlowContext) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        // Get all empty catch blocks
+        for block_id in flow.cfg.empty_catch_blocks() {
+            if let Some(block) = flow.cfg.blocks.get(block_id) {
+                // Find the try-catch terminator that references this catch block
+                for other_block in &flow.cfg.blocks {
+                    if let crate::flow::Terminator::TryCatch {
+                        catch_block: Some(cb),
+                        ..
+                    } = &other_block.terminator
+                    {
+                        if *cb == block_id {
+                            // Report on the catch block's predecessors' location
+                            if !other_block.statements.is_empty() {
+                                if let Some(&stmt) = other_block.statements.last() {
+                                    let mut cursor = parsed.tree.walk();
+                                    if let Some(node) = find_node_by_id(&mut cursor, stmt) {
+                                        findings.push(create_finding(
+                                            self.id(),
+                                            &node,
+                                            &parsed.path,
+                                            &parsed.content,
+                                            Severity::Warning,
+                                            "Empty catch block silently swallows exceptions - add error handling or logging",
+                                            parsed.language,
+                                        ));
+                                    }
+                                }
+                            } else {
+                                // Fall back to reporting based on block position
+                                let line = block.id + 1; // Rough approximation
+                                findings.push(create_finding_at_line(
+                                    self.id(),
+                                    &parsed.path,
+                                    line,
+                                    "catch { }",
+                                    Severity::Warning,
+                                    "Empty catch block silently swallows exceptions - add error handling or logging",
+                                    parsed.language,
+                                ));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        findings
+    }
+}
+
+/// Helper to find a node by its tree-sitter ID
+fn find_node_by_id<'a>(
+    cursor: &mut tree_sitter::TreeCursor<'a>,
+    target_id: usize,
+) -> Option<Node<'a>> {
+    loop {
+        let node = cursor.node();
+        if node.id() == target_id {
+            return Some(node);
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return None;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1277,5 +1447,41 @@ MIIEowIBAAKCAQEA1Z5/aTwqY706M34tn60l8ZHkanWDl8mM1pYf4Q7qg3zA9XqW
             !findings_prod.is_empty(),
             "Should detect secrets in production files"
         );
+    }
+
+    #[test]
+    fn test_dead_code_rule_uses_flow() {
+        let rule = DeadCodeRule;
+        assert!(rule.uses_flow(), "DeadCodeRule should use flow analysis");
+        assert_eq!(rule.id(), "generic/dead-code-after-return");
+    }
+
+    #[test]
+    fn test_empty_catch_rule_uses_flow() {
+        let rule = EmptyCatchRule;
+        assert!(rule.uses_flow(), "EmptyCatchRule should use flow analysis");
+        assert_eq!(rule.id(), "generic/empty-catch-block");
+    }
+
+    #[test]
+    fn test_empty_catch_rule_applies_to_languages() {
+        let rule = EmptyCatchRule;
+        assert!(rule.applies_to(Language::JavaScript));
+        assert!(rule.applies_to(Language::TypeScript));
+        assert!(rule.applies_to(Language::Java));
+        assert!(rule.applies_to(Language::Python));
+        assert!(!rule.applies_to(Language::Rust)); // Rust uses Result, not exceptions
+        assert!(!rule.applies_to(Language::Go)); // Go uses explicit error handling
+    }
+
+    #[test]
+    fn test_dead_code_rule_applies_to_all_languages() {
+        let rule = DeadCodeRule;
+        assert!(rule.applies_to(Language::JavaScript));
+        assert!(rule.applies_to(Language::TypeScript));
+        assert!(rule.applies_to(Language::Java));
+        assert!(rule.applies_to(Language::Python));
+        assert!(rule.applies_to(Language::Rust));
+        assert!(rule.applies_to(Language::Go));
     }
 }

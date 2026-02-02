@@ -1,5 +1,6 @@
 //! Rule trait and base implementations for security vulnerability DETECTION
 
+use crate::flow::FlowContext;
 use rma_common::{Confidence, Finding, FindingCategory, Language};
 use rma_parser::ParsedFile;
 use tree_sitter::Node;
@@ -17,6 +18,22 @@ pub trait Rule: Send + Sync {
 
     /// Check a parsed file and return any findings (detected vulnerabilities)
     fn check(&self, parsed: &ParsedFile) -> Vec<Finding>;
+
+    /// Check with flow analysis context (symbol table + taint info)
+    ///
+    /// Flow-aware rules should override this to use taint and scope information.
+    /// Default implementation falls back to `check()`.
+    fn check_with_flow(&self, parsed: &ParsedFile, _flow: &FlowContext) -> Vec<Finding> {
+        self.check(parsed)
+    }
+
+    /// Whether this rule uses flow analysis
+    ///
+    /// Rules that return true will receive a FlowContext in check_with_flow.
+    /// This allows lazy construction of the symbol table only when needed.
+    fn uses_flow(&self) -> bool {
+        false
+    }
 }
 
 /// Helper to create a finding from a line number (for line-based checks)
@@ -38,6 +55,7 @@ pub fn create_finding_at_line(
         language,
         snippet: Some(snippet.to_string()),
         suggestion: None,
+        fix: None,
         confidence: Confidence::Medium,
         category: infer_category(rule_id),
         fingerprint: None,
@@ -85,6 +103,7 @@ pub fn create_finding(
         language,
         snippet,
         suggestion: None,
+        fix: None,
         confidence: Confidence::Medium,
         category: infer_category(rule_id),
         fingerprint: None,

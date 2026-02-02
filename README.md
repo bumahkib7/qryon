@@ -14,13 +14,18 @@ RMA leverages tree-sitter for polyglot parsing, rayon for parallelism, and tanti
 
 ## Quick Install
 
+**npm (Node.js):**
+```bash
+npm install -g rma-cli
+```
+
 **Homebrew (macOS/Linux):**
 ```bash
 brew tap bumahkib7/tap
 brew install rma
 ```
 
-**Cargo:**
+**Cargo (Rust):**
 ```bash
 cargo install rma-cli
 ```
@@ -28,6 +33,9 @@ cargo install rma-cli
 **Shell Script (Linux/macOS):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+
+# Install specific version
+VERSION=0.12.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 ```
 
 **Windows PowerShell:**
@@ -47,6 +55,27 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
     path: '.'
     upload-sarif: true
 ```
+
+**Pre-commit:**
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/bumahkib7/rust-monorepo-analyzer
+    rev: v0.12.0
+    hooks:
+      - id: rma
+```
+
+## Supported Languages
+
+| Language | Extensions | Security Rules | Metrics |
+|----------|------------|----------------|---------|
+| Rust | `.rs` | unsafe blocks, unwrap, panic | complexity, LOC |
+| JavaScript | `.js`, `.jsx`, `.mjs` | XSS, injection, secrets | complexity, LOC |
+| TypeScript | `.ts`, `.tsx` | XSS, injection, secrets | complexity, LOC |
+| Python | `.py` | exec, shell injection, secrets | complexity, LOC |
+| Go | `.go` | unsafe, SQL injection | complexity, LOC |
+| Java | `.java` | injection, crypto issues | complexity, LOC |
 
 ## Features
 

@@ -5,7 +5,7 @@ use crate::ui::{progress, theme::Theme};
 use crate::{OutputFormat, ScanMode};
 use anyhow::Result;
 use colored::Colorize;
-use rma_analyzer::AnalyzerEngine;
+use rma_analyzer::{AnalyzerEngine, diff, project::ProjectAnalyzer};
 use rma_common::{
     Baseline, BaselineMode, Language, Profile, ProviderType, ProvidersConfig, RmaConfig,
     RmaTomlConfig, Severity, SuppressionEngine, parse_inline_suppressions,
@@ -44,6 +44,18 @@ pub struct ScanArgs {
     pub osv_offline: bool,
     /// OSV cache TTL
     pub osv_cache_ttl: String,
+    /// Enable cross-file analysis
+    pub cross_file: bool,
+    /// Only report findings on lines changed in the diff
+    pub diff: bool,
+    /// Base git ref to compare against when using --diff
+    pub diff_base: String,
+    /// Read unified diff from stdin instead of running git diff
+    pub diff_stdin: bool,
+    /// Skip test files and directories (security rules still apply)
+    pub skip_tests: bool,
+    /// Skip ALL findings in tests including security rules
+    pub skip_tests_all: bool,
 }
 
 /// Effective scan settings after applying mode defaults
@@ -56,8 +68,16 @@ struct EffectiveScanSettings {
     timing: bool,
     /// Whether to apply default test/example suppression presets
     use_default_presets: bool,
+    /// Whether to skip security rules in tests too (--skip-tests-all)
+    skip_security_in_tests: bool,
     /// Whether to include suppressed findings in output
     include_suppressed: bool,
+    /// Filter findings to only changed lines in diff
+    diff: bool,
+    /// Base git ref for diff comparison
+    diff_base: String,
+    /// Read diff from stdin instead of running git
+    diff_stdin: bool,
 }
 
 pub fn run(args: ScanArgs) -> Result<()> {
@@ -141,7 +161,21 @@ pub fn run(args: ScanArgs) -> Result<()> {
     )?;
     timings.push(("Analyze", analyze_start.elapsed()));
 
-    // Phase 2.5: Apply suppression filtering
+    // Phase 2.5: Cross-file analysis (if enabled)
+    if args.cross_file {
+        let cross_file_start = Instant::now();
+        run_cross_file_phase(
+            &args,
+            &effective,
+            &config,
+            &parsed_files,
+            &mut results,
+            &mut summary,
+        )?;
+        timings.push(("Cross-file", cross_file_start.elapsed()));
+    }
+
+    // Phase 2.6: Apply suppression filtering
     let suppression_start = Instant::now();
     let suppressed_count = apply_suppressions(
         &args,
@@ -192,6 +226,77 @@ pub fn run(args: ScanArgs) -> Result<()> {
         }
     }
 
+    // Phase 2.8: Diff-aware filtering (for PR workflows)
+    if effective.diff {
+        let diff_start = Instant::now();
+        let before_count = summary.total_findings;
+
+        let changed_lines = if effective.diff_stdin {
+            // Read diff from stdin
+            diff::get_changed_lines_from_stdin()?
+        } else {
+            // Get diff from git
+            diff::get_changed_lines_from_git(&args.path, &effective.diff_base)?
+        };
+
+        if !args.quiet && effective.format == OutputFormat::Text {
+            let files_changed = changed_lines.len();
+            let total_lines: usize = changed_lines.values().map(|s| s.len()).sum();
+            println!(
+                "  {} {} files with {} changed lines (base: {})",
+                Theme::info_mark(),
+                files_changed.to_string().yellow(),
+                total_lines.to_string().yellow(),
+                effective.diff_base.dimmed()
+            );
+        }
+
+        // Filter findings to only those on changed lines
+        for result in &mut results {
+            let file_path = PathBuf::from(&result.path);
+            result.findings =
+                diff::filter_findings_by_diff(std::mem::take(&mut result.findings), &changed_lines);
+            // Update path in findings to match file_path for proper filtering
+            for finding in &mut result.findings {
+                if finding.location.file != file_path {
+                    finding.location.file = file_path.clone();
+                }
+            }
+        }
+
+        // Recalculate summary
+        summary.total_findings = 0;
+        summary.critical_count = 0;
+        summary.error_count = 0;
+        summary.warning_count = 0;
+        summary.info_count = 0;
+
+        for result in &results {
+            for finding in &result.findings {
+                summary.total_findings += 1;
+                match finding.severity {
+                    Severity::Critical => summary.critical_count += 1,
+                    Severity::Error => summary.error_count += 1,
+                    Severity::Warning => summary.warning_count += 1,
+                    Severity::Info => summary.info_count += 1,
+                }
+            }
+        }
+
+        timings.push(("Diff filter", diff_start.elapsed()));
+
+        if !args.quiet && effective.format == OutputFormat::Text {
+            let filtered = before_count - summary.total_findings;
+            if filtered > 0 {
+                println!(
+                    "  {} Filtered {} findings not on changed lines",
+                    Theme::info_mark(),
+                    filtered.to_string().dimmed()
+                );
+            }
+        }
+    }
+
     // Phase 3: AI Analysis (optional)
     if args.ai_analysis {
         let ai_start = Instant::now();
@@ -212,12 +317,13 @@ pub fn run(args: ScanArgs) -> Result<()> {
     }
 
     // Output results
-    output::format_results(
+    output::format_results_with_root(
         &results,
         &summary,
         total_duration,
         effective.format,
         args.output.clone(),
+        Some(&args.path),
     )?;
 
     // Exit with error code if critical/error findings
@@ -233,7 +339,7 @@ fn apply_mode_defaults(args: &ScanArgs) -> EffectiveScanSettings {
     match args.mode {
         Some(ScanMode::Pr) => {
             // PR mode defaults: changed_only=true, baseline_mode=true, format=sarif, severity=warning, timing=false
-            // Also enables default test/example suppressions
+            // Also enables default test/example suppressions and diff filtering
             EffectiveScanSettings {
                 format: if args.format != OutputFormat::Text {
                     args.format // User explicitly set format
@@ -245,7 +351,11 @@ fn apply_mode_defaults(args: &ScanArgs) -> EffectiveScanSettings {
                 baseline_mode: true,     // Always true for PR mode
                 timing: false,           // Disabled for PR mode (cleaner output)
                 use_default_presets: true, // Enable test/example suppressions
+                skip_security_in_tests: args.skip_tests_all,
                 include_suppressed: args.include_suppressed,
+                diff: args.diff, // Respect explicit --diff flag
+                diff_base: args.diff_base.clone(),
+                diff_stdin: args.diff_stdin,
             }
         }
         Some(ScanMode::Ci) => {
@@ -257,19 +367,28 @@ fn apply_mode_defaults(args: &ScanArgs) -> EffectiveScanSettings {
                 baseline_mode: args.baseline_mode,
                 timing: false,             // Disabled for cleaner CI output
                 use_default_presets: true, // Enable test/example suppressions
+                skip_security_in_tests: args.skip_tests_all,
                 include_suppressed: args.include_suppressed,
+                diff: args.diff,
+                diff_base: args.diff_base.clone(),
+                diff_stdin: args.diff_stdin,
             }
         }
         Some(ScanMode::Local) | None => {
-            // Local mode: use all explicit settings, no default presets
+            // Local mode: use all explicit settings
+            // --skip-tests or --skip-tests-all enables default test/example suppressions
             EffectiveScanSettings {
                 format: args.format,
                 severity: args.severity,
                 changed_only: args.changed_only,
                 baseline_mode: args.baseline_mode,
                 timing: args.timing,
-                use_default_presets: false, // No default suppressions in local mode
+                use_default_presets: args.skip_tests || args.skip_tests_all,
+                skip_security_in_tests: args.skip_tests_all,
                 include_suppressed: args.include_suppressed,
+                diff: args.diff,
+                diff_base: args.diff_base.clone(),
+                diff_stdin: args.diff_stdin,
             }
         }
     }
@@ -342,6 +461,28 @@ fn print_scan_header(
             "changed-only".cyan(),
             args.base.dimmed()
         );
+    }
+
+    if args.cross_file {
+        println!("  {} {}", "Cross-file:".dimmed(), "enabled".green());
+    }
+
+    // Show diff-aware filtering info
+    if effective.diff {
+        if effective.diff_stdin {
+            println!(
+                "  {} {} (from stdin)",
+                "Diff filter:".dimmed(),
+                "enabled".green()
+            );
+        } else {
+            println!(
+                "  {} {} (base: {})",
+                "Diff filter:".dimmed(),
+                "enabled".green(),
+                effective.diff_base.dimmed()
+            );
+        }
     }
 
     // Show providers if not just default
@@ -551,6 +692,101 @@ fn run_analyze_phase(
     Ok(result)
 }
 
+fn run_cross_file_phase(
+    args: &ScanArgs,
+    effective: &EffectiveScanSettings,
+    config: &RmaConfig,
+    _parsed_files: &[rma_parser::ParsedFile],
+    results: &mut Vec<rma_analyzer::FileAnalysis>,
+    summary: &mut rma_analyzer::AnalysisSummary,
+) -> Result<()> {
+    let spinner = if !args.quiet && effective.format == OutputFormat::Text {
+        let s = progress::create_spinner("Running cross-file analysis...");
+        Some(s)
+    } else {
+        None
+    };
+
+    // Use ProjectAnalyzer for cross-file analysis
+    let project_analyzer = ProjectAnalyzer::new(config.clone())
+        .with_cross_file(true)
+        .with_parallel(args.jobs == 0 || args.jobs > 1);
+
+    // Run the cross-file analysis on the project
+    let project_result = project_analyzer.analyze_project(&args.path)?;
+
+    // Add cross-file taint findings to results
+    let mut cross_file_findings = 0;
+    for taint in &project_result.cross_file_taints {
+        // Create a finding for each cross-file taint flow
+        // Generate a unique ID based on the taint flow
+        let finding_id = format!(
+            "cross-file-{}-{}-{}",
+            taint.source.function, taint.sink.function, taint.sink.line
+        );
+
+        let finding = rma_common::Finding {
+            id: finding_id,
+            rule_id: "cross-file/taint-flow".to_string(),
+            message: taint.description.clone(),
+            severity: taint.severity,
+            location: rma_common::SourceLocation {
+                file: taint.sink.file.clone(),
+                start_line: taint.sink.line,
+                start_column: 1,
+                end_line: taint.sink.line,
+                end_column: 1,
+            },
+            language: rma_common::Language::Unknown,
+            snippet: None,
+            suggestion: Some(format!(
+                "Validate or sanitize data from {} before using in {}",
+                taint.source.function, taint.sink.function
+            )),
+            fix: None,
+            confidence: rma_common::Confidence::Medium,
+            category: rma_common::FindingCategory::Security,
+            fingerprint: None,
+            properties: None,
+        };
+
+        // Find or create the file result
+        let file_path = taint.sink.file.display().to_string();
+        if let Some(result) = results.iter_mut().find(|r| r.path == file_path) {
+            result.findings.push(finding);
+        } else {
+            results.push(rma_analyzer::FileAnalysis {
+                path: file_path,
+                language: rma_common::Language::Unknown,
+                metrics: rma_common::CodeMetrics::default(),
+                findings: vec![finding],
+            });
+        }
+
+        cross_file_findings += 1;
+    }
+
+    // Update summary
+    summary.total_findings += cross_file_findings;
+
+    if let Some(s) = spinner {
+        let graph_info = project_result
+            .call_graph
+            .as_ref()
+            .map(|g| format!("{} functions, {} edges", g.function_count(), g.edge_count()))
+            .unwrap_or_else(|| "no call graph".to_string());
+
+        s.finish_with_message(format!(
+            "{} Cross-file analysis complete ({}, {} taint flows detected)",
+            Theme::success_mark(),
+            graph_info.dimmed(),
+            cross_file_findings.to_string().yellow()
+        ));
+    }
+
+    Ok(())
+}
+
 fn run_ai_phase(args: &ScanArgs, _results: &mut [rma_analyzer::FileAnalysis]) -> Result<()> {
     let spinner = if !args.quiet && args.format == OutputFormat::Text {
         let s = progress::create_spinner("Running AI analysis...");
@@ -622,7 +858,8 @@ fn apply_suppressions(
 ) -> usize {
     // Build suppression engine from config
     let rules_config = toml_config.map(|c| c.rules.clone()).unwrap_or_default();
-    let mut engine = SuppressionEngine::new(&rules_config, effective.use_default_presets);
+    let mut engine = SuppressionEngine::new(&rules_config, effective.use_default_presets)
+        .with_skip_security_in_tests(effective.skip_security_in_tests);
 
     // Load suppression store if enabled
     let suppression_config = toml_config.map(|c| &c.suppressions);
@@ -875,6 +1112,10 @@ mod tests {
             mode: None,
             osv_offline: false,
             osv_cache_ttl: "24h".to_string(),
+            cross_file: false,
+            diff: false,
+            diff_base: "origin/main".to_string(),
+            diff_stdin: false,
         }
     }
 

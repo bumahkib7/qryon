@@ -718,11 +718,56 @@ impl OsvProvider {
         let batch_response: OsvBatchResponse =
             response.json().context("Failed to parse OSV response")?;
 
-        Ok(batch_response
+        // The batch query returns minimal data - fetch full details for each vulnerability
+        let results: Vec<Vec<OsvVulnerability>> = batch_response
             .results
             .into_iter()
-            .map(|r| r.vulns)
-            .collect())
+            .map(|r| {
+                r.vulns
+                    .into_iter()
+                    .filter_map(|vuln| {
+                        // If the vulnerability has incomplete data, fetch full details
+                        if vuln.affected.is_empty() || vuln.summary.is_none() {
+                            self.fetch_vulnerability_details(&vuln.id, &client).ok()
+                        } else {
+                            Some(vuln)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Fetch full vulnerability details from OSV by ID
+    fn fetch_vulnerability_details(
+        &self,
+        vuln_id: &str,
+        client: &reqwest::blocking::Client,
+    ) -> Result<OsvVulnerability> {
+        let url = format!("https://api.osv.dev/v1/vulns/{}", vuln_id);
+
+        debug!("Fetching full details for {}", vuln_id);
+
+        let response = client
+            .get(&url)
+            .send()
+            .with_context(|| format!("Failed to fetch vulnerability {}", vuln_id))?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "OSV API returned error for {}: {}",
+                vuln_id,
+                response.status()
+            );
+        }
+
+        let vuln: OsvVulnerability = response
+            .json()
+            .with_context(|| format!("Failed to parse vulnerability {}", vuln_id))?;
+
+        Ok(vuln)
     }
 
     /// Get cached vulnerability results
@@ -884,6 +929,7 @@ impl OsvProvider {
                         language,
                         snippet: Some(format!("{} = \"{}\"", pkg.name, pkg.version)),
                         suggestion: fix_version.map(|v| format!("Upgrade to version {}", v)),
+                        fix: None,
                         confidence,
                         category: FindingCategory::Security,
                         fingerprint: None,

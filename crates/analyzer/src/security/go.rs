@@ -9,7 +9,9 @@
 //! Categorized into:
 //! - **Sinks (High Confidence)**: Precise detection of dangerous patterns
 //! - **Review Hints (Low Confidence)**: Patterns that need human review
+//! - **Flow-Aware Rules**: Rules using CFG and taint analysis
 
+use crate::flow::FlowContext;
 use crate::rules::{Rule, create_finding_with_confidence};
 use crate::security::generic::{is_generated_file, is_test_or_fixture_file};
 use regex::Regex;
@@ -38,6 +40,19 @@ static WEAK_HASH_IMPORTS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         .into_iter()
         .collect()
 });
+
+/// Pattern to detect InsecureSkipVerify: true
+static INSECURE_TLS_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"InsecureSkipVerify\s*:\s*true").unwrap());
+
+/// Pattern to detect weak TLS versions (1.0 or 1.1)
+static WEAK_TLS_VERSION_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"MinVersion\s*:\s*tls\.(VersionTLS10|VersionTLS11|VersionSSL30)").unwrap()
+});
+
+/// Pattern to detect http.Client{} without Timeout
+static HTTP_CLIENT_NO_TIMEOUT_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"http\.Client\s*\{[^}]*\}").unwrap());
 
 /// Case-insensitive substring search without allocation
 #[inline]
@@ -81,13 +96,16 @@ impl Rule for GoSecurityScanner {
         let has_unsafe = parsed.content.contains("\"unsafe\"");
         let has_crypto = parsed.content.contains("crypto/");
         let has_filepath = parsed.content.contains("filepath") || parsed.content.contains("path/");
+        let has_defer = parsed.content.contains("defer");
+        let has_goroutine = parsed.content.contains("go ");
+        let has_tls = parsed.content.contains("crypto/tls") || parsed.content.contains("tls.");
 
         // Skip unsafe pointer checks for generated files (e.g., Kubernetes zz_generated_*)
         // These files use unsafe.Pointer intentionally for performance-critical conversions
         let skip_unsafe_check = is_generated_file(&parsed.path, &parsed.content);
 
-        // Line-based checks (credentials, weak crypto imports)
-        self.check_lines(parsed, &mut findings, has_crypto);
+        // Line-based checks (credentials, weak crypto imports, TLS config, HTTP client)
+        self.check_lines(parsed, &mut findings, has_crypto, has_tls, has_http);
 
         // AST-based checks (single traversal)
         let mut cursor = parsed.tree.walk();
@@ -100,6 +118,8 @@ impl Rule for GoSecurityScanner {
             has_http,
             has_unsafe && !skip_unsafe_check, // Skip unsafe check for generated files
             has_filepath,
+            has_defer,
+            has_goroutine,
         );
 
         findings
@@ -107,16 +127,21 @@ impl Rule for GoSecurityScanner {
 }
 
 impl GoSecurityScanner {
-    /// Check lines for patterns (credentials, imports)
-    fn check_lines(&self, parsed: &ParsedFile, findings: &mut Vec<Finding>, has_crypto: bool) {
-        // Skip credential checks in test/fixture files - they commonly contain fake secrets
-        if is_test_or_fixture_file(&parsed.path) {
-            return;
-        }
+    /// Check lines for patterns (credentials, imports, TLS config, HTTP client)
+    fn check_lines(
+        &self,
+        parsed: &ParsedFile,
+        findings: &mut Vec<Finding>,
+        has_crypto: bool,
+        has_tls: bool,
+        has_http: bool,
+    ) {
+        // Only skip credential checks in test/fixture files - they commonly contain fake secrets
+        let is_test_file = is_test_or_fixture_file(&parsed.path);
 
         for (line_num, line) in parsed.content.lines().enumerate() {
-            // Hardcoded credentials
-            if CREDENTIAL_PATTERN.is_match(line) {
+            // Hardcoded credentials (skip in test files)
+            if !is_test_file && CREDENTIAL_PATTERN.is_match(line) {
                 findings.push(create_line_based_finding(
                     "go/hardcoded-credential",
                     line_num + 1,
@@ -130,8 +155,8 @@ impl GoSecurityScanner {
                 ));
             }
 
-            // AWS keys
-            if AWS_KEY_PATTERN.is_match(line) {
+            // AWS keys (skip in test files)
+            if !is_test_file && AWS_KEY_PATTERN.is_match(line) {
                 findings.push(create_line_based_finding(
                     "go/aws-key-exposed",
                     line_num + 1,
@@ -166,6 +191,61 @@ impl GoSecurityScanner {
                     }
                 }
             }
+
+            // Insecure TLS config - InsecureSkipVerify: true
+            if has_tls && INSECURE_TLS_PATTERN.is_match(line) {
+                findings.push(create_line_based_finding(
+                    "go/insecure-tls",
+                    line_num + 1,
+                    1,
+                    &parsed.path,
+                    line,
+                    Severity::Error,
+                    "InsecureSkipVerify disables TLS certificate verification - vulnerable to MITM attacks",
+                    Language::Go,
+                    Confidence::High,
+                ));
+            }
+
+            // Insecure TLS config - weak MinVersion (TLS 1.0 or 1.1)
+            if has_tls && WEAK_TLS_VERSION_PATTERN.is_match(line) {
+                findings.push(create_line_based_finding(
+                    "go/insecure-tls",
+                    line_num + 1,
+                    1,
+                    &parsed.path,
+                    line,
+                    Severity::Error,
+                    "Weak TLS version (1.0/1.1) - use tls.VersionTLS12 or tls.VersionTLS13",
+                    Language::Go,
+                    Confidence::High,
+                ));
+            }
+
+            // HTTP client without timeout
+            if has_http && HTTP_CLIENT_NO_TIMEOUT_PATTERN.is_match(line) {
+                // Check if Timeout is set as a field in the struct literal
+                // Look for "Timeout:" pattern (field assignment), not just "Timeout" anywhere
+                // This avoids false negatives from comments mentioning Timeout
+                let code_part = if let Some(idx) = line.find("//") {
+                    &line[..idx]
+                } else {
+                    line
+                };
+                if !code_part.contains("Timeout:") && !code_part.contains("Timeout :") {
+                    findings.push(create_line_based_finding(
+                        "go/missing-http-timeout",
+                        line_num + 1,
+                        1,
+                        &parsed.path,
+                        line,
+                        Severity::Warning,
+                        "http.Client without Timeout - may hang indefinitely. Set Timeout field",
+                        Language::Go,
+                        Confidence::High,
+                    ));
+                }
+            }
         }
     }
 
@@ -181,10 +261,21 @@ impl GoSecurityScanner {
         has_http: bool,
         has_unsafe: bool,
         has_filepath: bool,
+        has_defer: bool,
+        has_goroutine: bool,
     ) {
+        // Track loop depth for defer-in-loop detection
+        let mut loop_depth: usize = 0;
+
         loop {
             let node = cursor.node();
             let kind = node.kind();
+
+            // Track entering/exiting loops for defer-in-loop detection
+            let is_loop = matches!(kind, "for_statement" | "range_clause");
+            if is_loop {
+                loop_depth += 1;
+            }
 
             match kind {
                 "call_expression" => {
@@ -205,6 +296,12 @@ impl GoSecurityScanner {
                 "short_var_declaration" => {
                     self.check_ignored_error(&node, parsed, findings);
                 }
+                "defer_statement" if has_defer && loop_depth > 0 => {
+                    self.check_defer_in_loop(&node, parsed, findings);
+                }
+                "go_statement" if has_goroutine => {
+                    self.check_goroutine_leak(&node, parsed, findings);
+                }
                 _ => {}
             }
 
@@ -215,6 +312,11 @@ impl GoSecurityScanner {
             loop {
                 if cursor.goto_next_sibling() {
                     break;
+                }
+                // Track exiting loops
+                let parent_kind = cursor.node().kind();
+                if matches!(parent_kind, "for_statement" | "range_clause") {
+                    loop_depth = loop_depth.saturating_sub(1);
                 }
                 if !cursor.goto_parent() {
                     return;
@@ -299,6 +401,25 @@ impl GoSecurityScanner {
                     Confidence::Medium,
                 ));
             }
+        }
+
+        // Missing HTTP timeout - http.Get/Post/Head/PostForm use default client with no timeout
+        if has_http
+            && (func_text == "http.Get"
+                || func_text == "http.Post"
+                || func_text == "http.Head"
+                || func_text == "http.PostForm")
+        {
+            findings.push(create_finding_with_confidence(
+                "go/missing-http-timeout",
+                node,
+                &parsed.path,
+                &parsed.content,
+                Severity::Warning,
+                "http.Get/Post uses default client with no timeout - use custom http.Client with Timeout",
+                Language::Go,
+                Confidence::High,
+            ));
         }
 
         // Path traversal
@@ -462,6 +583,118 @@ impl GoSecurityScanner {
             ));
         }
     }
+
+    /// Check for defer statements inside loops
+    /// Deferred calls accumulate until the function returns, not after each loop iteration
+    fn check_defer_in_loop(&self, node: &Node, parsed: &ParsedFile, findings: &mut Vec<Finding>) {
+        findings.push(create_finding_with_confidence(
+            "go/defer-in-loop",
+            node,
+            &parsed.path,
+            &parsed.content,
+            Severity::Warning,
+            "defer inside loop - deferred calls accumulate until function returns, causing resource buildup. Consider moving cleanup outside the loop or use an inner function",
+            Language::Go,
+            Confidence::High,
+        ));
+    }
+
+    /// Check for goroutine leak patterns
+    /// Detects: go func() without context, blocking channel operations without select
+    fn check_goroutine_leak(&self, node: &Node, parsed: &ParsedFile, findings: &mut Vec<Finding>) {
+        let text = match node.utf8_text(parsed.content.as_bytes()) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+
+        // Look at a broader context around the go statement
+        let context_start = node.start_byte().saturating_sub(200);
+        let context_end = (node.end_byte() + 500).min(parsed.content.len());
+        let surrounding = &parsed.content[context_start..context_end];
+
+        // Check if this is an inline goroutine (go func() or go func(...)
+        // The go_statement node contains the full "go func() { ... }()" text
+        let is_inline_goroutine = text.contains("func()") || text.contains("func(");
+
+        if is_inline_goroutine {
+            // Strip comments from text for more accurate detection
+            let text_no_comments: String = text
+                .lines()
+                .map(|line| {
+                    if let Some(idx) = line.find("//") {
+                        &line[..idx]
+                    } else {
+                        line
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Check for context cancellation patterns (ignoring comments)
+            let has_context_done = text_no_comments.contains("ctx.Done()")
+                || text_no_comments.contains("<-ctx.Done()");
+            let has_select =
+                text_no_comments.contains("select {") || text_no_comments.contains("select{");
+            let has_context_param = text_no_comments.contains("ctx context.Context")
+                || text_no_comments.contains("ctx Context")
+                || surrounding.contains("context.WithCancel")
+                || surrounding.contains("context.WithTimeout")
+                || surrounding.contains("context.WithDeadline");
+
+            // Detect blocking channel operations (channel receive without ctx.Done)
+            let has_channel_receive =
+                text_no_comments.contains("<-") && !text_no_comments.contains("<-ctx.Done()");
+
+            // If no context cancellation mechanism and has potential blocking ops
+            if !has_context_done && !has_select && has_channel_receive {
+                findings.push(create_finding_with_confidence(
+                    "go/goroutine-leak",
+                    node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Warning,
+                    "Goroutine with channel receive without select/ctx.Done() - may block forever causing leak",
+                    Language::Go,
+                    Confidence::Medium,
+                ));
+                return;
+            }
+
+            // If no context used at all and it's a long-running goroutine pattern
+            if !has_context_param
+                && !has_context_done
+                && (text_no_comments.contains("for {")
+                    || text_no_comments.contains("for{")
+                    || text_no_comments.contains("for true"))
+            {
+                findings.push(create_finding_with_confidence(
+                    "go/goroutine-leak",
+                    node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Warning,
+                    "Goroutine with infinite loop without context cancellation - use context.Context for graceful shutdown",
+                    Language::Go,
+                    Confidence::Medium,
+                ));
+                return;
+            }
+
+            // Check for missing select with Done channel in blocking operations
+            if has_channel_receive && !has_select && has_context_param && !has_context_done {
+                findings.push(create_finding_with_confidence(
+                    "go/goroutine-leak",
+                    node,
+                    &parsed.path,
+                    &parsed.content,
+                    Severity::Warning,
+                    "Goroutine with context but missing select with ctx.Done() - may not respond to cancellation",
+                    Language::Go,
+                    Confidence::Medium,
+                ));
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -605,6 +838,272 @@ impl Rule for IgnoredErrorHint {
     }
 }
 
+/// Detects defer statements inside loops
+pub struct DeferInLoopRule;
+
+impl Rule for DeferInLoopRule {
+    fn id(&self) -> &str {
+        "go/defer-in-loop"
+    }
+    fn description(&self) -> &str {
+        "Detects defer statements inside for loops causing resource accumulation"
+    }
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Go
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        if !parsed.content.contains("defer") {
+            return Vec::new();
+        }
+        let scanner = GoSecurityScanner;
+        scanner
+            .check(parsed)
+            .into_iter()
+            .filter(|f| f.rule_id == "go/defer-in-loop")
+            .collect()
+    }
+}
+
+/// Detects goroutine leak patterns
+pub struct GoroutineLeakRule;
+
+impl Rule for GoroutineLeakRule {
+    fn id(&self) -> &str {
+        "go/goroutine-leak"
+    }
+    fn description(&self) -> &str {
+        "Detects goroutines that may leak due to missing context cancellation or blocking channels"
+    }
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Go
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        if !parsed.content.contains("go ") {
+            return Vec::new();
+        }
+        let scanner = GoSecurityScanner;
+        scanner
+            .check(parsed)
+            .into_iter()
+            .filter(|f| f.rule_id == "go/goroutine-leak")
+            .collect()
+    }
+}
+
+/// Detects HTTP clients without timeout configuration
+pub struct MissingHttpTimeoutRule;
+
+impl Rule for MissingHttpTimeoutRule {
+    fn id(&self) -> &str {
+        "go/missing-http-timeout"
+    }
+    fn description(&self) -> &str {
+        "Detects http.Client without Timeout or use of http.Get/Post (default client has no timeout)"
+    }
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Go
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        if !parsed.content.contains("net/http") {
+            return Vec::new();
+        }
+        let scanner = GoSecurityScanner;
+        scanner
+            .check(parsed)
+            .into_iter()
+            .filter(|f| f.rule_id == "go/missing-http-timeout")
+            .collect()
+    }
+}
+
+/// Detects insecure TLS configurations
+pub struct InsecureTlsRule;
+
+impl Rule for InsecureTlsRule {
+    fn id(&self) -> &str {
+        "go/insecure-tls"
+    }
+    fn description(&self) -> &str {
+        "Detects InsecureSkipVerify: true or weak TLS versions (1.0/1.1)"
+    }
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Go
+    }
+
+    fn check(&self, parsed: &ParsedFile) -> Vec<Finding> {
+        if !parsed.content.contains("crypto/tls") && !parsed.content.contains("tls.") {
+            return Vec::new();
+        }
+        let scanner = GoSecurityScanner;
+        scanner
+            .check(parsed)
+            .into_iter()
+            .filter(|f| f.rule_id == "go/insecure-tls")
+            .collect()
+    }
+}
+
+// =============================================================================
+// FLOW-AWARE RULES
+// =============================================================================
+
+/// Detects errors that are checked on some paths but not all (using CFG analysis)
+///
+/// In Go, errors should always be checked before using the associated value.
+/// This rule uses CFG analysis to detect cases where error checking can be bypassed.
+///
+/// Pattern detected:
+/// ```go
+/// result, err := someOperation()
+/// if condition {
+///     if err != nil { return err }
+/// }
+/// // err might not be checked here!
+/// useResult(result)
+/// ```
+///
+/// Confidence: MEDIUM (requires understanding of control flow)
+pub struct UncheckedErrorRule;
+
+impl Rule for UncheckedErrorRule {
+    fn id(&self) -> &str {
+        "go/unchecked-error"
+    }
+
+    fn description(&self) -> &str {
+        "Detects errors that may not be checked on all code paths"
+    }
+
+    fn applies_to(&self, lang: Language) -> bool {
+        lang == Language::Go
+    }
+
+    fn uses_flow(&self) -> bool {
+        true
+    }
+
+    fn check(&self, _parsed: &ParsedFile) -> Vec<Finding> {
+        // Requires flow context - see check_with_flow
+        Vec::new()
+    }
+
+    fn check_with_flow(&self, parsed: &ParsedFile, flow: &FlowContext) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let mut cursor = parsed.tree.walk();
+
+        // Find all short variable declarations that might return errors
+        find_short_var_decls(&mut cursor, |node: Node| {
+            if let Ok(text) = node.utf8_text(parsed.content.as_bytes()) {
+                // Look for patterns like: result, err := ...
+                if text.contains(", err :=") || text.contains(",err:=") {
+                    // Get the block containing this declaration
+                    let decl_block = flow.cfg.block_of(node.id());
+
+                    // Look ahead to find if there's an error check
+                    if let Some(parent) = find_function_body(node) {
+                        let has_error_check = check_for_error_handling(
+                            parent,
+                            node.end_byte(),
+                            parsed.content.as_bytes(),
+                        );
+
+                        // If no immediate error check, warn
+                        if !has_error_check {
+                            // Check if we're inside a conditional block (partial check)
+                            let in_conditional = decl_block
+                                .map(|b| {
+                                    flow.cfg.predecessors(b).len() > 1
+                                        || matches!(
+                                            flow.cfg.blocks.get(b).map(|bb| &bb.terminator),
+                                            Some(crate::flow::Terminator::Branch { .. })
+                                        )
+                                })
+                                .unwrap_or(false);
+
+                            if in_conditional {
+                                findings.push(create_finding_with_confidence(
+                                    self.id(),
+                                    &node,
+                                    &parsed.path,
+                                    &parsed.content,
+                                    Severity::Warning,
+                                    "Error may not be checked on all code paths",
+                                    Language::Go,
+                                    Confidence::Medium,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        findings
+    }
+}
+
+/// Find function body containing a node
+fn find_function_body(node: Node) -> Option<Node> {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        if n.kind() == "function_declaration" || n.kind() == "method_declaration" {
+            return n.child_by_field_name("body");
+        }
+        current = n.parent();
+    }
+    None
+}
+
+/// Check if there's an error check after the given position
+fn check_for_error_handling(body: Node, after_pos: usize, source: &[u8]) -> bool {
+    // Simple heuristic: look for "if err != nil" or "if err == nil" after the position
+    let body_text = body.utf8_text(source).unwrap_or("");
+    let remaining = if after_pos < body.start_byte() {
+        body_text
+    } else {
+        let offset = after_pos.saturating_sub(body.start_byte());
+        if offset < body_text.len() {
+            &body_text[offset..]
+        } else {
+            ""
+        }
+    };
+
+    // Look for error checks within the next 200 characters
+    let check_range = remaining.chars().take(200).collect::<String>();
+    check_range.contains("err != nil")
+        || check_range.contains("err == nil")
+        || check_range.contains("if err")
+}
+
+/// Helper to find short variable declarations
+fn find_short_var_decls<F>(cursor: &mut tree_sitter::TreeCursor, mut callback: F)
+where
+    F: FnMut(Node),
+{
+    loop {
+        let node = cursor.node();
+        if node.kind() == "short_var_declaration" {
+            callback(node);
+        }
+
+        if cursor.goto_first_child() {
+            continue;
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return;
+            }
+        }
+    }
+}
+
 // =============================================================================
 // HELPER - Line-based finding creation
 // =============================================================================
@@ -637,6 +1136,7 @@ fn create_line_based_finding(
         language,
         snippet: Some(snippet.trim().chars().take(200).collect()),
         suggestion: None,
+        fix: None,
         confidence,
         category: rma_common::FindingCategory::Security,
         fingerprint: None,
@@ -810,5 +1310,372 @@ func hash(data []byte) []byte {
             .collect();
 
         assert!(!crypto_findings.is_empty(), "Should detect weak crypto");
+    }
+
+    #[test]
+    fn test_defer_in_loop() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "os"
+
+func processFiles(files []string) {
+    for _, file := range files {
+        f, _ := os.Open(file)
+        defer f.Close() // BAD: deferred calls accumulate
+    }
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let defer_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/defer-in-loop")
+            .collect();
+
+        assert!(
+            !defer_findings.is_empty(),
+            "Should detect defer inside loop"
+        );
+    }
+
+    #[test]
+    fn test_defer_outside_loop_no_finding() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "os"
+
+func processFile(file string) {
+    f, _ := os.Open(file)
+    defer f.Close() // OK: defer outside loop
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let defer_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/defer-in-loop")
+            .collect();
+
+        assert!(
+            defer_findings.is_empty(),
+            "Should not report defer outside loop"
+        );
+    }
+
+    #[test]
+    fn test_goroutine_leak_blocking_channel() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+func leakyGoroutine(ch chan int) {
+    go func() {
+        val := <-ch // BAD: may block forever without select/ctx.Done()
+        println(val)
+    }()
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let leak_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/goroutine-leak")
+            .collect();
+
+        assert!(
+            !leak_findings.is_empty(),
+            "Should detect goroutine with blocking channel"
+        );
+    }
+
+    #[test]
+    fn test_goroutine_leak_infinite_loop_no_context() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+func leakyWorker() {
+    go func() {
+        for {
+            // BAD: infinite loop without context cancellation
+            doWork()
+        }
+    }()
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let leak_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/goroutine-leak")
+            .collect();
+
+        assert!(
+            !leak_findings.is_empty(),
+            "Should detect goroutine with infinite loop and no context"
+        );
+    }
+
+    #[test]
+    fn test_goroutine_with_context_done_no_finding() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "context"
+
+func safeWorker(ctx context.Context) {
+    go func() {
+        for {
+            select {
+            case <-ctx.Done():
+                return
+            default:
+                doWork()
+            }
+        }
+    }()
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let leak_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/goroutine-leak")
+            .collect();
+
+        assert!(
+            leak_findings.is_empty(),
+            "Should not report goroutine with proper context handling"
+        );
+    }
+
+    #[test]
+    fn test_missing_http_timeout_default_client() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "net/http"
+
+func fetchData(url string) {
+    resp, _ := http.Get(url) // BAD: uses default client with no timeout
+    defer resp.Body.Close()
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let timeout_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/missing-http-timeout")
+            .collect();
+
+        assert!(
+            !timeout_findings.is_empty(),
+            "Should detect http.Get without timeout"
+        );
+    }
+
+    #[test]
+    fn test_missing_http_timeout_client_no_timeout() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "net/http"
+
+func fetchData(url string) {
+    client := &http.Client{} // BAD: no Timeout field
+    resp, _ := client.Get(url)
+    defer resp.Body.Close()
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let timeout_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/missing-http-timeout")
+            .collect();
+
+        assert!(
+            !timeout_findings.is_empty(),
+            "Should detect http.Client without Timeout"
+        );
+    }
+
+    #[test]
+    fn test_http_client_with_timeout_no_finding() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import (
+    "net/http"
+    "time"
+)
+
+func fetchData(url string) {
+    client := &http.Client{Timeout: 30 * time.Second}
+    resp, _ := client.Get(url)
+    defer resp.Body.Close()
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let timeout_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| {
+                f.rule_id == "go/missing-http-timeout"
+                    && f.message.contains("http.Client without Timeout")
+            })
+            .collect();
+
+        assert!(
+            timeout_findings.is_empty(),
+            "Should not report http.Client with Timeout"
+        );
+    }
+
+    #[test]
+    fn test_insecure_tls_skip_verify() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "crypto/tls"
+
+func insecureClient() *tls.Config {
+    return &tls.Config{
+        InsecureSkipVerify: true, // BAD: disables certificate verification
+    }
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let tls_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/insecure-tls")
+            .collect();
+
+        assert!(
+            !tls_findings.is_empty(),
+            "Should detect InsecureSkipVerify: true"
+        );
+        assert_eq!(
+            tls_findings[0].severity,
+            Severity::Error,
+            "InsecureSkipVerify should be Error severity"
+        );
+    }
+
+    #[test]
+    fn test_insecure_tls_weak_version() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "crypto/tls"
+
+func weakTLS() *tls.Config {
+    return &tls.Config{
+        MinVersion: tls.VersionTLS10, // BAD: TLS 1.0 is deprecated
+    }
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let tls_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/insecure-tls")
+            .collect();
+
+        assert!(!tls_findings.is_empty(), "Should detect weak TLS version");
+    }
+
+    #[test]
+    fn test_secure_tls_no_finding() {
+        let config = RmaConfig::default();
+        let parser = ParserEngine::new(config);
+
+        let content = r#"
+package main
+
+import "crypto/tls"
+
+func secureTLS() *tls.Config {
+    return &tls.Config{
+        MinVersion: tls.VersionTLS13,
+        InsecureSkipVerify: false,
+    }
+}
+"#;
+
+        let parsed = parser.parse_file(Path::new("main.go"), content).unwrap();
+        let scanner = GoSecurityScanner;
+        let findings = scanner.check(&parsed);
+
+        let tls_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "go/insecure-tls")
+            .collect();
+
+        assert!(
+            tls_findings.is_empty(),
+            "Should not report secure TLS config"
+        );
     }
 }

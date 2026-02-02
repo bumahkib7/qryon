@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-02-02
+
+### Added
+- **Cross-File Analysis** (`--cross-file`): Import resolution and call graph construction
+  - Tracks function calls across file boundaries
+  - Detects taint flows through function parameters
+  - Supports JS/TS, Python, Go, Rust, Java
+- **20+ New Security Rules**:
+  - Python: `unsafe-deserialization`, `ssti`, `unsafe-yaml`, `django-raw-sql`, `path-traversal`
+  - Rust: `unwrap-on-user-input`, `missing-error-propagation`, `raw-sql-query`, `unwrap-in-handler`
+  - Go: `defer-in-loop`, `goroutine-leak`, `missing-http-timeout`, `insecure-tls`
+  - Java: `npe-prone-patterns`, `unclosed-resource`, `log-injection`, `spring-security-misconfig`
+  - JS/TS: `prototype-pollution`, `redos`, `missing-security-headers`, `express-security`
+- **Test File Exclusion Flags**:
+  - `--skip-tests`: Skip test files (security rules still apply)
+  - `--skip-tests-all`: Skip ALL findings in tests including security rules
+  - 65+ test patterns: `*_test.go`, `*.test.ts`, `test_*.py`, `src/test/**`, `__tests__/**`, etc.
+- **Auto-Fix Foundation**: `Fix` struct with replacement suggestions
+- **Diff-Aware Analysis** (`--diff`): Only report findings on changed lines
+- **HTML Reports**: Self-contained HTML report generation with embedded CSS/JS
+- **GitHub Action**: `action.yml` for CI/CD integration with SARIF upload
+- **LSP Enhancements**: Code actions, debounced diagnostics, concurrent access with DashMap
+
+### Changed
+- Security rules now properly registered in `register_default_rules()`
+- `--mode pr` and `--mode ci` automatically skip test files
+- Improved pattern matching for test directory detection
+
+### Fixed
+- Rules not triggering in CLI scan (missing rule registration)
+- Clippy warnings for absurd comparisons in tests
+
+## [0.12.0] - 2026-02-02
+
+### Added
+- Security audit command for comprehensive vulnerability assessment
+- OSV provider for multi-language dependency scanning
+- RustSec provider for Rust advisory database
+
 ## [0.7.0] - 2026-02-01
 
 ### Added

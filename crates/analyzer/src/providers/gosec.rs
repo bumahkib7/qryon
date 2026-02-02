@@ -205,6 +205,7 @@ impl GosecProvider {
             language: Language::Go,
             snippet: Some(issue.code),
             suggestion: None,
+            fix: None,
             confidence,
             category,
             fingerprint: None,

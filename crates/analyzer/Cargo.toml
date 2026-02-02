@@ -18,8 +18,8 @@ oxc = [
 ]
 
 [dependencies]
-rma-common = { version = "0.12.0", path = "../common" }
-rma-parser = { version = "0.12.0", path = "../parser" }
+rma-common = { version = "0.13.0", path = "../common" }
+rma-parser = { version = "0.13.0", path = "../parser" }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -29,12 +29,14 @@ rayon.workspace = true
 petgraph.workspace = true
 tree-sitter.workspace = true
 regex = "1"
-quick-xml = { version = "0.31", features = ["serialize"] }
+quick-xml = { version = "0.39.0", features = ["serialize"] }
 shellexpand = "3"
 rustsec.workspace = true
 walkdir.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-toml = "0.8"
+toml = "0.9.11+spec-1.1.0"
+dirs.workspace = true
+chrono.workspace = true
 
 # Native JS/TS linting via oxc (optional for crates.io publishing)
 oxc_linter = { workspace = true, optional = true }
@@ -48,3 +50,8 @@ oxc_ast = { workspace = true, optional = true }
 [dev-dependencies]
 tempfile.workspace = true
 pretty_assertions.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-java.workspace = true

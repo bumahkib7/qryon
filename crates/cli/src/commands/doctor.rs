@@ -3,11 +3,11 @@
 use crate::ui::theme::Theme;
 use anyhow::Result;
 use colored::Colorize;
+#[cfg(feature = "oxc")]
+use rma_analyzer::providers::OxcNativeProvider;
 use rma_analyzer::providers::{
     AnalysisProvider, GosecProvider, OsvProvider, OxlintProvider, PmdProvider, RustSecProvider,
 };
-#[cfg(feature = "oxc")]
-use rma_analyzer::providers::OxcNativeProvider;
 use rma_common::{GosecProviderConfig, Language, OsvProviderConfig, PmdProviderConfig, RmaConfig};
 use rma_parser::ParserEngine;
 use std::path::Path;

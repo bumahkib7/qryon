@@ -1,0 +1,379 @@
+name: 'RMA - Rust Monorepo Analyzer'
+description: 'Ultra-fast code intelligence and security analyzer with SARIF output, GitHub Code Scanning integration, and PR comments'
+author: 'bumahkib7'
+
+branding:
+  icon: 'shield'
+  color: 'orange'
+
+inputs:
+  path:
+    description: 'Path to scan (relative to repository root)'
+    required: false
+    default: '.'
+
+  format:
+    description: 'Output format: text, json, sarif, compact, markdown, github'
+    required: false
+    default: 'sarif'
+
+  severity:
+    description: 'Minimum severity to report: info, warning, error, critical'
+    required: false
+    default: 'warning'
+
+  cross-file:
+    description: 'Enable cross-file analysis (import resolution, call graph, taint tracking)'
+    required: false
+    default: 'false'
+
+  diff-only:
+    description: 'Only scan files changed in the PR/commit (auto-enabled for PRs if not set)'
+    required: false
+    default: ''
+
+  diff-base:
+    description: 'Base git ref for diff comparison (default: origin/main for PRs)'
+    required: false
+    default: 'origin/main'
+
+  enable-rules:
+    description: 'Comma-separated list of rule IDs to enable'
+    required: false
+    default: ''
+
+  disable-rules:
+    description: 'Comma-separated list of rule IDs to disable'
+    required: false
+    default: ''
+
+  fail-on-findings:
+    description: 'Fail the action if findings are detected'
+    required: false
+    default: 'true'
+
+  upload-sarif:
+    description: 'Upload SARIF results to GitHub Code Scanning'
+    required: false
+    default: 'true'
+
+  comment-on-pr:
+    description: 'Post/update a PR comment with findings summary'
+    required: false
+    default: 'true'
+
+  # Additional inputs for flexibility
+  version:
+    description: 'RMA version to use (e.g., v0.12.0, latest)'
+    required: false
+    default: 'latest'
+
+  profile:
+    description: 'Analysis profile: fast, balanced, strict'
+    required: false
+    default: 'balanced'
+
+  providers:
+    description: 'Comma-separated analysis providers: rma,oxc,osv'
+    required: false
+    default: 'rma'
+
+  languages:
+    description: 'Comma-separated list of languages to scan (e.g., rust,python,javascript)'
+    required: false
+    default: ''
+
+  extra-args:
+    description: 'Additional arguments to pass to rma scan'
+    required: false
+    default: ''
+
+  token:
+    description: 'GitHub token for API access (defaults to github.token)'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  findings-count:
+    description: 'Total number of findings detected'
+    value: ${{ steps.scan.outputs.findings-count }}
+
+  sarif-file:
+    description: 'Path to the generated SARIF file'
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+  exit-code:
+    description: 'Exit code from RMA scan'
+    value: ${{ steps.scan.outputs.exit-code }}
+
+  summary:
+    description: 'JSON summary of findings by severity'
+    value: ${{ steps.scan.outputs.summary }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect Platform
+      id: platform
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+
+        case "$OS" in
+          linux*)
+            case "$ARCH" in
+              x86_64|amd64) PLATFORM="x86_64-unknown-linux-gnu" ;;
+              aarch64|arm64) PLATFORM="aarch64-unknown-linux-gnu" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            ;;
+          darwin*)
+            case "$ARCH" in
+              x86_64|amd64) PLATFORM="x86_64-apple-darwin" ;;
+              aarch64|arm64) PLATFORM="aarch64-apple-darwin" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            ;;
+          *)
+            echo "::error::Unsupported OS: $OS"
+            exit 1
+            ;;
+        esac
+
+        echo "platform=$PLATFORM" >> $GITHUB_OUTPUT
+        echo "::notice::Detected platform: $PLATFORM"
+
+    - name: Install RMA
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        RMA_VERSION: ${{ inputs.version }}
+      run: |
+        PLATFORM="${{ steps.platform.outputs.platform }}"
+
+        if [ "$RMA_VERSION" = "latest" ]; then
+          DOWNLOAD_URL="https://github.com/bumahkib7/rust-monorepo-analyzer/releases/latest/download/rma-${PLATFORM}.tar.gz"
+        else
+          DOWNLOAD_URL="https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/${RMA_VERSION}/rma-${PLATFORM}.tar.gz"
+        fi
+
+        echo "::notice::Downloading RMA from: $DOWNLOAD_URL"
+
+        # Download and extract
+        curl -fsSL "$DOWNLOAD_URL" -o rma-archive.tar.gz
+        tar -xzf rma-archive.tar.gz
+        chmod +x rma
+        rm rma-archive.tar.gz
+
+        # Move to a location in PATH
+        if [ -w /usr/local/bin ]; then
+          mv rma /usr/local/bin/rma
+        else
+          mkdir -p "$HOME/.local/bin"
+          mv rma "$HOME/.local/bin/rma"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        fi
+
+        # Verify installation
+        RMA_VER=$(rma --version 2>/dev/null || "$HOME/.local/bin/rma" --version)
+        echo "::notice::RMA installed: $RMA_VER"
+
+    - name: Run RMA Scan
+      id: scan
+      shell: bash
+      env:
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+      run: |
+        # Determine output file
+        SARIF_FILE="rma-results.sarif"
+
+        # Build base command
+        CMD="rma scan ${{ inputs.path }}"
+        CMD="$CMD --format sarif"
+        CMD="$CMD --output $SARIF_FILE"
+        CMD="$CMD --severity ${{ inputs.severity }}"
+
+        # Profile
+        if [ -n "${{ inputs.profile }}" ]; then
+          CMD="$CMD --profile ${{ inputs.profile }}"
+        fi
+
+        # Providers
+        if [ -n "${{ inputs.providers }}" ]; then
+          CMD="$CMD --providers ${{ inputs.providers }}"
+        fi
+
+        # Languages
+        if [ -n "${{ inputs.languages }}" ]; then
+          CMD="$CMD --languages ${{ inputs.languages }}"
+        fi
+
+        # Cross-file analysis
+        if [ "${{ inputs.cross-file }}" = "true" ]; then
+          CMD="$CMD --cross-file"
+        fi
+
+        # Diff-only mode (auto-enable for PRs if not explicitly set)
+        DIFF_ONLY="${{ inputs.diff-only }}"
+        if [ -z "$DIFF_ONLY" ] && [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          DIFF_ONLY="true"
+        fi
+
+        if [ "$DIFF_ONLY" = "true" ]; then
+          CMD="$CMD --changed-only --base ${{ inputs.diff-base }}"
+        fi
+
+        # Extra args
+        if [ -n "${{ inputs.extra-args }}" ]; then
+          CMD="$CMD ${{ inputs.extra-args }}"
+        fi
+
+        echo "::group::Running RMA Scan"
+        echo "Command: $CMD"
+
+        # Run scan and capture exit code
+        set +e
+        eval $CMD
+        EXIT_CODE=$?
+        set -e
+
+        echo "::endgroup::"
+
+        # Set outputs
+        echo "sarif-file=$SARIF_FILE" >> $GITHUB_OUTPUT
+        echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+        # Parse SARIF for findings count and summary
+        if [ -f "$SARIF_FILE" ]; then
+          FINDINGS=$(jq '[.runs[].results | length] | add // 0' "$SARIF_FILE" 2>/dev/null || echo "0")
+          echo "findings-count=$FINDINGS" >> $GITHUB_OUTPUT
+
+          # Generate summary by severity
+          SUMMARY=$(jq -c '{
+            error: [.runs[].results[] | select(.level == "error")] | length,
+            warning: [.runs[].results[] | select(.level == "warning")] | length,
+            note: [.runs[].results[] | select(.level == "note")] | length,
+            total: [.runs[].results[]] | length
+          }' "$SARIF_FILE" 2>/dev/null || echo '{"error":0,"warning":0,"note":0,"total":0}')
+          echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+
+          echo "::notice::Found $FINDINGS security findings"
+        else
+          echo "findings-count=0" >> $GITHUB_OUTPUT
+          echo "summary={\"error\":0,\"warning\":0,\"note\":0,\"total\":0}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: inputs.upload-sarif == 'true' && steps.scan.outputs.findings-count != '0'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
+        category: 'rma-security-scan'
+      continue-on-error: true
+
+    - name: Post PR Comment
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      env:
+        FINDINGS_COUNT: ${{ steps.scan.outputs.findings-count }}
+        SUMMARY: ${{ steps.scan.outputs.summary }}
+        SARIF_FILE: ${{ steps.scan.outputs.sarif-file }}
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const fs = require('fs');
+          const findingsCount = parseInt(process.env.FINDINGS_COUNT || '0');
+          const summary = JSON.parse(process.env.SUMMARY || '{}');
+          const sarifFile = process.env.SARIF_FILE;
+
+          // Build comment body
+          let body = '## RMA Security Scan Results\n\n';
+
+          if (findingsCount === 0) {
+            body += ':white_check_mark: **No security findings detected!**\n';
+          } else {
+            body += `:warning: **Found ${findingsCount} security finding(s)**\n\n`;
+            body += '| Severity | Count |\n';
+            body += '|----------|-------|\n';
+            if (summary.error > 0) body += `| :red_circle: Error | ${summary.error} |\n`;
+            if (summary.warning > 0) body += `| :yellow_circle: Warning | ${summary.warning} |\n`;
+            if (summary.note > 0) body += `| :large_blue_circle: Note | ${summary.note} |\n`;
+
+            // Add top findings if SARIF exists
+            if (fs.existsSync(sarifFile)) {
+              const sarif = JSON.parse(fs.readFileSync(sarifFile, 'utf8'));
+              const results = sarif.runs?.[0]?.results || [];
+
+              if (results.length > 0) {
+                body += '\n### Top Findings\n\n';
+                const topFindings = results.slice(0, 5);
+                for (const finding of topFindings) {
+                  const level = finding.level === 'error' ? ':red_circle:' :
+                               finding.level === 'warning' ? ':yellow_circle:' : ':large_blue_circle:';
+                  const location = finding.locations?.[0]?.physicalLocation;
+                  const file = location?.artifactLocation?.uri || 'unknown';
+                  const line = location?.region?.startLine || '?';
+                  body += `- ${level} **${finding.ruleId}**: ${finding.message?.text?.substring(0, 100) || 'No message'}\n`;
+                  body += `  - \`${file}:${line}\`\n`;
+                }
+
+                if (results.length > 5) {
+                  body += `\n*...and ${results.length - 5} more findings*\n`;
+                }
+              }
+            }
+          }
+
+          body += '\n---\n';
+          body += '*Powered by [RMA](https://github.com/bumahkib7/rust-monorepo-analyzer)*';
+
+          // Find existing comment
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number
+          });
+
+          const botComment = comments.find(comment =>
+            comment.user.type === 'Bot' &&
+            comment.body.includes('## RMA Security Scan Results')
+          );
+
+          if (botComment) {
+            // Update existing comment
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+            console.log('Updated existing PR comment');
+          } else {
+            // Create new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+            console.log('Created new PR comment');
+          }
+
+    - name: Check Findings and Fail
+      if: inputs.fail-on-findings == 'true'
+      shell: bash
+      env:
+        FINDINGS_COUNT: ${{ steps.scan.outputs.findings-count }}
+        EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
+      run: |
+        if [ "$FINDINGS_COUNT" -gt 0 ]; then
+          echo "::error::RMA detected $FINDINGS_COUNT security finding(s)"
+          exit 1
+        fi
+
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          echo "::error::RMA scan failed with exit code $EXIT_CODE"
+          exit $EXIT_CODE
+        fi

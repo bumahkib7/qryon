@@ -5,11 +5,28 @@
 //!
 //! NOTE: This crate DETECTS security vulnerabilities - it does not contain them.
 //! The security rules detect dangerous patterns like unsafe code, code injection, etc.
+//!
+//! # Modules
+//!
+//! - `flow`: Control flow and data flow analysis (CFG, taint tracking)
+//! - `knowledge`: Framework-specific security knowledge base
+//! - `metrics`: Code metrics computation (complexity, LOC, etc.)
+//! - `providers`: External analysis tool integrations (PMD, Oxlint, etc.)
+//! - `rules`: Analysis rule trait and implementations
+//! - `security`: Security rules organized by language
+//! - `semantics`: Language adapter layer for tree-sitter AST mapping
 
+pub mod callgraph;
+pub mod diff;
+pub mod flow;
+pub mod imports;
+pub mod knowledge;
 pub mod metrics;
+pub mod project;
 pub mod providers;
 pub mod rules;
 pub mod security;
+pub mod semantics;
 
 use anyhow::Result;
 use providers::{AnalysisProvider, PmdProvider, ProviderRegistry};
@@ -226,6 +243,15 @@ impl AnalyzerEngine {
         self.rules.push(Box::new(security::rust::UnwrapHint));
         self.rules.push(Box::new(security::rust::PanicHint));
 
+        // Phase 5/6: Additional Rust security rules
+        self.rules
+            .push(Box::new(security::rust::UnwrapOnUserInputRule));
+        self.rules
+            .push(Box::new(security::rust::MissingErrorPropagationRule));
+        self.rules.push(Box::new(security::rust::RawSqlQueryRule));
+        self.rules
+            .push(Box::new(security::rust::UnwrapInHandlerRule));
+
         // JavaScript rules - DETECT dangerous patterns
         // Security sinks
         self.rules
@@ -258,6 +284,14 @@ impl AnalyzerEngine {
         self.rules
             .push(Box::new(security::javascript::ValidTypeofRule));
         self.rules.push(Box::new(security::javascript::NoWithRule));
+        // Security (additional)
+        self.rules
+            .push(Box::new(security::javascript::PrototypePollutionRule));
+        self.rules.push(Box::new(security::javascript::RedosRule));
+        self.rules
+            .push(Box::new(security::javascript::MissingSecurityHeadersRule));
+        self.rules
+            .push(Box::new(security::javascript::ExpressSecurityRule));
 
         // Python rules - DETECT dangerous patterns
         self.rules
@@ -266,6 +300,15 @@ impl AnalyzerEngine {
             .push(Box::new(security::python::ShellInjectionRule));
         self.rules
             .push(Box::new(security::python::HardcodedSecretRule));
+        // Phase 5: Additional Python security rules
+        self.rules
+            .push(Box::new(security::python::PickleDeserializationRule));
+        self.rules.push(Box::new(security::python::SstiRule));
+        self.rules.push(Box::new(security::python::UnsafeYamlRule));
+        self.rules
+            .push(Box::new(security::python::DjangoRawSqlRule));
+        self.rules
+            .push(Box::new(security::python::PathTraversalRule));
 
         // =====================================================================
         // GO RULES
@@ -281,6 +324,16 @@ impl AnalyzerEngine {
         // Section B: Review hints
         self.rules.push(Box::new(security::go::IgnoredErrorHint));
 
+        // Section C: Flow-aware rules
+        self.rules.push(Box::new(security::go::UncheckedErrorRule));
+
+        // Phase 5: Additional Go security rules
+        self.rules.push(Box::new(security::go::DeferInLoopRule));
+        self.rules.push(Box::new(security::go::GoroutineLeakRule));
+        self.rules
+            .push(Box::new(security::go::MissingHttpTimeoutRule));
+        self.rules.push(Box::new(security::go::InsecureTlsRule));
+
         // =====================================================================
         // JAVA RULES
         // =====================================================================
@@ -295,10 +348,23 @@ impl AnalyzerEngine {
             .push(Box::new(security::java::XxeVulnerabilityRule));
         self.rules.push(Box::new(security::java::PathTraversalRule));
 
-        // Section B: Review hints
+        // Section B: Performance rules (CFG-aware)
+        self.rules
+            .push(Box::new(security::java::StringConcatInLoopRule));
+
+        // Section C: Review hints
         self.rules
             .push(Box::new(security::java::GenericExceptionHint));
         self.rules.push(Box::new(security::java::SystemOutHint));
+
+        // Phase 5: Additional Java security rules
+        self.rules
+            .push(Box::new(security::java::NpePronePatternsRule));
+        self.rules
+            .push(Box::new(security::java::UnclosedResourceRule));
+        self.rules.push(Box::new(security::java::LogInjectionRule));
+        self.rules
+            .push(Box::new(security::java::SpringSecurityMisconfigRule));
 
         // =====================================================================
         // GENERIC RULES (apply to all languages)
@@ -316,6 +382,10 @@ impl AnalyzerEngine {
             .push(Box::new(security::generic::InsecureCryptoRule));
         self.rules
             .push(Box::new(security::generic::DuplicateFunctionRule::new(10))); // Min 10 lines
+
+        // CFG-powered generic rules
+        self.rules.push(Box::new(security::generic::DeadCodeRule));
+        self.rules.push(Box::new(security::generic::EmptyCatchRule));
     }
 
     /// Analyze a single parsed file using native rules only
@@ -327,8 +397,27 @@ impl AnalyzerEngine {
 
         // Run only applicable rules using pre-built language index (O(1) lookup)
         if let Some(rule_indices) = self.rules_by_language.get(&parsed.language) {
+            // Check if any applicable rule uses flow analysis
+            let needs_flow = rule_indices.iter().any(|&idx| self.rules[idx].uses_flow());
+
+            // Build flow context lazily only if needed
+            let flow_context = if needs_flow {
+                Some(flow::FlowContext::build(parsed, parsed.language))
+            } else {
+                None
+            };
+
             for &idx in rule_indices {
-                let rule_findings = self.rules[idx].check(parsed);
+                let rule = &self.rules[idx];
+                let rule_findings = if rule.uses_flow() {
+                    if let Some(ref flow) = flow_context {
+                        rule.check_with_flow(parsed, flow)
+                    } else {
+                        rule.check(parsed)
+                    }
+                } else {
+                    rule.check(parsed)
+                };
                 findings.extend(rule_findings);
             }
         }
@@ -454,8 +543,28 @@ impl AnalyzerEngine {
 
                 // Run only applicable rules using pre-built language index
                 if let Some(rule_indices) = self.rules_by_language.get(&parsed.language) {
+                    // Check if any applicable rule uses flow analysis
+                    let needs_flow = rule_indices.iter().any(|&idx| self.rules[idx].uses_flow());
+
+                    // Build flow context lazily only if needed
+                    let flow_context = if needs_flow {
+                        Some(flow::FlowContext::build(parsed, parsed.language))
+                    } else {
+                        None
+                    };
+
                     for &idx in rule_indices {
-                        findings.extend(self.rules[idx].check(parsed));
+                        let rule = &self.rules[idx];
+                        let rule_findings = if rule.uses_flow() {
+                            if let Some(ref flow) = flow_context {
+                                rule.check_with_flow(parsed, flow)
+                            } else {
+                                rule.check(parsed)
+                            }
+                        } else {
+                            rule.check(parsed)
+                        };
+                        findings.extend(rule_findings);
                     }
                 }
 

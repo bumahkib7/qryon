@@ -1,0 +1,56 @@
+# Pre-commit hooks for RMA (Rust Monorepo Analyzer)
+# See https://pre-commit.com for more information
+#
+# Usage in .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/anthropics/rma
+#       rev: v0.12.0  # Use the latest release
+#       hooks:
+#         - id: rma
+#           # Optional: customize severity threshold
+#           args: ['--severity', 'warning']
+#
+# Or with local installation:
+#
+#   repos:
+#     - repo: local
+#       hooks:
+#         - id: rma
+#           name: RMA Security Scanner
+#           entry: rma analyze --format github
+#           language: system
+#           types_or: [javascript, typescript, python, rust, go, java]
+
+- id: rma
+  name: RMA Security Scanner
+  description: Static security analyzer for polyglot projects
+  entry: rma analyze --format github
+  language: system
+  types_or:
+    - javascript
+    - jsx
+    - ts
+    - tsx
+    - python
+    - rust
+    - go
+    - java
+  pass_filenames: true
+  require_serial: false
+
+- id: rma-all
+  name: RMA Security Scanner (Full Scan)
+  description: Run RMA on entire repository
+  entry: rma scan . --format github
+  language: system
+  pass_filenames: false
+  always_run: true
+
+- id: rma-sarif
+  name: RMA Security Scanner (SARIF)
+  description: Generate SARIF output for CI/CD integration
+  entry: rma scan --format sarif --output-file rma-results.sarif
+  language: system
+  pass_filenames: false
+  always_run: true

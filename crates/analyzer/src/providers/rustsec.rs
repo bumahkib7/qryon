@@ -104,7 +104,23 @@ impl RustSecProvider {
             package_name, package_version, advisory.title, advisory.id
         );
 
+        // Build suggestion with patched versions
         let mut suggestion = format!("Advisory: {}", advisory.id);
+
+        // Extract patched versions from the vulnerability (not advisory)
+        let patched = vuln.versions.patched();
+        if !patched.is_empty() {
+            let patched_strs: Vec<String> = patched.iter().map(|v| v.to_string()).collect();
+            suggestion.push_str(&format!("\nPatched in: {}", patched_strs.join(", ")));
+        }
+
+        // Extract unaffected versions
+        let unaffected = vuln.versions.unaffected();
+        if !unaffected.is_empty() {
+            let unaffected_strs: Vec<String> = unaffected.iter().map(|v| v.to_string()).collect();
+            suggestion.push_str(&format!("\nUnaffected: {}", unaffected_strs.join(", ")));
+        }
+
         if let Some(url) = &advisory.url {
             suggestion.push_str(&format!("\nMore info: {}", url));
         }
@@ -118,6 +134,7 @@ impl RustSecProvider {
             language: Language::Rust,
             snippet: Some(format!("{} = \"{}\"", package_name, package_version)),
             suggestion: Some(suggestion),
+            fix: None,
             confidence: Confidence::High,
             category: FindingCategory::Security,
             fingerprint: None,

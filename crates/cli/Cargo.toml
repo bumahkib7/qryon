@@ -1,9 +1,15 @@
 [package]
 name = "rma-cli"
-description = "Command-line interface for Rust Monorepo Analyzer"
+description = "Static security analyzer for polyglot projects (JS/TS, Python, Rust, Go, Java)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository = "https://github.com/anthropics/rma"
+homepage = "https://github.com/anthropics/rma"
+documentation = "https://github.com/anthropics/rma#readme"
+readme = "../../README.md"
+keywords = ["security", "static-analysis", "linter", "sast"]
+categories = ["development-tools", "command-line-utilities"]
 
 [[bin]]
 name = "rma"
@@ -14,13 +20,13 @@ default = ["oxc"]
 oxc = ["rma-analyzer/oxc"]
 
 [dependencies]
-rma-common = { version = "0.12.0", path = "../common" }
-rma-parser = { version = "0.12.0", path = "../parser" }
-rma-analyzer = { version = "0.12.0", path = "../analyzer", default-features = false }
-rma-indexer = { version = "0.12.0", path = "../indexer" }
-rma-ai = { version = "0.12.0", path = "../ai" }
-rma-daemon = { version = "0.12.0", path = "../daemon" }
-rma-plugins = { version = "0.12.0", path = "../plugins" }
+rma-common = { version = "0.13.0", path = "../common" }
+rma-parser = { version = "0.13.0", path = "../parser" }
+rma-analyzer = { version = "0.13.0", path = "../analyzer", default-features = false }
+rma-indexer = { version = "0.13.0", path = "../indexer" }
+rma-ai = { version = "0.13.0", path = "../ai" }
+rma-daemon = { version = "0.13.0", path = "../daemon" }
+rma-plugins = { version = "0.13.0", path = "../plugins" }
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive", "env", "string"] }
 clap_complete = "4.5"
@@ -43,6 +49,7 @@ crossterm = "0.28"
 futures = "0.3"
 walkdir = "2"
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile.workspace = true

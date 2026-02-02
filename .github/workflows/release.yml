@@ -86,6 +86,13 @@ jobs:
         if: matrix.use_cross != true
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if command -v strip &> /dev/null; then
+            strip target/${{ matrix.target }}/release/rma || true
+          fi
+
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -250,3 +257,31 @@ jobs:
           tags: |
             ghcr.io/bumahkib7/rma:${{ steps.version.outputs.version }}
             ghcr.io/bumahkib7/rma:latest
+
+  publish-npm:
+    name: Publish to npm
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update npm package version
+        working-directory: npm
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

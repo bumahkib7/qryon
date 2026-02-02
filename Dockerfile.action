@@ -1,0 +1,113 @@
+# Multi-stage Dockerfile for RMA GitHub Action
+# Optimized for small image size (< 50MB target)
+#
+# Build: docker build -f Dockerfile.action -t rma:action .
+# Run:   docker run --rm -v $(pwd):/workspace rma:action scan . --format sarif
+
+# =============================================================================
+# Stage 1: Builder - Compile RMA with optimizations
+# =============================================================================
+FROM rust:1.83-slim-bookworm AS builder
+
+# Install minimal build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace configuration first for better layer caching
+COPY Cargo.toml Cargo.lock ./
+
+# Copy all crate manifests
+COPY crates/common/Cargo.toml crates/common/
+COPY crates/parser/Cargo.toml crates/parser/
+COPY crates/analyzer/Cargo.toml crates/analyzer/
+COPY crates/indexer/Cargo.toml crates/indexer/
+COPY crates/cli/Cargo.toml crates/cli/
+COPY crates/daemon/Cargo.toml crates/daemon/
+COPY crates/plugins/Cargo.toml crates/plugins/
+COPY crates/lsp/Cargo.toml crates/lsp/
+COPY crates/ai/Cargo.toml crates/ai/
+
+# Create minimal dummy source files for dependency caching
+RUN mkdir -p crates/common/src && echo "pub fn _dummy() {}" > crates/common/src/lib.rs && \
+    mkdir -p crates/parser/src && echo "pub fn _dummy() {}" > crates/parser/src/lib.rs && \
+    mkdir -p crates/analyzer/src && echo "pub fn _dummy() {}" > crates/analyzer/src/lib.rs && \
+    mkdir -p crates/indexer/src && echo "pub fn _dummy() {}" > crates/indexer/src/lib.rs && \
+    mkdir -p crates/cli/src && echo "fn main() {}" > crates/cli/src/main.rs && \
+    mkdir -p crates/daemon/src && echo "fn main() {}" > crates/daemon/src/main.rs && \
+    mkdir -p crates/plugins/src && echo "pub fn _dummy() {}" > crates/plugins/src/lib.rs && \
+    mkdir -p crates/lsp/src && echo "fn main() {}" > crates/lsp/src/main.rs && \
+    mkdir -p crates/ai/src && echo "pub fn _dummy() {}" > crates/ai/src/lib.rs
+
+# Build dependencies only (this layer is cached unless Cargo.toml/lock changes)
+RUN cargo build --release -p rma-cli 2>/dev/null || true
+
+# Copy actual source code
+COPY crates/ crates/
+
+# Rebuild with actual sources
+RUN touch crates/*/src/*.rs && \
+    cargo build --release -p rma-cli && \
+    # Strip binary for smaller size
+    strip /build/target/release/rma
+
+# =============================================================================
+# Stage 2: Runtime - Minimal Debian slim image
+# =============================================================================
+FROM debian:bookworm-slim
+
+# Install minimal runtime dependencies
+# - ca-certificates: HTTPS support for OSV queries
+# - libssl3: TLS support
+# - git: Required for diff-only mode and git operations
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /var/cache/apt/archives/*
+
+# Create non-root user for security
+RUN useradd -m -u 1000 -s /bin/sh rma
+
+# Copy binary from builder stage
+COPY --from=builder /build/target/release/rma /usr/local/bin/rma
+
+# Ensure binary is executable
+RUN chmod +x /usr/local/bin/rma
+
+# Set working directory
+WORKDIR /workspace
+
+# Don't switch to non-root user by default for GitHub Actions compatibility
+# Actions may need to write to the workspace
+
+# Configure git for safe directory (required in containers)
+RUN git config --global --add safe.directory /workspace
+
+# Environment variables
+ENV TERM=xterm-256color
+ENV NO_COLOR=1
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=1 \
+    CMD rma --version || exit 1
+
+# Default entrypoint
+ENTRYPOINT ["rma"]
+CMD ["--help"]
+
+# =============================================================================
+# Labels (OCI Image Spec)
+# =============================================================================
+LABEL org.opencontainers.image.title="RMA - Rust Monorepo Analyzer"
+LABEL org.opencontainers.image.description="Ultra-fast code intelligence and security analyzer for CI/CD"
+LABEL org.opencontainers.image.url="https://github.com/bumahkib7/rust-monorepo-analyzer"
+LABEL org.opencontainers.image.source="https://github.com/bumahkib7/rust-monorepo-analyzer"
+LABEL org.opencontainers.image.vendor="RMA Team"
+LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
+LABEL org.opencontainers.image.base.name="debian:bookworm-slim"
