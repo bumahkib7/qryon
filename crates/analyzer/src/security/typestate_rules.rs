@@ -2848,22 +2848,35 @@ impl DatabaseStateMachine {
                 ".query(",
                 ".execute(",
                 ".run(",
-                ".find(",
+                // Note: .find( is NOT included because it conflicts with Array.prototype.find()
+                // Use more specific ORM patterns instead
                 ".findOne(",
                 ".findMany(",
+                ".findById(",
+                ".findUnique(",
+                ".findFirst(",
                 ".insertOne(",
+                ".insertMany(",
                 ".updateOne(",
+                ".updateMany(",
                 ".deleteOne(",
+                ".deleteMany(",
                 ".aggregate(",
                 ".exec(",
                 // Sequelize
                 ".findAll(",
+                ".findByPk(",
+                ".findOrCreate(",
                 ".create(",
+                ".bulkCreate(",
                 ".update(",
                 ".destroy(",
                 // Prisma
                 ".$queryRaw(",
                 ".$executeRaw(",
+                // MongoDB specific (collection methods)
+                "collection.find(",
+                ".collection(",
             ],
             begin_patterns: vec![
                 ".beginTransaction(",
