@@ -386,6 +386,22 @@ impl AnalyzerEngine {
         // CFG-powered generic rules
         self.rules.push(Box::new(security::generic::DeadCodeRule));
         self.rules.push(Box::new(security::generic::EmptyCatchRule));
+
+        // =====================================================================
+        // TYPESTATE RULES (resource lifecycle tracking)
+        // =====================================================================
+
+        // Typestate rules - track object state through their lifecycle
+        self.rules
+            .push(Box::new(security::typestate_rules::FileTypestateRule));
+        self.rules
+            .push(Box::new(security::typestate_rules::LockTypestateRule));
+        self.rules
+            .push(Box::new(security::typestate_rules::CryptoTypestateRule));
+        self.rules
+            .push(Box::new(security::typestate_rules::DatabaseTypestateRule));
+        self.rules
+            .push(Box::new(security::typestate_rules::IteratorTypestateRule));
     }
 
     /// Analyze a single parsed file using native rules only

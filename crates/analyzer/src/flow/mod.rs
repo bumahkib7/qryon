@@ -9,6 +9,7 @@
 //! - Generic dataflow framework (reaching definitions, live variables)
 //! - Inter-procedural taint analysis with function summaries
 //! - Type inference for variables without explicit annotations
+//! - Typestate analysis for tracking object state transitions
 //!
 //! Supports both intra-procedural and inter-procedural analysis.
 
@@ -21,6 +22,7 @@ mod sources;
 mod symbol_table;
 mod taint;
 pub mod type_inference;
+pub mod typestate;
 
 pub use cfg::{BasicBlock, BlockId, CFG, Terminator};
 pub use dataflow::{DataflowResult, Direction, Fact, TransferFunction};
@@ -37,6 +39,12 @@ pub use taint::{TaintAnalyzer, TaintLevel, TaintResult};
 pub use type_inference::{
     InferredType, Nullability, NullabilityRefinements, TypeFact, TypeInferrer, TypeInfo, TypeTable,
     analyze_types, compute_nullability_refinements, infer_types_from_symbols,
+};
+pub use typestate::{
+    State, StateMachine, TrackedState, Transition, TransitionTrigger, TypestateAnalyzer,
+    TypestateResult, TypestateViolation, ViolationKind, analyze_typestate_with_context,
+    connection_state_machine, file_state_machine, find_assignments_to_var, find_method_calls_on_var,
+    iterator_state_machine, lock_state_machine, MethodCallInfo,
 };
 
 use crate::callgraph::CallGraph;
@@ -103,6 +111,9 @@ pub struct FlowContext {
 
     /// Taint summaries from other files (for cross-file taint propagation)
     cross_file_summaries: Option<HashMap<String, TaintSummary>>,
+
+    /// Typestate analysis results (lazily computed)
+    typestate_results: Option<Vec<TypestateResult>>,
 }
 
 impl FlowContext {
@@ -151,6 +162,7 @@ impl FlowContext {
             call_graph: None,
             file_path: Some(parsed.path.clone()),
             cross_file_summaries: None,
+            typestate_results: None,
         }
     }
 
@@ -190,6 +202,7 @@ impl FlowContext {
             call_graph: None,
             file_path: Some(parsed.path.clone()),
             cross_file_summaries: None,
+            typestate_results: None,
         }
     }
 
@@ -226,6 +239,7 @@ impl FlowContext {
             call_graph: None,
             file_path: Some(parsed.path.clone()),
             cross_file_summaries: None,
+            typestate_results: None,
         }
     }
 
@@ -274,6 +288,7 @@ impl FlowContext {
             call_graph: Some(call_graph),
             file_path: Some(parsed.path.clone()),
             cross_file_summaries,
+            typestate_results: None,
         }
     }
 
@@ -766,6 +781,60 @@ impl FlowContext {
     #[inline]
     pub fn is_control_flow(&self, kind: &str) -> bool {
         self.semantics.is_control_flow(kind)
+    }
+
+    // =========================================================================
+    // Typestate analysis queries
+    // =========================================================================
+
+    /// Analyze typestate for tracked variables using provided state machines
+    ///
+    /// This method requires the parsed file reference to be available.
+    /// For standalone analysis, use `analyze_typestate_with_context` directly.
+    ///
+    /// # Arguments
+    /// * `state_machines` - The state machines to use for tracking
+    /// * `parsed` - The parsed file (needed for AST traversal)
+    ///
+    /// # Returns
+    /// A vector of TypestateResult, one per tracked variable
+    pub fn compute_typestate(
+        &mut self,
+        state_machines: &[StateMachine],
+        parsed: &rma_parser::ParsedFile,
+    ) -> &[TypestateResult] {
+        if self.typestate_results.is_none() {
+            let results =
+                analyze_typestate_with_context(parsed, &self.cfg, self.semantics, state_machines);
+            self.typestate_results = Some(results);
+        }
+        self.typestate_results.as_ref().unwrap()
+    }
+
+    /// Get cached typestate results (if computed)
+    pub fn typestate_results(&self) -> Option<&[TypestateResult]> {
+        self.typestate_results.as_deref()
+    }
+
+    /// Check if any typestate violations were detected
+    pub fn has_typestate_violations(&self) -> bool {
+        self.typestate_results
+            .as_ref()
+            .map(|results| results.iter().any(|r| r.has_violations()))
+            .unwrap_or(false)
+    }
+
+    /// Get all typestate violations from all tracked variables
+    pub fn all_typestate_violations(&self) -> Vec<&TypestateViolation> {
+        self.typestate_results
+            .as_ref()
+            .map(|results| {
+                results
+                    .iter()
+                    .flat_map(|r| r.violations.iter())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
