@@ -167,6 +167,7 @@ pub struct FindingFilter {
     /// Track statistics for explain mode
     track_stats: bool,
     /// Collected statistics (only when track_stats is true)
+    #[allow(dead_code)] // Used for explain mode statistics tracking
     stats: FilterStats,
 }
 
@@ -358,6 +359,7 @@ impl FindingFilter {
     }
 
     /// Check if a finding matches the filter
+    #[allow(dead_code)] // Public API for filtering findings
     pub fn matches(&self, finding: &Finding) -> bool {
         // Severity check
         if let Some(min_sev) = self.min_severity {
@@ -529,6 +531,7 @@ impl FindingFilter {
     }
 
     /// Apply filter to a list of findings, returning filtered list
+    #[allow(dead_code)] // Public API for filtering findings
     pub fn apply(&self, findings: Vec<Finding>) -> Vec<Finding> {
         findings.into_iter().filter(|f| self.matches(f)).collect()
     }
@@ -683,12 +686,16 @@ impl FindingFilter {
 #[derive(Debug, Clone)]
 enum FilterReason {
     Severity(Severity),
+    #[allow(dead_code)] // Used in matches_with_tracking for explain mode
     RuleNotIncluded(String),
     RuleExcluded(String),
+    #[allow(dead_code)] // Used in matches_with_tracking for explain mode
     FileNotIncluded(String),
     FileExcluded(String),
+    #[allow(dead_code)] // Used in matches_with_tracking for explain mode
     Category(FindingCategory),
     NotFixable,
+    #[allow(dead_code)] // Used in matches_with_tracking for explain mode
     LowConfidence(Confidence),
     SearchNoMatch,
 }

@@ -47,6 +47,7 @@ impl ScanProgressConfig {
 /// Main progress tracker for scan operations
 pub struct ScanProgress {
     config: ScanProgressConfig,
+    #[allow(dead_code)] // Reserved for future multi-bar features
     multi: MultiProgress,
     main_bar: Option<ProgressBar>,
     current_file_bar: Option<ProgressBar>,
@@ -254,7 +255,7 @@ impl ScanProgress {
             if elapsed > 0.0 {
                 let speed = processed as f64 / elapsed;
                 let remaining = self.total_files.saturating_sub(processed);
-                let eta = if speed > 0.0 {
+                let _eta = if speed > 0.0 {
                     remaining as f64 / speed
                 } else {
                     0.0
@@ -346,11 +347,13 @@ impl ScanProgress {
     }
 
     /// Get total findings count
+    #[allow(dead_code)] // Public API for external consumers
     pub fn total_findings(&self) -> usize {
         self.findings_count.load(Ordering::SeqCst)
     }
 
     /// Get findings breakdown
+    #[allow(dead_code)] // Public API for external consumers
     pub fn findings_breakdown(&self) -> (usize, usize, usize, usize) {
         (
             self.critical_count.load(Ordering::SeqCst),
@@ -362,12 +365,14 @@ impl ScanProgress {
 }
 
 /// Progress spinner for indeterminate phases
+#[allow(dead_code)] // Public API for CLI progress display
 pub struct PhaseSpinner {
     bar: Option<ProgressBar>,
     start_time: Instant,
     show_progress: bool,
 }
 
+#[allow(dead_code)] // Public API for CLI progress display
 impl PhaseSpinner {
     /// Create a new phase spinner
     pub fn new(message: &str, show_progress: bool) -> Self {
@@ -434,6 +439,7 @@ impl PhaseSpinner {
 }
 
 /// Multi-phase progress tracker for complex operations
+#[allow(dead_code)] // Public API for CLI multi-phase progress display
 pub struct MultiPhaseProgress {
     multi: MultiProgress,
     phases: Vec<PhaseInfo>,
@@ -441,12 +447,14 @@ pub struct MultiPhaseProgress {
     show_progress: bool,
 }
 
+#[allow(dead_code)] // Public API for CLI multi-phase progress display
 struct PhaseInfo {
     name: String,
     bar: Option<ProgressBar>,
     completed: bool,
 }
 
+#[allow(dead_code)] // Public API for CLI multi-phase progress display
 impl MultiPhaseProgress {
     /// Create a new multi-phase progress tracker
     pub fn new(show_progress: bool) -> Self {
@@ -543,12 +551,14 @@ fn format_number(n: usize) -> String {
 }
 
 /// Streaming finding printer for immediate output
+#[allow(dead_code)] // Public API for streaming output mode
 pub struct StreamingOutput {
     cache: SourceCache,
     renderer: RichDiagnosticRenderer,
     count: usize,
 }
 
+#[allow(dead_code)] // Public API for streaming output mode
 impl StreamingOutput {
     /// Create a new streaming output handler
     pub fn new() -> Self {

@@ -509,7 +509,7 @@ impl PrettyRenderer {
     }
 
     /// Format fallback snippet when source is not available
-    fn format_fallback_snippet(&self, finding: &Finding, snippet: &str) -> String {
+    fn format_fallback_snippet(&self, _finding: &Finding, snippet: &str) -> String {
         let pipe = if self.config.use_unicode {
             "\u{2502}"
         } else {
