@@ -28,6 +28,7 @@ pub mod osv;
 pub mod oxc_native;
 pub mod oxlint;
 pub mod pmd;
+pub mod registry;
 pub mod rustsec;
 
 pub use gosec::GosecProvider;

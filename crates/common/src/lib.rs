@@ -214,6 +214,36 @@ impl std::fmt::Display for SourceLocation {
     }
 }
 
+/// A suggested fix for a finding with precise byte offsets for auto-fix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fix {
+    /// Human-readable description of the fix (e.g., "Replace yaml.load with yaml.safe_load")
+    pub description: String,
+    /// The replacement text to apply
+    pub replacement: String,
+    /// Start byte offset in the source
+    pub start_byte: usize,
+    /// End byte offset in the source (exclusive)
+    pub end_byte: usize,
+}
+
+impl Fix {
+    /// Create a new Fix with the given parameters
+    pub fn new(
+        description: impl Into<String>,
+        replacement: impl Into<String>,
+        start_byte: usize,
+        end_byte: usize,
+    ) -> Self {
+        Self {
+            description: description.into(),
+            replacement: replacement.into(),
+            start_byte,
+            end_byte,
+        }
+    }
+}
+
 /// A security or code quality finding
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
@@ -227,6 +257,9 @@ pub struct Finding {
     pub snippet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    /// Structured fix for auto-fix with precise byte offsets
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
     /// Confidence level (how certain we are this is a real issue)
     #[serde(default)]
     pub confidence: Confidence,

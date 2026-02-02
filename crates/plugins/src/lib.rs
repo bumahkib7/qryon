@@ -125,6 +125,7 @@ impl From<PluginFinding> for Finding {
             language: Language::Unknown,
             snippet: pf.snippet,
             suggestion: pf.suggestion,
+            fix: None,
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Quality,
             fingerprint: None,

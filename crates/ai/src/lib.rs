@@ -146,6 +146,7 @@ impl AiFinding {
             language,
             snippet: None,
             suggestion: self.fix_suggestion.clone(),
+            fix: None,
             confidence,
             category,
             fingerprint: None,

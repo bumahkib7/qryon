@@ -252,6 +252,7 @@ impl OxlintProvider {
             language: Language::JavaScript, // oxlint handles JS/TS
             snippet: diag.source,
             suggestion: None,
+            fix: None,
             confidence,
             category,
             fingerprint: None,

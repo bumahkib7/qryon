@@ -249,6 +249,7 @@ mod tests {
             language: rma_common::Language::Rust,
             snippet: Some("unsafe { ptr::read(x) }".to_string()),
             suggestion: Some("Consider using safe alternatives".to_string()),
+            fix: None,
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Security,
             fingerprint: None,

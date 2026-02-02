@@ -6,6 +6,7 @@ pub mod cache;
 pub mod config;
 pub mod daemon;
 pub mod doctor;
+pub mod fix;
 pub mod init;
 pub mod plugin;
 pub mod scan;

@@ -1,6 +1,14 @@
 #!/bin/bash
 # RMA Installer - One command installation
-# Usage: curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+#
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+#
+# Install specific version:
+#   VERSION=0.12.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+#
+# Custom install directory:
+#   RMA_INSTALL_DIR=/usr/local/bin curl -fsSL ... | bash
 
 set -e
 
@@ -91,8 +99,18 @@ check_requirements() {
     fi
 }
 
-# Get latest release version
-get_latest_version() {
+# Get release version (uses VERSION env var if set, otherwise fetches latest)
+get_version() {
+    # Allow user to specify version via environment variable
+    if [ -n "${VERSION:-}" ]; then
+        # Ensure version starts with 'v' prefix
+        if [[ "$VERSION" != v* ]]; then
+            VERSION="v$VERSION"
+        fi
+        info "Using specified version: ${BOLD}$VERSION${NC}"
+        return
+    fi
+
     info "Fetching latest version..."
 
     if command -v curl &> /dev/null; then
@@ -111,7 +129,12 @@ get_latest_version() {
 
 # Download and install
 install_binary() {
-    local DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/rma-${PLATFORM}.tar.gz"
+    local DOWNLOAD_URL
+    if [ "$VERSION" = "latest" ]; then
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/rma-${PLATFORM}.tar.gz"
+    else
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/rma-${PLATFORM}.tar.gz"
+    fi
     local TMP_DIR=$(mktemp -d)
     local ARCHIVE="${TMP_DIR}/rma.tar.gz"
 
@@ -229,7 +252,7 @@ main() {
     print_banner
     check_requirements
     detect_platform
-    get_latest_version
+    get_version
     install_binary
     setup_path
     verify_installation

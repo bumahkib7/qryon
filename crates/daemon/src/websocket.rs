@@ -333,6 +333,7 @@ mod tests {
             language: rma_common::Language::Rust,
             snippet: None,
             suggestion: None,
+            fix: None,
             confidence: rma_common::Confidence::High,
             category: rma_common::FindingCategory::Security,
             fingerprint: None,

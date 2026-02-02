@@ -146,6 +146,35 @@ pub enum Commands {
         /// OSV: Cache time-to-live (e.g., 1h, 24h, 7d). Default: 24h
         #[arg(long, default_value = "24h")]
         osv_cache_ttl: String,
+
+        /// Enable cross-file analysis (import resolution, call graph)
+        /// This enables detection of taint flows across function and file boundaries
+        #[arg(long)]
+        cross_file: bool,
+
+        /// Only report findings on lines changed in the diff (for PR workflows)
+        /// Uses git diff against --diff-base to determine changed lines
+        #[arg(long)]
+        diff: bool,
+
+        /// Base git ref to compare against when using --diff (default: origin/main)
+        #[arg(long, default_value = "origin/main", requires = "diff")]
+        diff_base: String,
+
+        /// Read unified diff from stdin instead of running git diff
+        /// Useful for piping diff output: git diff origin/main | rma scan --diff --diff-stdin
+        #[arg(long, requires = "diff")]
+        diff_stdin: bool,
+
+        /// Skip test files and test directories (security rules still apply)
+        /// Automatically excludes common test patterns: *_test.go, *.test.ts, test_*.py, src/test/**, etc.
+        #[arg(long)]
+        skip_tests: bool,
+
+        /// Skip ALL findings in test files including security rules
+        /// Use with caution - security vulnerabilities in tests can still be exploited
+        #[arg(long)]
+        skip_tests_all: bool,
     },
 
     /// Watch for file changes and re-analyze in real-time
@@ -383,6 +412,98 @@ pub enum Commands {
         /// Skip code security analysis
         #[arg(long)]
         skip_code: bool,
+
+        /// Fail (exit 1) if vulnerabilities at or above this severity are found
+        /// Possible values: critical, high, medium, low, none
+        #[arg(long, default_value = "high", value_name = "SEVERITY")]
+        fail_on: String,
+
+        /// Don't fail even if vulnerabilities are found (alias for --fail-on none)
+        #[arg(long, conflicts_with = "fail_on")]
+        no_fail: bool,
+
+        /// Include test files in code security scanning (normally excluded)
+        #[arg(long)]
+        include_tests: bool,
+    },
+
+    /// Fix vulnerable dependencies automatically
+    #[command(visible_alias = "autofix")]
+    Fix {
+        /// Path to scan and fix
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Fix strategy (minimal, best, latest)
+        /// minimal: smallest version bump that fixes the issue
+        /// best: optimal balance of safety and minimal breaking changes (default)
+        /// latest: always upgrade to latest safe version
+        #[arg(long, default_value = "best")]
+        strategy: String,
+
+        /// Maximum version bump allowed (patch, minor, major, any)
+        #[arg(long, default_value = "any")]
+        max_bump: String,
+
+        /// Allow prerelease versions as fix targets
+        #[arg(long)]
+        allow_prerelease: bool,
+
+        /// Allow yanked/deprecated versions
+        #[arg(long)]
+        allow_yanked: bool,
+
+        /// Use cached data only (no network requests)
+        #[arg(long)]
+        offline: bool,
+
+        /// Show detailed candidate analysis (skipped versions and reasons)
+        #[arg(long)]
+        explain: bool,
+
+        /// Dry run - show plan without applying changes (default)
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Apply fixes to files
+        #[arg(long)]
+        apply: bool,
+
+        /// Git branch name to create (e.g., rma/fix-deps)
+        #[arg(long)]
+        branch_name: Option<String>,
+
+        /// Create git commit after applying fixes
+        #[arg(long)]
+        commit: bool,
+
+        /// Commit message prefix
+        #[arg(long, default_value = "rma:")]
+        commit_prefix: String,
+
+        /// Force operations even if working tree is dirty
+        #[arg(long)]
+        force: bool,
+
+        /// Skip all git operations
+        #[arg(long)]
+        no_git: bool,
+
+        /// Maximum number of packages to fix
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Force specific package versions (pkg@ver, repeatable)
+        #[arg(long = "target", value_name = "PKG@VER")]
+        targets: Vec<String>,
+
+        /// Allow vulnerable target versions (requires explicit opt-in)
+        #[arg(long)]
+        allow_vulnerable_target: bool,
+
+        /// Output format (pretty, json)
+        #[arg(short, long, default_value = "pretty")]
+        format: String,
     },
 }
 
@@ -583,6 +704,8 @@ pub enum OutputFormat {
     Markdown,
     /// GitHub Actions workflow commands
     Github,
+    /// Self-contained HTML report
+    Html,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq, PartialOrd, Ord)]
@@ -679,6 +802,12 @@ fn main() -> Result<()> {
             mode,
             osv_offline,
             osv_cache_ttl,
+            cross_file,
+            diff,
+            diff_base,
+            diff_stdin,
+            skip_tests,
+            skip_tests_all,
         } => commands::scan::run(commands::scan::ScanArgs {
             path,
             format,
@@ -703,6 +832,12 @@ fn main() -> Result<()> {
             mode,
             osv_offline,
             osv_cache_ttl,
+            cross_file,
+            diff,
+            diff_base,
+            diff_stdin,
+            skip_tests,
+            skip_tests_all,
         }),
 
         Commands::Watch {
@@ -878,14 +1013,28 @@ fn main() -> Result<()> {
             skip_docker,
             skip_deps,
             skip_code,
+            fail_on,
+            no_fail,
+            include_tests,
         } => {
             let severity = match severity.to_lowercase().as_str() {
                 "critical" => rma_common::Severity::Critical,
                 "high" => rma_common::Severity::Error,
                 "medium" => rma_common::Severity::Warning,
-                "low" | _ => rma_common::Severity::Info,
+                "low" => rma_common::Severity::Info,
+                _ => rma_common::Severity::Info,
             };
             let format = format.parse().unwrap_or_default();
+
+            // Parse fail_on severity, or use None if --no-fail is set
+            let fail_on = if no_fail {
+                commands::security::FailSeverity::None
+            } else {
+                fail_on
+                    .parse()
+                    .unwrap_or(commands::security::FailSeverity::High)
+            };
+
             commands::security::run(commands::security::SecurityArgs {
                 path,
                 format,
@@ -896,6 +1045,54 @@ fn main() -> Result<()> {
                 skip_docker,
                 skip_deps,
                 skip_code,
+                fail_on,
+                include_tests,
+            })
+        }
+
+        Commands::Fix {
+            path,
+            strategy,
+            max_bump,
+            allow_prerelease,
+            allow_yanked,
+            offline,
+            explain,
+            dry_run,
+            apply,
+            branch_name,
+            commit,
+            commit_prefix,
+            force,
+            no_git,
+            limit,
+            targets,
+            allow_vulnerable_target,
+            format,
+        } => {
+            let strategy = strategy.parse().unwrap_or_default();
+            let max_bump = max_bump.parse().unwrap_or_default();
+            let format = format.parse().unwrap_or_default();
+
+            commands::fix::run(commands::fix::FixArgs {
+                path,
+                strategy,
+                max_bump,
+                allow_prerelease,
+                allow_yanked,
+                offline,
+                explain,
+                dry_run: dry_run || !apply, // dry_run is true unless --apply
+                apply,
+                branch_name,
+                commit,
+                commit_prefix,
+                force,
+                no_git,
+                limit,
+                targets,
+                allow_vulnerable_target,
+                format,
             })
         }
     };

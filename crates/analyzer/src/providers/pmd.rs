@@ -288,6 +288,7 @@ impl PmdProvider {
             language: Language::Java,
             snippet: None, // PMD doesn't include snippet in XML
             suggestion: violation.external_info_url.clone(),
+            fix: None,
             confidence,
             category,
             fingerprint: None,

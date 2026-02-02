@@ -79,12 +79,12 @@ pub fn search_by_severity(
     let language_field = schema.get_field("language").unwrap();
     let findings_field = schema.get_field("findings").unwrap();
 
-    // Use range query for severity - tantivy 0.22 API
-    let field_name = schema.get_field_entry(severity_field).name().to_string();
-    let query = tantivy::query::RangeQuery::new_i64(
-        field_name,
-        min_severity as i64..4, // exclusive end
-    );
+    // Use range query for severity - tantivy 0.25 API
+    use std::ops::Bound;
+    use tantivy::Term;
+    let lower_bound = Bound::Included(Term::from_field_i64(severity_field, min_severity as i64));
+    let upper_bound = Bound::Excluded(Term::from_field_i64(severity_field, 4));
+    let query = tantivy::query::RangeQuery::new(lower_bound, upper_bound);
 
     let top_docs = searcher.search(&query, &TopDocs::with_limit(limit))?;
 

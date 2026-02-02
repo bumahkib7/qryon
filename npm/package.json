@@ -1,0 +1,53 @@
+{
+  "name": "rma-cli",
+  "version": "0.12.0",
+  "description": "Static security analyzer for polyglot projects (JS/TS, Python, Rust, Go, Java)",
+  "keywords": [
+    "security",
+    "static-analysis",
+    "linter",
+    "sast",
+    "code-analysis",
+    "vulnerability",
+    "rust",
+    "javascript",
+    "typescript",
+    "python",
+    "go",
+    "java"
+  ],
+  "homepage": "https://github.com/anthropics/rma",
+  "bugs": {
+    "url": "https://github.com/anthropics/rma/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anthropics/rma.git"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": "RMA Team",
+  "bin": {
+    "rma": "./bin/rma-wrapper.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node bin/rma-wrapper.js --version"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ]
+}

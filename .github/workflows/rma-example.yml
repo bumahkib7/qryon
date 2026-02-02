@@ -1,0 +1,183 @@
+name: RMA Security Scan Example
+
+# This is an example workflow showing how to use the RMA GitHub Action
+# in your repository for security scanning and code analysis.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: 'Minimum severity level'
+        required: false
+        default: 'warning'
+        type: choice
+        options:
+          - info
+          - warning
+          - error
+          - critical
+      fail-on-findings:
+        description: 'Fail if findings detected'
+        required: false
+        default: true
+        type: boolean
+
+# Permissions required for GitHub Code Scanning and PR comments
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # Basic usage - just add the action to your workflow
+  basic-scan:
+    name: Basic Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for diff-only mode
+
+      - name: Run RMA Security Scan
+        uses: bumahkib7/rust-monorepo-analyzer@main
+        with:
+          # Scan current directory
+          path: '.'
+          # Minimum severity to report
+          severity: ${{ inputs.severity || 'warning' }}
+          # Fail if findings are detected (default: true)
+          fail-on-findings: ${{ inputs.fail-on-findings || true }}
+          # Upload to GitHub Code Scanning (default: true)
+          upload-sarif: true
+          # Post comment on PRs (default: true)
+          comment-on-pr: true
+
+  # Advanced usage with all options
+  advanced-scan:
+    name: Advanced Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run RMA with Advanced Options
+        id: rma
+        uses: bumahkib7/rust-monorepo-analyzer@main
+        with:
+          path: '.'
+          severity: 'warning'
+          # Enable cross-file analysis for taint tracking
+          cross-file: true
+          # Only scan changed files (auto-enabled for PRs)
+          diff-only: true
+          diff-base: 'origin/main'
+          # Use strict profile for thorough analysis
+          profile: 'strict'
+          # Enable multiple providers
+          providers: 'rma,oxc,osv'
+          # Target specific languages
+          languages: 'rust,javascript,typescript'
+          # Disable specific rules if needed
+          # disable-rules: 'RMA001,RMA002'
+          fail-on-findings: true
+          upload-sarif: true
+          comment-on-pr: true
+
+      - name: Use scan results
+        if: always()
+        env:
+          FINDINGS_COUNT: ${{ steps.rma.outputs.findings-count }}
+          SARIF_FILE: ${{ steps.rma.outputs.sarif-file }}
+          EXIT_CODE: ${{ steps.rma.outputs.exit-code }}
+          SUMMARY: ${{ steps.rma.outputs.summary }}
+        run: |
+          echo "Findings count: $FINDINGS_COUNT"
+          echo "SARIF file: $SARIF_FILE"
+          echo "Exit code: $EXIT_CODE"
+          echo "Summary: $SUMMARY"
+
+  # Docker-based scan (useful for reproducibility)
+  docker-scan:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run RMA via Docker
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          docker run --rm \
+            -v "$WORKSPACE:/workspace" \
+            -w /workspace \
+            ghcr.io/bumahkib7/rma:latest \
+            scan . \
+              --format sarif \
+              --output /workspace/rma-results.sarif \
+              --severity warning
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rma-results.sarif
+          category: 'rma-docker-scan'
+        if: always()
+
+  # Scheduled full scan (recommended for main branch)
+  scheduled-scan:
+    name: Scheduled Full Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Full Repository Scan
+        uses: bumahkib7/rust-monorepo-analyzer@main
+        with:
+          path: '.'
+          severity: 'info'
+          # Disable diff-only for full scan
+          diff-only: false
+          # Enable all analysis features
+          cross-file: true
+          providers: 'rma,oxc,osv'
+          profile: 'strict'
+          # Don't fail on scheduled scans, just report
+          fail-on-findings: false
+          upload-sarif: true
+          comment-on-pr: false
+
+  # Multi-project monorepo example
+  monorepo-scan:
+    name: Monorepo Scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project:
+          - path: 'services/api'
+            name: 'API Service'
+          - path: 'services/web'
+            name: 'Web Frontend'
+          - path: 'libs/shared'
+            name: 'Shared Library'
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan ${{ matrix.project.name }}
+        uses: bumahkib7/rust-monorepo-analyzer@main
+        with:
+          path: ${{ matrix.project.path }}
+          severity: 'warning'
+          diff-only: ${{ github.event_name == 'pull_request' }}
+          fail-on-findings: true
+          upload-sarif: true

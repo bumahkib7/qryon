@@ -109,40 +109,115 @@ pub struct RulesConfig {
 /// Default ignore path presets for common test/example directories
 /// Used automatically in --mode pr and --mode ci unless overridden
 pub const DEFAULT_TEST_IGNORE_PATHS: &[&str] = &[
+    // =========================================================================
+    // Generic test directories (all languages)
+    // =========================================================================
     "**/test/**",
     "**/tests/**",
     "**/testing/**",
+    "**/spec/**",
+    "**/specs/**",
+    "**/e2e/**",
+    "**/integration/**",
+    "**/integration-tests/**",
+    "**/unit/**",
+    "**/unit-tests/**",
+    // =========================================================================
+    // JavaScript/TypeScript
+    // =========================================================================
     "**/__tests__/**",
     "**/__test__/**",
+    "**/cypress/**",
+    "**/playwright/**",
+    // File patterns
     "**/*.test.ts",
     "**/*.test.js",
     "**/*.test.tsx",
     "**/*.test.jsx",
+    "**/*.test.mjs",
+    "**/*.test.cjs",
     "**/*.spec.ts",
     "**/*.spec.js",
     "**/*.spec.tsx",
     "**/*.spec.jsx",
+    "**/*.spec.mjs",
+    "**/*.spec.cjs",
+    // =========================================================================
+    // Python
+    // =========================================================================
     "**/test_*.py",
     "**/*_test.py",
     "**/tests_*.py",
+    "**/*_spec.py",
+    "**/conftest.py",
+    "**/pytest_*.py",
+    // =========================================================================
+    // Go
+    // =========================================================================
     "**/*_test.go",
+    "**/*_integration_test.go",
+    // =========================================================================
+    // Rust
+    // =========================================================================
     "**/*_test.rs",
+    "**/benches/**",
+    // =========================================================================
+    // Java (Maven/Gradle conventions)
+    // =========================================================================
+    "**/src/test/**",
+    "**/src/testFixtures/**",
+    "**/src/integrationTest/**",
+    "**/*Test.java",
+    "**/*Tests.java",
+    "**/Test*.java",
+    "**/*TestCase.java",
+    "**/*IT.java",
+    "**/*ITCase.java",
+    // =========================================================================
+    // Kotlin
+    // =========================================================================
+    "**/*Test.kt",
+    "**/*Tests.kt",
+    "**/Test*.kt",
 ];
 
 /// Default ignore paths for examples/fixtures (less strict rules)
 pub const DEFAULT_EXAMPLE_IGNORE_PATHS: &[&str] = &[
+    // Examples
     "**/examples/**",
     "**/example/**",
+    "**/sample/**",
+    "**/samples/**",
+    "**/demo/**",
+    "**/demos/**",
+    "**/tutorial/**",
+    "**/tutorials/**",
+    // Test fixtures/data
     "**/fixtures/**",
     "**/fixture/**",
     "**/testdata/**",
     "**/test_data/**",
-    "**/demo/**",
-    "**/demos/**",
+    "**/test-data/**",
+    "**/test-fixtures/**",
+    "**/test_fixtures/**",
+    "**/__fixtures__/**",
+    "**/golden/**",
+    "**/snapshots/**",
+    "**/__snapshots__/**",
+    // Mocks/stubs
     "**/mocks/**",
     "**/mock/**",
     "**/__mocks__/**",
     "**/stubs/**",
+    "**/stub/**",
+    "**/fakes/**",
+    "**/fake/**",
+    // Generated test helpers
+    "**/testutil/**",
+    "**/testutils/**",
+    "**/test_utils/**",
+    "**/test-utils/**",
+    "**/testing_utils/**",
 ];
 
 /// Rules that should NOT be suppressed in test/example paths
@@ -2052,6 +2127,8 @@ pub struct SuppressionEngine {
     rule_ignore_paths: HashMap<String, Vec<String>>,
     /// Whether to apply default presets (for --mode pr/ci)
     use_default_presets: bool,
+    /// Whether to skip security rules in tests (--skip-tests-all)
+    skip_security_in_tests: bool,
     /// Baseline for filtering existing findings
     baseline: Option<Baseline>,
     /// Compiled regex patterns for global ignores
@@ -2106,6 +2183,7 @@ impl SuppressionEngine {
             global_ignore_paths: rules_config.ignore_paths.clone(),
             rule_ignore_paths: rules_config.ignore_paths_by_rule.clone(),
             use_default_presets,
+            skip_security_in_tests: false,
             baseline: None,
             global_patterns,
             rule_patterns,
@@ -2144,6 +2222,12 @@ impl SuppressionEngine {
     /// Get a reference to the suppression store (if available)
     pub fn store(&self) -> Option<&crate::suppression::SuppressionStore> {
         self.suppression_store.as_ref().map(|s| s.as_ref())
+    }
+
+    /// Enable skipping security rules in test paths (--skip-tests-all)
+    pub fn with_skip_security_in_tests(mut self, skip: bool) -> Self {
+        self.skip_security_in_tests = skip;
+        self
     }
 
     /// Compile a glob pattern to a regex
@@ -2225,7 +2309,8 @@ impl SuppressionEngine {
         }
 
         // Security rules should not be suppressed by path/preset (only inline or baseline)
-        let is_always_enabled = Self::is_always_enabled(rule_id);
+        // Unless --skip-tests-all is used, which bypasses this protection
+        let is_always_enabled = Self::is_always_enabled(rule_id) && !self.skip_security_in_tests;
 
         if !is_always_enabled {
             // 2. Check global path ignores

@@ -206,6 +206,7 @@ impl OxcNativeProvider {
                 language,
                 snippet,
                 suggestion,
+                fix: None,
                 confidence,
                 category,
                 fingerprint: None,
