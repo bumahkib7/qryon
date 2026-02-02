@@ -1,0 +1,10 @@
+# Default owners for everything in the repo
+* @bumahkib7
+
+# Critical files require explicit owner approval
+/Cargo.toml @bumahkib7
+/Cargo.lock @bumahkib7
+/.github/ @bumahkib7
+/src/main.rs @bumahkib7
+/LICENSE @bumahkib7
+/SECURITY.md @bumahkib7
