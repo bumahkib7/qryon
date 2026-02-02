@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / Discussion
+    url: https://github.com/bumahkib7/rust-monorepo-analyzer/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions
+  - name: Security Vulnerability
+    url: https://github.com/bumahkib7/rust-monorepo-analyzer/security/advisories/new
+    about: Report security vulnerabilities privately
