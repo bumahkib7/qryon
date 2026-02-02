@@ -3310,6 +3310,86 @@ impl DatabaseTypestateRule {
         sm.is_safe_pattern(content)
     }
 
+    /// Check if file has database-related imports/requires
+    fn has_database_context(content: &str, language: Language) -> bool {
+        let db_indicators = match language {
+            Language::JavaScript | Language::TypeScript => &[
+                // Database drivers
+                "mysql", "mysql2", "pg", "postgres", "mongodb", "mongoose",
+                "sequelize", "prisma", "typeorm", "knex", "drizzle",
+                "better-sqlite3", "sql.js", "sqlite3",
+                // Database-specific imports
+                "PrismaClient", "MongoClient", "createConnection", "createPool",
+                // ORM indicators
+                "@prisma/client", "@nestjs/typeorm", "mikro-orm",
+            ][..],
+            Language::Python => &[
+                "psycopg2", "pymysql", "mysql.connector", "sqlite3", "sqlalchemy",
+                "asyncpg", "databases", "tortoise", "peewee", "mongoengine",
+                "pymongo", "motor", "django.db", "flask_sqlalchemy",
+            ][..],
+            Language::Go => &[
+                "database/sql", "gorm", "sqlx", "pgx", "mongo-driver",
+                "go-redis", "ent", "sql.Open", "gorm.Open",
+            ][..],
+            Language::Java => &[
+                "java.sql", "javax.sql", "jdbc", "hibernate", "jpa",
+                "spring.data", "mybatis", "mongodb", "EntityManager",
+            ][..],
+            Language::Rust => &[
+                "sqlx", "diesel", "sea-orm", "mongodb", "tokio-postgres",
+                "rusqlite", "postgres", "mysql_async",
+            ][..],
+            _ => &[][..],
+        };
+
+        db_indicators.iter().any(|indicator| content.contains(indicator))
+    }
+
+    /// Check if line looks like an API client call (not a database call)
+    fn is_api_client_call(line: &str) -> bool {
+        // Patterns that indicate HTTP API clients, not database operations
+        let api_patterns = [
+            // Common API client naming patterns (case-insensitive check)
+            "api.", "Api.", "API.",
+            "service.", "Service.",
+            "client.", "Client.",  // Only when followed by HTTP-like methods
+            "http.", "Http.", "HTTP.",
+            "axios.", "fetch(", "request.",
+            // React Query / TanStack patterns
+            "useMutation", "useQuery",
+            // Common API method patterns
+            ".get(", ".post(", ".put(", ".patch(", ".delete(",
+        ];
+
+        // Check for API client naming convention: variableApi.method() or variableService.method()
+        let trimmed = line.trim();
+
+        // Skip lines that are clearly API calls
+        if api_patterns.iter().any(|p| trimmed.contains(p)) {
+            return true;
+        }
+
+        // Check for camelCase API client patterns: someApi.update(), cartApi.update()
+        // Match pattern: word ending in Api/Service/Client followed by .method(
+        let api_var_pattern = regex::Regex::new(r"\b\w+(Api|Service|Client)\.(create|update|delete|get|post|put|patch|fetch|send|request)\(").unwrap();
+        if api_var_pattern.is_match(trimmed) {
+            return true;
+        }
+
+        // Check for await with API patterns
+        if trimmed.contains("await") && (
+            trimmed.contains("Api.") ||
+            trimmed.contains("Service.") ||
+            trimmed.contains("api.") ||
+            trimmed.contains("service.")
+        ) {
+            return true;
+        }
+
+        false
+    }
+
     /// Detect potential connection leak
     fn check_connection_leak(
         conn: &TrackedDbConnection,
@@ -3379,6 +3459,12 @@ impl Rule for DatabaseTypestateRule {
             return Vec::new();
         }
 
+        // Only run database checks if the file has database-related imports/code
+        // This prevents false positives on API client code
+        if !Self::has_database_context(&parsed.content, parsed.language) {
+            return Vec::new();
+        }
+
         let sm = Self::state_machine(parsed.language);
         let mut findings = Vec::new();
         let mut connections: Vec<TrackedDbConnection> = Vec::new();
@@ -3388,6 +3474,11 @@ impl Rule for DatabaseTypestateRule {
 
         for (line_num, line) in parsed.content.lines().enumerate() {
             let line_num = line_num + 1;
+
+            // Skip lines that look like API client calls (not database operations)
+            if Self::is_api_client_call(line) {
+                continue;
+            }
 
             // Check for safe patterns on this line
             let line_has_safe = sm.is_safe_pattern(line);
