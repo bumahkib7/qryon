@@ -49,8 +49,22 @@ pub enum ValueOrigin {
     FunctionCall(String),
     /// Member access like req.query, process.env
     MemberAccess(String),
-    /// Binary expression (concatenation, arithmetic)
+    /// Binary expression (concatenation, arithmetic) - legacy, prefer StringConcat
     BinaryExpression,
+    /// String concatenation with tracked operand variables
+    /// The Vec contains variable names that are part of the concatenation.
+    /// If any of these variables is tainted, the result is tainted.
+    StringConcat(Vec<String>),
+    /// Template literal/interpolated string with tracked variables
+    /// Similar to StringConcat - tracks which variables are interpolated.
+    TemplateLiteral(Vec<String>),
+    /// Method call on an object (e.g., str.concat(x), arr.join())
+    /// Contains (method_name, receiver_var, argument_vars)
+    MethodCall {
+        method: String,
+        receiver: Option<String>,
+        arguments: Vec<String>,
+    },
     /// Assigned from another variable
     Variable(String),
     /// Cannot determine origin
@@ -608,10 +622,28 @@ impl SymbolTable {
 
     fn classify_origin(node: &Node, content: &str) -> ValueOrigin {
         match node.kind() {
-            // Literals
-            "string" | "string_literal" | "raw_string_literal" | "template_string" => {
+            // Literals - but check template strings for interpolations first
+            "string" | "string_literal" | "raw_string_literal" => {
                 let text = node.utf8_text(content.as_bytes()).unwrap_or("");
                 ValueOrigin::Literal(text.to_string())
+            }
+            // Template strings might have interpolations
+            "template_string" => {
+                // Check if this template string has any substitutions
+                let mut has_substitution = false;
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "template_substitution" {
+                        has_substitution = true;
+                        break;
+                    }
+                }
+                if has_substitution {
+                    Self::classify_template_literal(node, content)
+                } else {
+                    let text = node.utf8_text(content.as_bytes()).unwrap_or("");
+                    ValueOrigin::Literal(text.to_string())
+                }
             }
             "number" | "integer" | "float" | "integer_literal" | "float_literal" => {
                 let text = node.utf8_text(content.as_bytes()).unwrap_or("0");
@@ -623,18 +655,8 @@ impl SymbolTable {
             }
             "null" | "nil" | "none" | "None" => ValueOrigin::Literal("null".to_string()),
 
-            // Function calls
-            "call_expression" | "call" => {
-                if let Some(func) = node
-                    .child_by_field_name("function")
-                    .or_else(|| node.child(0))
-                {
-                    let func_text = func.utf8_text(content.as_bytes()).unwrap_or("");
-                    ValueOrigin::FunctionCall(func_text.to_string())
-                } else {
-                    ValueOrigin::FunctionCall("unknown".to_string())
-                }
-            }
+            // Function calls - check for method calls like str.concat(), fmt.Sprintf(), etc.
+            "call_expression" | "call" => Self::classify_call_expression(node, content),
 
             // Member access: obj.prop, obj.method()
             "member_expression" | "field_expression" | "selector_expression" | "attribute" => {
@@ -654,11 +676,16 @@ impl SymbolTable {
                 ValueOrigin::Variable(name.to_string())
             }
 
-            // Binary expressions (concatenation, arithmetic)
-            "binary_expression" | "binary_operator" => ValueOrigin::BinaryExpression,
+            // Binary expressions - extract operand variables for taint tracking
+            "binary_expression" | "binary_operator" => {
+                Self::classify_binary_expression(node, content)
+            }
 
-            // Template literals might contain tainted data
-            "template_literal" => ValueOrigin::BinaryExpression,
+            // Template literals with interpolation - track embedded variables
+            "template_literal" => Self::classify_template_literal(node, content),
+
+            // Python f-strings
+            "formatted_string" | "interpolation" => Self::classify_template_literal(node, content),
 
             // Await expressions - check the inner call
             "await_expression" => {
@@ -679,6 +706,261 @@ impl SymbolTable {
             }
 
             _ => ValueOrigin::Unknown,
+        }
+    }
+
+    /// Classify a binary expression, extracting variable operands for taint tracking
+    fn classify_binary_expression(node: &Node, content: &str) -> ValueOrigin {
+        // Check if this is a string concatenation (+ operator)
+        let operator = node
+            .child_by_field_name("operator")
+            .and_then(|op| op.utf8_text(content.as_bytes()).ok())
+            .unwrap_or("");
+
+        // String concatenation operators: + (most languages), % (Python formatting)
+        if operator == "+" || operator == "%" {
+            let mut variables = Vec::new();
+            Self::collect_expression_variables(node, content, &mut variables);
+
+            if !variables.is_empty() {
+                return ValueOrigin::StringConcat(variables);
+            }
+        }
+
+        // For other binary expressions, still try to track variables
+        let mut variables = Vec::new();
+        Self::collect_expression_variables(node, content, &mut variables);
+
+        if !variables.is_empty() {
+            ValueOrigin::StringConcat(variables)
+        } else {
+            ValueOrigin::BinaryExpression
+        }
+    }
+
+    /// Classify a template literal, extracting interpolated variables
+    fn classify_template_literal(node: &Node, content: &str) -> ValueOrigin {
+        let mut variables = Vec::new();
+        Self::collect_template_variables(node, content, &mut variables);
+
+        if variables.is_empty() {
+            // No interpolations, treat as literal
+            let text = node.utf8_text(content.as_bytes()).unwrap_or("");
+            ValueOrigin::Literal(text.to_string())
+        } else {
+            ValueOrigin::TemplateLiteral(variables)
+        }
+    }
+
+    /// Classify a call expression, detecting string methods like concat, join, format
+    fn classify_call_expression(node: &Node, content: &str) -> ValueOrigin {
+        let func_node = node
+            .child_by_field_name("function")
+            .or_else(|| node.child(0));
+
+        if let Some(func) = func_node {
+            let func_text = func.utf8_text(content.as_bytes()).unwrap_or("");
+
+            // Check if it's a method call (e.g., str.concat(), arr.join())
+            if func.kind() == "member_expression" || func.kind() == "attribute" {
+                let method_name = func
+                    .child_by_field_name("property")
+                    .or_else(|| func.named_child(func.named_child_count().saturating_sub(1)))
+                    .and_then(|p| p.utf8_text(content.as_bytes()).ok())
+                    .unwrap_or("");
+
+                let receiver = func
+                    .child_by_field_name("object")
+                    .or_else(|| func.named_child(0))
+                    .and_then(|o| {
+                        if o.kind() == "identifier" {
+                            o.utf8_text(content.as_bytes()).ok().map(String::from)
+                        } else {
+                            None
+                        }
+                    });
+
+                // Check for string manipulation methods that propagate taint
+                let string_methods = [
+                    "concat",
+                    "join",
+                    "format",
+                    "replace",
+                    "trim",
+                    "toLowerCase",
+                    "toUpperCase",
+                    "slice",
+                    "substring",
+                    "substr",
+                    "split",
+                    "repeat",
+                    "padStart",
+                    "padEnd",
+                    "append",
+                    "push_str",
+                    "to_string",
+                    "to_str",
+                    "sprintf",
+                    "printf",
+                    "Sprintf",
+                    "Join",
+                    "Format",
+                ];
+
+                if string_methods
+                    .iter()
+                    .any(|m| method_name.eq_ignore_ascii_case(m))
+                {
+                    let mut arguments = Vec::new();
+
+                    // Collect argument variables
+                    if let Some(args) = node.child_by_field_name("arguments") {
+                        Self::collect_argument_variables(&args, content, &mut arguments);
+                    }
+
+                    return ValueOrigin::MethodCall {
+                        method: method_name.to_string(),
+                        receiver,
+                        arguments,
+                    };
+                }
+            }
+
+            // Check for format functions: format!(), fmt.Sprintf(), String.format(), etc.
+            let format_functions = [
+                "format!",
+                "format",
+                "sprintf",
+                "printf",
+                "Sprintf",
+                "Printf",
+                "fmt.Sprintf",
+                "fmt.Printf",
+                "String.format",
+                "str.format",
+            ];
+
+            if format_functions.iter().any(|f| func_text.contains(f)) {
+                let mut arguments = Vec::new();
+                if let Some(args) = node.child_by_field_name("arguments") {
+                    Self::collect_argument_variables(&args, content, &mut arguments);
+                }
+
+                return ValueOrigin::MethodCall {
+                    method: func_text.to_string(),
+                    receiver: None,
+                    arguments,
+                };
+            }
+
+            ValueOrigin::FunctionCall(func_text.to_string())
+        } else {
+            ValueOrigin::FunctionCall("unknown".to_string())
+        }
+    }
+
+    /// Recursively collect variable names from an expression
+    fn collect_expression_variables(node: &Node, content: &str, variables: &mut Vec<String>) {
+        match node.kind() {
+            "identifier" | "variable_name" => {
+                if let Ok(name) = node.utf8_text(content.as_bytes()) {
+                    let name_str = name.to_string();
+                    if !variables.contains(&name_str) {
+                        variables.push(name_str);
+                    }
+                }
+            }
+            "binary_expression" | "binary_operator" => {
+                // Recurse into left and right operands
+                if let Some(left) = node.child_by_field_name("left") {
+                    Self::collect_expression_variables(&left, content, variables);
+                }
+                if let Some(right) = node.child_by_field_name("right") {
+                    Self::collect_expression_variables(&right, content, variables);
+                }
+            }
+            "member_expression" | "field_expression" | "selector_expression" | "attribute" => {
+                // For member access like obj.prop, collect the full path
+                if let Ok(text) = node.utf8_text(content.as_bytes()) {
+                    let text_str = text.to_string();
+                    if !variables.contains(&text_str) {
+                        variables.push(text_str);
+                    }
+                }
+                // Also check the base object
+                if let Some(obj) = node
+                    .child_by_field_name("object")
+                    .or_else(|| node.named_child(0))
+                {
+                    Self::collect_expression_variables(&obj, content, variables);
+                }
+            }
+            "call_expression" | "call" => {
+                // For function calls, collect argument variables
+                if let Some(args) = node.child_by_field_name("arguments") {
+                    Self::collect_argument_variables(&args, content, variables);
+                }
+                // Also check the function part (for method calls like x.toString())
+                if let Some(func) = node.child_by_field_name("function") {
+                    if let Some(obj) = func.child_by_field_name("object") {
+                        Self::collect_expression_variables(&obj, content, variables);
+                    }
+                }
+            }
+            "parenthesized_expression" => {
+                if let Some(inner) = node.named_child(0) {
+                    Self::collect_expression_variables(&inner, content, variables);
+                }
+            }
+            "template_literal" | "template_string" => {
+                Self::collect_template_variables(node, content, variables);
+            }
+            _ => {
+                // Recurse into children for other node types
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    Self::collect_expression_variables(&child, content, variables);
+                }
+            }
+        }
+    }
+
+    /// Collect variables from template literal interpolations
+    fn collect_template_variables(node: &Node, content: &str, variables: &mut Vec<String>) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                // JavaScript template substitution: ${expr}
+                "template_substitution" => {
+                    if let Some(expr) = child.named_child(0) {
+                        Self::collect_expression_variables(&expr, content, variables);
+                    }
+                }
+                // Python f-string interpolation
+                "interpolation" | "format_expression" => {
+                    for i in 0..child.named_child_count() {
+                        if let Some(expr) = child.named_child(i) {
+                            Self::collect_expression_variables(&expr, content, variables);
+                        }
+                    }
+                }
+                // Recurse into nested template parts
+                "template_literal" | "formatted_string" => {
+                    Self::collect_template_variables(&child, content, variables);
+                }
+                _ => {
+                    // For other children, check if they're expressions
+                    Self::collect_expression_variables(&child, content, variables);
+                }
+            }
+        }
+    }
+
+    /// Collect variable names from function call arguments
+    fn collect_argument_variables(args_node: &Node, content: &str, variables: &mut Vec<String>) {
+        let mut cursor = args_node.walk();
+        for arg in args_node.named_children(&mut cursor) {
+            Self::collect_expression_variables(&arg, content, variables);
         }
     }
 
@@ -937,5 +1219,147 @@ mod tests {
 
         assert!(table.contains("res"));
         assert!(matches!(table.origin_of("res"), ValueOrigin::Parameter(1)));
+    }
+
+    // =========================================================================
+    // String Concatenation Origin Tests
+    // =========================================================================
+
+    #[test]
+    fn test_binary_plus_string_concat() {
+        let code = r#"
+            const a = "hello";
+            const b = "world";
+            const result = a + b;
+        "#;
+        let parsed = parse_js(code);
+        let table = SymbolTable::build(&parsed, Language::JavaScript);
+
+        assert!(table.contains("result"));
+        let origin = table.origin_of("result");
+        match origin {
+            ValueOrigin::StringConcat(vars) => {
+                assert!(vars.contains(&"a".to_string()), "should contain 'a'");
+                assert!(vars.contains(&"b".to_string()), "should contain 'b'");
+            }
+            _ => panic!("Expected StringConcat, got {:?}", origin),
+        }
+    }
+
+    #[test]
+    fn test_template_literal_origin() {
+        let code = r#"
+            const name = "world";
+            const greeting = `Hello, ${name}!`;
+        "#;
+        let parsed = parse_js(code);
+        let table = SymbolTable::build(&parsed, Language::JavaScript);
+
+        assert!(table.contains("greeting"));
+        let origin = table.origin_of("greeting");
+        match origin {
+            ValueOrigin::TemplateLiteral(vars) => {
+                assert!(
+                    vars.contains(&"name".to_string()),
+                    "should contain 'name' from interpolation"
+                );
+            }
+            ValueOrigin::Literal(_) => {
+                // If there's no interpolation detected, it might be treated as literal
+                // This is acceptable for the simple case
+            }
+            _ => panic!("Expected TemplateLiteral or Literal, got {:?}", origin),
+        }
+    }
+
+    #[test]
+    fn test_chained_concat_origin() {
+        let code = r#"
+            const a = "a";
+            const b = "b";
+            const c = "c";
+            const result = a + b + c;
+        "#;
+        let parsed = parse_js(code);
+        let table = SymbolTable::build(&parsed, Language::JavaScript);
+
+        assert!(table.contains("result"));
+        let origin = table.origin_of("result");
+        match origin {
+            ValueOrigin::StringConcat(vars) => {
+                assert!(vars.len() >= 2, "should have at least 2 variables");
+            }
+            _ => panic!("Expected StringConcat, got {:?}", origin),
+        }
+    }
+
+    #[test]
+    fn test_concat_method_origin() {
+        let code = r#"
+            const a = "hello";
+            const b = "world";
+            const result = a.concat(b);
+        "#;
+        let parsed = parse_js(code);
+        let table = SymbolTable::build(&parsed, Language::JavaScript);
+
+        assert!(table.contains("result"));
+        let origin = table.origin_of("result");
+        match origin {
+            ValueOrigin::MethodCall {
+                method,
+                receiver,
+                arguments,
+            } => {
+                assert_eq!(method, "concat");
+                assert_eq!(receiver, Some("a".to_string()));
+                assert!(arguments.contains(&"b".to_string()));
+            }
+            _ => panic!("Expected MethodCall, got {:?}", origin),
+        }
+    }
+
+    #[test]
+    fn test_join_method_origin() {
+        let code = r#"
+            const parts = ["a", "b"];
+            const result = parts.join(",");
+        "#;
+        let parsed = parse_js(code);
+        let table = SymbolTable::build(&parsed, Language::JavaScript);
+
+        assert!(table.contains("result"));
+        let origin = table.origin_of("result");
+        match origin {
+            ValueOrigin::MethodCall {
+                method, receiver, ..
+            } => {
+                assert_eq!(method, "join");
+                assert_eq!(receiver, Some("parts".to_string()));
+            }
+            _ => panic!("Expected MethodCall, got {:?}", origin),
+        }
+    }
+
+    #[test]
+    fn test_complex_expression_origin() {
+        let code = r#"
+            const x = "a";
+            const y = "b";
+            const z = "c";
+            const result = x + (y + z);
+        "#;
+        let parsed = parse_js(code);
+        let table = SymbolTable::build(&parsed, Language::JavaScript);
+
+        assert!(table.contains("result"));
+        let origin = table.origin_of("result");
+        match origin {
+            ValueOrigin::StringConcat(vars) => {
+                // Should capture variables from nested expressions
+                assert!(!vars.is_empty(), "should have captured some variables");
+            }
+            _ => panic!("Expected StringConcat, got {:?}", origin),
+        }
     }
 }

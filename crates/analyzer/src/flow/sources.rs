@@ -223,6 +223,101 @@ impl TaintConfig {
         })
     }
 
+    /// Check if a function call is an SQL sink
+    pub fn is_sql_sink(&self, func_name: &str) -> bool {
+        self.sinks.iter().any(|s| match &s.pattern {
+            SinkPattern::FunctionCall(pattern) => {
+                s.rule_id.contains("sql-injection")
+                    && (func_name == pattern
+                        || func_name.ends_with(&format!(".{}", pattern))
+                        || func_name.contains(pattern))
+            }
+            _ => false,
+        })
+    }
+
+    /// Get all SQL sink patterns for matching
+    pub fn sql_sink_patterns(&self) -> Vec<&str> {
+        self.sinks
+            .iter()
+            .filter(|s| s.rule_id.contains("sql-injection"))
+            .filter_map(|s| match &s.pattern {
+                SinkPattern::FunctionCall(pattern) => Some(pattern.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Check if a query string uses parameterized placeholders (sanitized for SQL)
+    ///
+    /// Recognizes common placeholder patterns:
+    /// - ? (JDBC, MySQL, SQLite)
+    /// - $1, $2, ... (PostgreSQL)
+    /// - :name, :param (Named parameters - Python, SQLAlchemy, Oracle)
+    /// - @param (SQL Server, ADO.NET)
+    /// - %s (Python DB-API with params tuple)
+    pub fn is_parameterized_query(query: &str) -> bool {
+        // Check for common parameterized query patterns
+        // These indicate safe usage with bound parameters
+
+        // ? placeholders (JDBC, MySQL, SQLite)
+        if query.contains('?') {
+            return true;
+        }
+
+        // $1, $2, ... PostgreSQL positional placeholders
+        if query.contains("$1") || query.contains("$2") {
+            return true;
+        }
+
+        // :name or :param named placeholders (SQLAlchemy, Oracle)
+        // Match :word patterns that look like bind variables
+        let has_named_param = query.chars().enumerate().any(|(i, c)| {
+            if c == ':' && i + 1 < query.len() {
+                let next_char = query.chars().nth(i + 1).unwrap_or(' ');
+                // Check it's :name not ::type_cast
+                next_char.is_alphabetic() && (i == 0 || query.chars().nth(i - 1) != Some(':'))
+            } else {
+                false
+            }
+        });
+        if has_named_param {
+            return true;
+        }
+
+        // @param (SQL Server, ADO.NET)
+        if query.contains('@') {
+            let has_at_param = query.chars().enumerate().any(|(i, c)| {
+                if c == '@' && i + 1 < query.len() {
+                    let next_char = query.chars().nth(i + 1).unwrap_or(' ');
+                    next_char.is_alphabetic()
+                } else {
+                    false
+                }
+            });
+            if has_at_param {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if a function call looks like a safe prepared statement usage
+    pub fn is_prepared_statement_call(func_name: &str) -> bool {
+        let safe_patterns = [
+            "prepare",
+            "prepareStatement",
+            "preparedStatement",
+            "PreparedStatement",
+            "createStatement",
+            "NamedParameterJdbcTemplate",
+            "SqlParameterSource",
+            "text", // Prisma/Knex text() for parameterized queries
+        ];
+        safe_patterns.iter().any(|p| func_name.contains(p))
+    }
+
     fn javascript() -> Self {
         Self {
             sources: vec![
@@ -382,6 +477,43 @@ impl TaintConfig {
                     rule_id: "js/command-injection".into(),
                     pattern: SinkPattern::FunctionCall("spawn".into()),
                 },
+                // SQL injection sinks for JavaScript
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("query".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("execute".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("db.query".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("mysql.query".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("pg.query".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("connection.query".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("pool.query".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("$queryRaw".into()),
+                },
+                TaintSink {
+                    rule_id: "js/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("$executeRaw".into()),
+                },
             ],
             source_function_cache: Vec::new(),
             source_member_cache: Vec::new(),
@@ -479,6 +611,26 @@ impl TaintConfig {
                     pattern: SinkPattern::FunctionCall("db.Exec".into()),
                 },
                 TaintSink {
+                    rule_id: "go/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("db.QueryRow".into()),
+                },
+                TaintSink {
+                    rule_id: "go/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("db.QueryContext".into()),
+                },
+                TaintSink {
+                    rule_id: "go/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("db.ExecContext".into()),
+                },
+                TaintSink {
+                    rule_id: "go/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("tx.Query".into()),
+                },
+                TaintSink {
+                    rule_id: "go/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("tx.Exec".into()),
+                },
+                TaintSink {
                     rule_id: "go/command-injection".into(),
                     pattern: SinkPattern::FunctionCall("exec.Command".into()),
                 },
@@ -560,9 +712,34 @@ impl TaintConfig {
                     rule_id: "python/command-injection".into(),
                     pattern: SinkPattern::FunctionCall("subprocess.run".into()),
                 },
+                // SQL injection sinks for Python
                 TaintSink {
                     rule_id: "python/sql-injection".into(),
                     pattern: SinkPattern::FunctionCall("cursor.execute".into()),
+                },
+                TaintSink {
+                    rule_id: "python/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("cursor.executemany".into()),
+                },
+                TaintSink {
+                    rule_id: "python/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("db.execute".into()),
+                },
+                TaintSink {
+                    rule_id: "python/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("connection.execute".into()),
+                },
+                TaintSink {
+                    rule_id: "python/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("engine.execute".into()),
+                },
+                TaintSink {
+                    rule_id: "python/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("session.execute".into()),
+                },
+                TaintSink {
+                    rule_id: "python/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("raw".into()),
                 },
             ],
             source_function_cache: Vec::new(),

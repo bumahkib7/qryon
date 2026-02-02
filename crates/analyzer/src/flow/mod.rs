@@ -8,6 +8,7 @@
 //! - Framework-aware knowledge integration
 //! - Generic dataflow framework (reaching definitions, live variables)
 //! - Inter-procedural taint analysis with function summaries
+//! - Type inference for variables without explicit annotations
 //!
 //! Supports both intra-procedural and inter-procedural analysis.
 
@@ -19,26 +20,37 @@ pub mod reaching_defs;
 mod sources;
 mod symbol_table;
 mod taint;
+pub mod type_inference;
 
 pub use cfg::{BasicBlock, BlockId, CFG, Terminator};
 pub use dataflow::{DataflowResult, Direction, Fact, TransferFunction};
 pub use interprocedural::{
     CallArg, CallSite, FunctionSummary, InterproceduralResult, ParamEffect, TaintEndpoint,
-    TaintFlow, TaintKind, analyze_interprocedural,
+    TaintFlow, TaintKind, TaintSummary, analyze_interprocedural,
+    analyze_interprocedural_with_call_graph,
 };
 pub use liveness::{LiveVar, analyze_liveness};
 pub use reaching_defs::{DefOrigin, DefUseChains, Definition, Use, analyze_reaching_definitions};
 pub use sources::{SinkPattern, SourcePattern, TaintConfig, TaintSink, TaintSource};
 pub use symbol_table::{SymbolInfo, SymbolTable, ValueOrigin};
 pub use taint::{TaintAnalyzer, TaintLevel, TaintResult};
+pub use type_inference::{
+    InferredType, Nullability, NullabilityRefinements, TypeFact, TypeInferrer, TypeInfo, TypeTable,
+    analyze_types, compute_nullability_refinements, infer_types_from_symbols,
+};
 
+use crate::callgraph::CallGraph;
 use crate::knowledge::{KnowledgeBuilder, MergedKnowledge};
 use crate::semantics::LanguageSemantics;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Combined flow analysis context passed to flow-aware rules
 ///
 /// This is the primary interface for flow-sensitive security analysis.
 /// It combines symbol table, taint analysis, CFG, dataflow results, and framework knowledge.
+/// Now supports cross-file taint tracking via CallGraph integration.
 #[derive(Debug)]
 pub struct FlowContext {
     /// Symbol table mapping variable names to their info
@@ -68,11 +80,29 @@ pub struct FlowContext {
     /// Inter-procedural taint result (lazily computed)
     interprocedural: Option<InterproceduralResult>,
 
+    /// Type inference result (lazily computed)
+    type_result: Option<DataflowResult<TypeFact>>,
+
+    /// Type table built from symbol table (lazily computed)
+    type_table: Option<TypeTable>,
+
+    /// Nullability refinements from branch analysis (lazily computed)
+    nullability_refinements: Option<NullabilityRefinements>,
+
     /// Cached tree reference for dataflow analysis
     tree: Option<tree_sitter::Tree>,
 
     /// Cached source bytes for dataflow analysis
     source: Option<Vec<u8>>,
+
+    /// Optional call graph for cross-file taint tracking
+    call_graph: Option<Arc<CallGraph>>,
+
+    /// Current file path (for cross-file analysis)
+    file_path: Option<PathBuf>,
+
+    /// Taint summaries from other files (for cross-file taint propagation)
+    cross_file_summaries: Option<HashMap<String, TaintSummary>>,
 }
 
 impl FlowContext {
@@ -113,8 +143,14 @@ impl FlowContext {
             reaching_defs: None,
             liveness: None,
             interprocedural: None,
+            type_result: None,
+            type_table: None,
+            nullability_refinements: None,
             tree: Some(parsed.tree.clone()),
             source: Some(parsed.content.as_bytes().to_vec()),
+            call_graph: None,
+            file_path: Some(parsed.path.clone()),
+            cross_file_summaries: None,
         }
     }
 
@@ -146,8 +182,14 @@ impl FlowContext {
             reaching_defs: None,
             liveness: None,
             interprocedural: None,
+            type_result: None,
+            type_table: None,
+            nullability_refinements: None,
             tree: Some(parsed.tree.clone()),
             source: Some(parsed.content.as_bytes().to_vec()),
+            call_graph: None,
+            file_path: Some(parsed.path.clone()),
+            cross_file_summaries: None,
         }
     }
 
@@ -176,8 +218,62 @@ impl FlowContext {
             reaching_defs: None,
             liveness: None,
             interprocedural: None,
+            type_result: None,
+            type_table: None,
+            nullability_refinements: None,
             tree: Some(parsed.tree.clone()),
             source: Some(parsed.content.as_bytes().to_vec()),
+            call_graph: None,
+            file_path: Some(parsed.path.clone()),
+            cross_file_summaries: None,
+        }
+    }
+
+    /// Build flow context with call graph for cross-file taint tracking
+    ///
+    /// This constructor enables cross-file taint analysis by providing
+    /// a call graph and optionally taint summaries from other files.
+    pub fn build_with_call_graph(
+        parsed: &rma_parser::ParsedFile,
+        language: rma_common::Language,
+        call_graph: Arc<CallGraph>,
+        cross_file_summaries: Option<HashMap<String, TaintSummary>>,
+    ) -> Self {
+        let semantics = LanguageSemantics::for_language(language);
+        let knowledge_builder = KnowledgeBuilder::new(language);
+        let knowledge = knowledge_builder.from_content(&parsed.content);
+        let symbols = SymbolTable::build(parsed, language);
+        let config = TaintConfig::for_language_with_knowledge(language, &knowledge);
+
+        // Run taint analysis with cross-file support
+        let taint = TaintAnalyzer::analyze_with_call_graph(
+            &symbols,
+            &config,
+            Some(&call_graph),
+            Some(&parsed.path),
+            cross_file_summaries.as_ref(),
+        );
+
+        let cfg = CFG::build(parsed, language);
+
+        Self {
+            symbols,
+            taint,
+            config,
+            cfg,
+            knowledge,
+            semantics,
+            reaching_defs: None,
+            liveness: None,
+            interprocedural: None,
+            type_result: None,
+            type_table: None,
+            nullability_refinements: None,
+            tree: Some(parsed.tree.clone()),
+            source: Some(parsed.content.as_bytes().to_vec()),
+            call_graph: Some(call_graph),
+            file_path: Some(parsed.path.clone()),
+            cross_file_summaries,
         }
     }
 
@@ -224,6 +320,52 @@ impl FlowContext {
                 self.semantics,
             );
             self.interprocedural = Some(interproc);
+
+            // Compute type inference
+            let types = type_inference::analyze_types(&self.cfg, tree, source, self.semantics);
+            self.type_result = Some(types);
+
+            // Compute nullability refinements
+            let refinements = type_inference::compute_nullability_refinements(
+                &self.cfg,
+                tree,
+                source,
+                self.semantics,
+            );
+            self.nullability_refinements = Some(refinements);
+        }
+
+        // Build type table from symbols (doesn't require tree/source)
+        self.type_table = Some(type_inference::infer_types_from_symbols(
+            &self.symbols,
+            self.semantics,
+        ));
+    }
+
+    /// Lazily compute and cache type inference only (lighter weight than full dataflow)
+    pub fn compute_types(&mut self) {
+        if self.type_table.is_some() {
+            return; // Already computed
+        }
+
+        // Build type table from symbols
+        self.type_table = Some(type_inference::infer_types_from_symbols(
+            &self.symbols,
+            self.semantics,
+        ));
+
+        // If we have tree/source, also compute CFG-based type analysis
+        if let (Some(tree), Some(source)) = (&self.tree, &self.source) {
+            let types = type_inference::analyze_types(&self.cfg, tree, source, self.semantics);
+            self.type_result = Some(types);
+
+            let refinements = type_inference::compute_nullability_refinements(
+                &self.cfg,
+                tree,
+                source,
+                self.semantics,
+            );
+            self.nullability_refinements = Some(refinements);
         }
     }
 
@@ -281,6 +423,93 @@ impl FlowContext {
     /// Get inter-procedural analysis result
     pub fn interprocedural_result(&self) -> Option<&InterproceduralResult> {
         self.interprocedural.as_ref()
+    }
+
+    // =========================================================================
+    // Type inference queries
+    // =========================================================================
+
+    /// Get the type table (lazily computed from symbols)
+    pub fn type_table(&mut self) -> &TypeTable {
+        if self.type_table.is_none() {
+            self.type_table = Some(type_inference::infer_types_from_symbols(
+                &self.symbols,
+                self.semantics,
+            ));
+        }
+        self.type_table.as_ref().unwrap()
+    }
+
+    /// Get the inferred type of a variable
+    pub fn get_type(&mut self, var_name: &str) -> Option<InferredType> {
+        self.type_table().get_type(var_name).cloned()
+    }
+
+    /// Get the nullability of a variable
+    pub fn get_nullability(&mut self, var_name: &str) -> Nullability {
+        self.type_table().get_nullability(var_name)
+    }
+
+    /// Check if a variable is definitely null
+    #[inline]
+    pub fn is_definitely_null(&mut self, var_name: &str) -> bool {
+        self.type_table().is_definitely_null(var_name)
+    }
+
+    /// Check if a variable is possibly null
+    #[inline]
+    pub fn is_possibly_null(&mut self, var_name: &str) -> bool {
+        self.type_table().is_possibly_null(var_name)
+    }
+
+    /// Check if a variable is definitely non-null
+    #[inline]
+    pub fn is_definitely_non_null(&mut self, var_name: &str) -> bool {
+        self.type_table().is_definitely_non_null(var_name)
+    }
+
+    /// Get the type info for a variable at a specific block entry (requires dataflow)
+    pub fn type_at_block(&self, block_id: BlockId, var_name: &str) -> Option<TypeInfo> {
+        self.type_result
+            .as_ref()
+            .and_then(|result| result.type_at_entry(block_id, var_name))
+    }
+
+    /// Get the nullability of a variable at a specific block (with refinements)
+    pub fn nullability_at_block(&self, block_id: BlockId, var_name: &str) -> Nullability {
+        // First check refinements (from null checks in conditions)
+        if let Some(refinements) = &self.nullability_refinements {
+            if let Some(refined) = refinements.get(block_id, var_name) {
+                return refined;
+            }
+        }
+        // Fall back to type result
+        self.type_result
+            .as_ref()
+            .map(|result| result.nullability_at_entry(block_id, var_name))
+            .unwrap_or(Nullability::Unknown)
+    }
+
+    /// Check if a variable is possibly null at a specific block
+    pub fn is_possibly_null_at_block(&self, block_id: BlockId, var_name: &str) -> bool {
+        self.nullability_at_block(block_id, var_name)
+            .could_be_null()
+    }
+
+    /// Check if a variable is definitely non-null at a specific block
+    pub fn is_definitely_non_null_at_block(&self, block_id: BlockId, var_name: &str) -> bool {
+        self.nullability_at_block(block_id, var_name)
+            .is_definitely_non_null()
+    }
+
+    /// Get the nullability refinements (computed from branch conditions)
+    pub fn nullability_refinements(&self) -> Option<&NullabilityRefinements> {
+        self.nullability_refinements.as_ref()
+    }
+
+    /// Get the type inference dataflow result
+    pub fn type_result(&self) -> Option<&DataflowResult<TypeFact>> {
+        self.type_result.as_ref()
     }
 
     /// Get detected taint flows (source to sink)
@@ -368,6 +597,90 @@ impl FlowContext {
     #[inline]
     pub fn any_tainted(&self, var_names: &[&str]) -> bool {
         self.taint.any_tainted(var_names)
+    }
+
+    /// Check if a variable is tainted from a cross-file source
+    #[inline]
+    pub fn is_tainted_from_cross_file(&self, var_name: &str) -> bool {
+        self.taint.is_tainted_from_cross_file(var_name)
+    }
+
+    /// Get all variables tainted from cross-file sources
+    pub fn cross_file_tainted_vars(&self) -> &std::collections::HashSet<String> {
+        self.taint.cross_file_tainted_vars()
+    }
+
+    // =========================================================================
+    // Call Graph queries
+    // =========================================================================
+
+    /// Check if a call graph is available for cross-file analysis
+    #[inline]
+    pub fn has_call_graph(&self) -> bool {
+        self.call_graph.is_some()
+    }
+
+    /// Get the call graph (if available)
+    pub fn call_graph(&self) -> Option<&CallGraph> {
+        self.call_graph.as_ref().map(|arc| arc.as_ref())
+    }
+
+    /// Get the current file path
+    pub fn file_path(&self) -> Option<&std::path::Path> {
+        self.file_path.as_deref()
+    }
+
+    /// Check if a function exists in another file (via call graph)
+    pub fn is_cross_file_function(&self, func_name: &str) -> bool {
+        if let (Some(cg), Some(fp)) = (self.call_graph.as_ref(), self.file_path.as_ref()) {
+            let functions = cg.get_functions_by_name(func_name);
+            functions.iter().any(|f| f.file != *fp)
+        } else {
+            false
+        }
+    }
+
+    /// Get cross-file taint summary for a function
+    pub fn get_cross_file_taint_summary(&self, func_name: &str) -> Option<&TaintSummary> {
+        self.cross_file_summaries
+            .as_ref()
+            .and_then(|summaries| summaries.get(func_name))
+    }
+
+    /// Check if a cross-file function is a taint source
+    pub fn is_cross_file_source(&self, func_name: &str) -> bool {
+        if let Some(summary) = self.get_cross_file_taint_summary(func_name) {
+            summary.is_source()
+        } else {
+            false
+        }
+    }
+
+    /// Check if a cross-file function is a sanitizer
+    pub fn is_cross_file_sanitizer(&self, func_name: &str) -> bool {
+        if let Some(summary) = self.get_cross_file_taint_summary(func_name) {
+            summary.is_sanitizer()
+        } else {
+            false
+        }
+    }
+
+    /// Get cross-file taint flows (flows that cross file boundaries)
+    pub fn cross_file_taint_flows(&self) -> Vec<&TaintFlow> {
+        self.interprocedural
+            .as_ref()
+            .map(|r| r.cross_file_flows())
+            .unwrap_or_default()
+    }
+
+    /// Set the call graph for cross-file analysis
+    pub fn set_call_graph(&mut self, call_graph: Arc<CallGraph>) {
+        self.call_graph = Some(call_graph);
+    }
+
+    /// Set cross-file taint summaries
+    pub fn set_cross_file_summaries(&mut self, summaries: HashMap<String, TaintSummary>) {
+        self.cross_file_summaries = Some(summaries);
     }
 
     // =========================================================================

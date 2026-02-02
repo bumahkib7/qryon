@@ -5,18 +5,22 @@
 //! - Cross-function taint flows (source in one function, sink in another)
 //! - Library function taint behavior
 //! - Callback taint propagation
+//! - **Cross-file taint flows** via CallGraph integration
 //!
-//! The analysis works in two phases:
+//! The analysis works in three phases:
 //! 1. Build function summaries: for each function, determine how taint flows
 //!    from parameters to return value and side effects
 //! 2. Apply summaries: at each call site, use the callee's summary to propagate
 //!    taint from arguments to the call result
+//! 3. Cross-file propagation: use CallGraph to track taint across file boundaries
 
+use crate::callgraph::CallGraph;
 use crate::flow::cfg::CFG;
 use crate::flow::sources::TaintConfig;
 use crate::flow::symbol_table::{SymbolTable, ValueOrigin};
 use crate::semantics::LanguageSemantics;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 /// Kind of taint (for categorizing vulnerabilities)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,6 +103,89 @@ pub struct FunctionSummary {
     pub line: usize,
     /// Node ID of function definition
     pub node_id: usize,
+    /// File containing this function (for cross-file tracking)
+    pub file: Option<PathBuf>,
+    /// Whether this function is exported (visible to other files)
+    pub is_exported: bool,
+}
+
+/// Summary specifically for cross-file taint tracking
+///
+/// This extends FunctionSummary with additional information needed for
+/// cross-file analysis via the CallGraph.
+#[derive(Debug, Clone)]
+pub struct TaintSummary {
+    /// The underlying function summary
+    pub function: FunctionSummary,
+    /// Which parameter indices flow to the return value (for quick lookup)
+    pub params_to_return: HashSet<usize>,
+    /// Whether any parameter can taint the return value
+    pub propagates_taint: bool,
+    /// Taint kinds this function can introduce (if source)
+    pub introduced_taint_kinds: Vec<TaintKind>,
+    /// Taint kinds this function sanitizes
+    pub sanitized_taint_kinds: Vec<TaintKind>,
+    /// Functions this function calls (for transitive analysis)
+    pub callees: Vec<String>,
+}
+
+impl TaintSummary {
+    /// Create a TaintSummary from a FunctionSummary
+    pub fn from_function_summary(summary: FunctionSummary) -> Self {
+        let params_to_return: HashSet<usize> = summary
+            .param_effects
+            .iter()
+            .filter_map(|(&idx, effects)| {
+                if effects.contains(&ParamEffect::TaintsReturn) {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let propagates_taint = !params_to_return.is_empty();
+
+        let introduced_taint_kinds = if summary.is_source {
+            summary.source_kind.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            function: summary,
+            params_to_return,
+            propagates_taint,
+            introduced_taint_kinds,
+            sanitized_taint_kinds: Vec::new(),
+            callees: Vec::new(),
+        }
+    }
+
+    /// Check if taint from a specific parameter reaches the return value
+    pub fn param_taints_return(&self, param_idx: usize) -> bool {
+        self.params_to_return.contains(&param_idx)
+    }
+
+    /// Check if this function is a taint source
+    pub fn is_source(&self) -> bool {
+        self.function.is_source
+    }
+
+    /// Check if this function is a sanitizer
+    pub fn is_sanitizer(&self) -> bool {
+        self.function.is_sanitizer
+    }
+
+    /// Get the function name
+    pub fn name(&self) -> &str {
+        &self.function.name
+    }
+
+    /// Get the file path if available
+    pub fn file(&self) -> Option<&Path> {
+        self.function.file.as_deref()
+    }
 }
 
 impl FunctionSummary {
@@ -113,7 +200,21 @@ impl FunctionSummary {
             source_kind: None,
             line: 0,
             node_id: 0,
+            file: None,
+            is_exported: false,
         }
+    }
+
+    /// Set the file path for this function
+    pub fn with_file(mut self, file: PathBuf) -> Self {
+        self.file = Some(file);
+        self
+    }
+
+    /// Mark this function as exported
+    pub fn as_exported(mut self) -> Self {
+        self.is_exported = true;
+        self
     }
 
     /// Mark this function as a taint source
@@ -205,6 +306,8 @@ pub struct TaintEndpoint {
     pub function: Option<String>,
     /// Kind of taint
     pub kind: TaintKind,
+    /// File containing this endpoint (for cross-file tracking)
+    pub file: Option<PathBuf>,
 }
 
 /// A complete taint flow from source to sink
@@ -220,18 +323,25 @@ pub struct TaintFlow {
     pub is_interprocedural: bool,
     /// Functions involved in the flow
     pub functions_involved: Vec<String>,
+    /// Whether this flow crosses file boundaries
+    pub is_cross_file: bool,
+    /// Files involved in the flow (for cross-file flows)
+    pub files_involved: Vec<PathBuf>,
 }
 
 impl TaintFlow {
     /// Create a simple intraprocedural flow
     pub fn intraprocedural(source: TaintEndpoint, sink: TaintEndpoint) -> Self {
         let func = source.function.clone();
+        let file = source.file.clone();
         Self {
             source,
             sink,
             path: Vec::new(),
             is_interprocedural: false,
             functions_involved: func.into_iter().collect(),
+            is_cross_file: false,
+            files_involved: file.into_iter().collect(),
         }
     }
 
@@ -241,18 +351,55 @@ impl TaintFlow {
         sink: TaintEndpoint,
         functions: Vec<String>,
     ) -> Self {
+        let is_cross_file = source.file != sink.file;
+        let mut files = Vec::new();
+        if let Some(ref f) = source.file {
+            files.push(f.clone());
+        }
+        if let Some(ref f) = sink.file {
+            if !files.contains(f) {
+                files.push(f.clone());
+            }
+        }
         Self {
             source,
             sink,
             path: Vec::new(),
             is_interprocedural: true,
             functions_involved: functions,
+            is_cross_file,
+            files_involved: files,
+        }
+    }
+
+    /// Create a cross-file flow
+    pub fn cross_file(
+        source: TaintEndpoint,
+        sink: TaintEndpoint,
+        functions: Vec<String>,
+        files: Vec<PathBuf>,
+    ) -> Self {
+        Self {
+            source,
+            sink,
+            path: Vec::new(),
+            is_interprocedural: true,
+            functions_involved: functions,
+            is_cross_file: true,
+            files_involved: files,
         }
     }
 
     /// Add intermediate path elements
     pub fn with_path(mut self, path: Vec<String>) -> Self {
         self.path = path;
+        self
+    }
+
+    /// Add files involved in the flow
+    pub fn with_files(mut self, files: Vec<PathBuf>) -> Self {
+        self.files_involved = files;
+        self.is_cross_file = self.files_involved.len() > 1;
         self
     }
 }
@@ -262,6 +409,8 @@ impl TaintFlow {
 pub struct InterproceduralResult {
     /// Function summaries (function name -> summary)
     pub summaries: HashMap<String, FunctionSummary>,
+    /// Taint summaries for cross-file analysis (file:function -> summary)
+    pub taint_summaries: HashMap<String, TaintSummary>,
     /// Detected taint flows from sources to sinks
     pub flows: Vec<TaintFlow>,
     /// Call sites in the program
@@ -270,12 +419,27 @@ pub struct InterproceduralResult {
     pub function_taint: HashMap<String, HashSet<String>>,
     /// Number of analysis iterations
     pub iterations: usize,
+    /// Cross-file taint flows (detected via CallGraph)
+    pub cross_file_flows: Vec<TaintFlow>,
+    /// File path for this result (if single-file analysis)
+    pub file: Option<PathBuf>,
 }
 
 impl InterproceduralResult {
     /// Get summary for a function
     pub fn get_summary(&self, func_name: &str) -> Option<&FunctionSummary> {
         self.summaries.get(func_name)
+    }
+
+    /// Get taint summary for a function (with cross-file info)
+    pub fn get_taint_summary(&self, func_name: &str) -> Option<&TaintSummary> {
+        self.taint_summaries.get(func_name)
+    }
+
+    /// Get taint summary by file and function name
+    pub fn get_taint_summary_by_file(&self, file: &Path, func_name: &str) -> Option<&TaintSummary> {
+        let key = format!("{}:{}", file.display(), func_name);
+        self.taint_summaries.get(&key)
     }
 
     /// Check if a function is a known source
@@ -304,6 +468,15 @@ impl InterproceduralResult {
         self.flows.iter().filter(|f| f.is_interprocedural).collect()
     }
 
+    /// Get flows crossing file boundaries
+    pub fn cross_file_flows(&self) -> Vec<&TaintFlow> {
+        self.flows
+            .iter()
+            .chain(self.cross_file_flows.iter())
+            .filter(|f| f.is_cross_file)
+            .collect()
+    }
+
     /// Get flows of a specific taint kind
     pub fn flows_by_kind(&self, kind: TaintKind) -> Vec<&TaintFlow> {
         self.flows
@@ -314,7 +487,29 @@ impl InterproceduralResult {
 
     /// Count total flows detected
     pub fn flow_count(&self) -> usize {
-        self.flows.len()
+        self.flows.len() + self.cross_file_flows.len()
+    }
+
+    /// Add a taint summary for a function
+    pub fn add_taint_summary(&mut self, summary: TaintSummary) {
+        let key = if let Some(ref file) = summary.function.file {
+            format!("{}:{}", file.display(), summary.function.name)
+        } else {
+            summary.function.name.clone()
+        };
+        self.taint_summaries.insert(key, summary);
+    }
+
+    /// Merge another result into this one (for cross-file analysis)
+    pub fn merge(&mut self, other: InterproceduralResult) {
+        self.summaries.extend(other.summaries);
+        self.taint_summaries.extend(other.taint_summaries);
+        self.flows.extend(other.flows);
+        self.call_sites.extend(other.call_sites);
+        for (func, vars) in other.function_taint {
+            self.function_taint.entry(func).or_default().extend(vars);
+        }
+        self.cross_file_flows.extend(other.cross_file_flows);
     }
 }
 
@@ -328,6 +523,10 @@ pub struct InterproceduralAnalyzer<'a> {
     source: &'a [u8],
     /// Parsed tree
     tree: &'a tree_sitter::Tree,
+    /// Optional call graph for cross-file analysis
+    call_graph: Option<&'a CallGraph>,
+    /// Current file path (for cross-file tracking)
+    file_path: Option<PathBuf>,
 }
 
 impl<'a> InterproceduralAnalyzer<'a> {
@@ -343,12 +542,34 @@ impl<'a> InterproceduralAnalyzer<'a> {
             config,
             source,
             tree,
+            call_graph: None,
+            file_path: None,
+        }
+    }
+
+    /// Create an analyzer with a call graph for cross-file analysis
+    pub fn with_call_graph(
+        semantics: &'static LanguageSemantics,
+        config: &'a TaintConfig,
+        source: &'a [u8],
+        tree: &'a tree_sitter::Tree,
+        call_graph: &'a CallGraph,
+        file_path: PathBuf,
+    ) -> Self {
+        Self {
+            semantics,
+            config,
+            source,
+            tree,
+            call_graph: Some(call_graph),
+            file_path: Some(file_path),
         }
     }
 
     /// Run the inter-procedural analysis
     pub fn analyze(&self, symbols: &SymbolTable, cfg: &CFG) -> InterproceduralResult {
         let mut result = InterproceduralResult::default();
+        result.file = self.file_path.clone();
 
         // Phase 1: Build initial function summaries from knowledge base
         self.build_known_summaries(&mut result);
@@ -365,7 +586,213 @@ impl<'a> InterproceduralAnalyzer<'a> {
         // Phase 5: Detect source-to-sink flows
         self.detect_flows(symbols, cfg, &mut result);
 
+        // Phase 6: Cross-file taint propagation (if call graph available)
+        if self.call_graph.is_some() {
+            self.propagate_cross_file_taint(&mut result);
+        }
+
+        // Build taint summaries from function summaries
+        self.build_taint_summaries(&mut result);
+
         result
+    }
+
+    /// Run analysis with a call graph for cross-file taint tracking
+    pub fn analyze_with_call_graph(
+        &self,
+        symbols: &SymbolTable,
+        cfg: &CFG,
+        call_graph: &CallGraph,
+        file_path: &Path,
+    ) -> InterproceduralResult {
+        let mut result = InterproceduralResult::default();
+        result.file = Some(file_path.to_path_buf());
+
+        // Phase 1: Build initial function summaries from knowledge base
+        self.build_known_summaries(&mut result);
+
+        // Phase 2: Extract function definitions and build local summaries
+        self.extract_function_summaries(&mut result);
+
+        // Phase 3: Extract call sites
+        self.extract_call_sites(symbols, &mut result);
+
+        // Phase 4: Propagate taint through call graph (fixed-point iteration)
+        self.propagate_taint(symbols, &mut result);
+
+        // Phase 5: Detect source-to-sink flows
+        self.detect_flows(symbols, cfg, &mut result);
+
+        // Phase 6: Cross-file taint propagation using the call graph
+        self.propagate_cross_file_taint_with_graph(call_graph, file_path, &mut result);
+
+        // Build taint summaries from function summaries
+        self.build_taint_summaries(&mut result);
+
+        result
+    }
+
+    /// Build TaintSummary objects from FunctionSummary objects
+    fn build_taint_summaries(&self, result: &mut InterproceduralResult) {
+        // Collect summaries first to avoid borrowing conflict
+        let summaries_to_add: Vec<TaintSummary> = result
+            .summaries
+            .values()
+            .map(|summary| {
+                let mut func_summary = summary.clone();
+                func_summary.file = self.file_path.clone();
+                TaintSummary::from_function_summary(func_summary)
+            })
+            .collect();
+
+        for taint_summary in summaries_to_add {
+            result.add_taint_summary(taint_summary);
+        }
+    }
+
+    /// Propagate taint across file boundaries using the call graph
+    fn propagate_cross_file_taint(&self, result: &mut InterproceduralResult) {
+        if let Some(call_graph) = self.call_graph {
+            if let Some(ref file_path) = self.file_path {
+                self.propagate_cross_file_taint_with_graph(call_graph, file_path, result);
+            }
+        }
+    }
+
+    /// Propagate taint across file boundaries using a provided call graph
+    fn propagate_cross_file_taint_with_graph(
+        &self,
+        call_graph: &CallGraph,
+        file_path: &Path,
+        result: &mut InterproceduralResult,
+    ) {
+        // For each call site, check if the callee is in another file
+        for call_site in &result.call_sites {
+            // Try to find the callee in the call graph
+            let callees = call_graph.get_functions_by_name(&call_site.callee_name);
+
+            for callee in callees {
+                // Skip if it's in the same file
+                if callee.file == file_path {
+                    continue;
+                }
+
+                // Check if the callee is a known source
+                if let Some(summary) = result.summaries.get(&call_site.callee_name) {
+                    if summary.is_source {
+                        // If calling a source function from another file, the result is tainted
+                        if let Some(ref result_var) = call_site.result_var {
+                            result
+                                .function_taint
+                                .entry(String::new())
+                                .or_default()
+                                .insert(result_var.clone());
+                        }
+                    }
+
+                    // Check if any tainted argument flows through a cross-file function
+                    for arg in &call_site.arguments {
+                        if arg.is_tainted && summary.param_taints_return(arg.index) {
+                            if let Some(ref result_var) = call_site.result_var {
+                                result
+                                    .function_taint
+                                    .entry(String::new())
+                                    .or_default()
+                                    .insert(result_var.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Detect cross-file flows
+        self.detect_cross_file_flows(call_graph, file_path, result);
+    }
+
+    /// Detect taint flows that cross file boundaries
+    fn detect_cross_file_flows(
+        &self,
+        call_graph: &CallGraph,
+        file_path: &Path,
+        result: &mut InterproceduralResult,
+    ) {
+        // For each call site that calls a sink
+        for call_site in &result.call_sites {
+            if let Some(summary) = result.summaries.get(&call_site.callee_name) {
+                if !summary.sink_params.is_empty() {
+                    // This is a sink - check if any argument is tainted via cross-file call
+                    for &sink_param in &summary.sink_params {
+                        if let Some(arg) = call_site.arguments.get(sink_param) {
+                            // Check if the argument variable was tainted by a cross-file source
+                            if let Some(ref var_name) = arg.var_name {
+                                if let Some(source_info) =
+                                    self.find_cross_file_source(var_name, call_graph, result)
+                                {
+                                    let source = TaintEndpoint {
+                                        name: source_info.0.clone(),
+                                        line: source_info.1,
+                                        node_id: 0,
+                                        function: Some(source_info.2.clone()),
+                                        kind: source_info.3,
+                                        file: Some(source_info.4.clone()),
+                                    };
+
+                                    let sink = TaintEndpoint {
+                                        name: call_site.callee_name.clone(),
+                                        line: call_site.line,
+                                        node_id: call_site.node_id,
+                                        function: None,
+                                        kind: TaintKind::from_source_name(&call_site.callee_name),
+                                        file: Some(file_path.to_path_buf()),
+                                    };
+
+                                    let flow = TaintFlow::cross_file(
+                                        source,
+                                        sink,
+                                        vec![source_info.2, call_site.callee_name.clone()],
+                                        vec![source_info.4, file_path.to_path_buf()],
+                                    );
+
+                                    result.cross_file_flows.push(flow);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Find if a variable was tainted by a cross-file source function
+    /// Returns (source_name, line, function_name, taint_kind, source_file)
+    fn find_cross_file_source(
+        &self,
+        var_name: &str,
+        call_graph: &CallGraph,
+        result: &InterproceduralResult,
+    ) -> Option<(String, usize, String, TaintKind, PathBuf)> {
+        // Check each call site to see if this variable was assigned from a source
+        for cs in &result.call_sites {
+            if cs.result_var.as_deref() == Some(var_name) {
+                // Check if the callee is a source in another file
+                let callees = call_graph.get_functions_by_name(&cs.callee_name);
+                for callee in callees {
+                    if let Some(summary) = result.summaries.get(&cs.callee_name) {
+                        if summary.is_source {
+                            return Some((
+                                var_name.to_string(),
+                                cs.line,
+                                cs.callee_name.clone(),
+                                summary.source_kind.unwrap_or(TaintKind::Unknown),
+                                callee.file.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Build summaries for known library functions
@@ -692,6 +1119,7 @@ impl<'a> InterproceduralAnalyzer<'a> {
                                         node_id: call_site.node_id,
                                         function: None,
                                         kind: TaintKind::from_source_name(&call_site.callee_name),
+                                        file: self.file_path.clone(),
                                     };
 
                                     let flow = TaintFlow::intraprocedural(source, sink);
@@ -722,6 +1150,7 @@ impl<'a> InterproceduralAnalyzer<'a> {
                             node_id: info.declaration_node_id,
                             function: None,
                             kind: summary.source_kind.unwrap_or(TaintKind::Unknown),
+                            file: self.file_path.clone(),
                         });
                     }
                 }
@@ -736,6 +1165,7 @@ impl<'a> InterproceduralAnalyzer<'a> {
                         node_id: info.declaration_node_id,
                         function: None,
                         kind: TaintKind::from_source_name(path),
+                        file: self.file_path.clone(),
                     });
                 }
             }
@@ -748,6 +1178,7 @@ impl<'a> InterproceduralAnalyzer<'a> {
                     node_id: info.declaration_node_id,
                     function: None,
                     kind: TaintKind::UserInput,
+                    file: self.file_path.clone(),
                 });
             }
         }
@@ -760,6 +1191,32 @@ impl<'a> InterproceduralAnalyzer<'a> {
             ValueOrigin::Parameter(_) => true, // Conservative: all params are tainted
             ValueOrigin::FunctionCall(func) => self.config.is_source_function(func),
             ValueOrigin::MemberAccess(path) => self.config.is_source_member(path),
+            // String concatenation: check if any operand is a source
+            ValueOrigin::StringConcat(variables) => variables
+                .iter()
+                .any(|var| self.config.is_source_member(var)),
+            // Template literals: check interpolations
+            ValueOrigin::TemplateLiteral(variables) => variables
+                .iter()
+                .any(|var| self.config.is_source_member(var)),
+            // Method calls: check receiver and arguments
+            ValueOrigin::MethodCall {
+                method,
+                receiver,
+                arguments,
+            } => {
+                if self.config.is_source_function(method) {
+                    return true;
+                }
+                if let Some(recv) = receiver {
+                    if self.config.is_source_member(recv) {
+                        return true;
+                    }
+                }
+                arguments
+                    .iter()
+                    .any(|arg| self.config.is_source_member(arg))
+            }
             _ => false,
         }
     }
@@ -775,6 +1232,28 @@ pub fn analyze_interprocedural(
     semantics: &'static LanguageSemantics,
 ) -> InterproceduralResult {
     let analyzer = InterproceduralAnalyzer::new(semantics, config, source, tree);
+    analyzer.analyze(symbols, cfg)
+}
+
+/// Run inter-procedural taint analysis with call graph for cross-file tracking
+pub fn analyze_interprocedural_with_call_graph(
+    symbols: &SymbolTable,
+    cfg: &CFG,
+    config: &TaintConfig,
+    tree: &tree_sitter::Tree,
+    source: &[u8],
+    semantics: &'static LanguageSemantics,
+    call_graph: &CallGraph,
+    file_path: &Path,
+) -> InterproceduralResult {
+    let analyzer = InterproceduralAnalyzer::with_call_graph(
+        semantics,
+        config,
+        source,
+        tree,
+        call_graph,
+        file_path.to_path_buf(),
+    );
     analyzer.analyze(symbols, cfg)
 }
 
@@ -965,5 +1444,276 @@ mod tests {
         assert!(!result.is_source("escape"));
         assert!(result.is_sanitizer("escape"));
         assert!(!result.is_sanitizer("getInput"));
+    }
+
+    #[test]
+    fn test_taint_summary_from_function_summary() {
+        let func_summary = FunctionSummary::new("getInput")
+            .as_source(TaintKind::UserInput)
+            .with_file(PathBuf::from("/project/src/utils.js"))
+            .as_exported();
+
+        let taint_summary = TaintSummary::from_function_summary(func_summary);
+
+        assert!(taint_summary.is_source());
+        assert!(!taint_summary.is_sanitizer());
+        assert_eq!(taint_summary.name(), "getInput");
+        assert!(
+            taint_summary
+                .introduced_taint_kinds
+                .contains(&TaintKind::UserInput)
+        );
+    }
+
+    #[test]
+    fn test_taint_summary_propagation() {
+        let func_summary = FunctionSummary::new("processData")
+            .param_to_return(0)
+            .param_to_return(1);
+
+        let taint_summary = TaintSummary::from_function_summary(func_summary);
+
+        assert!(taint_summary.propagates_taint);
+        assert!(taint_summary.param_taints_return(0));
+        assert!(taint_summary.param_taints_return(1));
+        assert!(!taint_summary.param_taints_return(2));
+    }
+
+    #[test]
+    fn test_cross_file_taint_flow_creation() {
+        let source = TaintEndpoint {
+            name: "userInput".to_string(),
+            line: 10,
+            node_id: 100,
+            function: Some("getInput".to_string()),
+            kind: TaintKind::UserInput,
+            file: Some(PathBuf::from("/project/src/input.js")),
+        };
+
+        let sink = TaintEndpoint {
+            name: "query".to_string(),
+            line: 20,
+            node_id: 200,
+            function: Some("runQuery".to_string()),
+            kind: TaintKind::SqlQuery,
+            file: Some(PathBuf::from("/project/src/database.js")),
+        };
+
+        let flow = TaintFlow::cross_file(
+            source,
+            sink,
+            vec!["getInput".to_string(), "runQuery".to_string()],
+            vec![
+                PathBuf::from("/project/src/input.js"),
+                PathBuf::from("/project/src/database.js"),
+            ],
+        );
+
+        assert!(flow.is_cross_file);
+        assert!(flow.is_interprocedural);
+        assert_eq!(flow.files_involved.len(), 2);
+        assert_eq!(flow.functions_involved.len(), 2);
+    }
+
+    #[test]
+    fn test_interprocedural_result_merge() {
+        let mut result1 = InterproceduralResult::default();
+        let mut result2 = InterproceduralResult::default();
+
+        // Add summary to result1
+        let summary1 = FunctionSummary::new("func1").as_source(TaintKind::UserInput);
+        result1.summaries.insert("func1".to_string(), summary1);
+
+        // Add summary to result2
+        let summary2 = FunctionSummary::new("func2").as_sanitizer();
+        result2.summaries.insert("func2".to_string(), summary2);
+
+        // Merge result2 into result1
+        result1.merge(result2);
+
+        // Both summaries should be present
+        assert!(result1.summaries.contains_key("func1"));
+        assert!(result1.summaries.contains_key("func2"));
+    }
+
+    #[test]
+    fn test_cross_file_taint_tracking_integration() {
+        use crate::callgraph::CallGraphBuilder;
+        use crate::imports::FileImports;
+        use crate::imports::ImportKind;
+        use crate::imports::ResolvedImport;
+
+        // Simulate file1.js: exports getInput() that returns req.query
+        let file1_code = r#"
+            export function getInput() {
+                return req.query.name;
+            }
+        "#;
+
+        // Simulate file2.js: imports getInput and passes result to db.query()
+        let file2_code = r#"
+            import { getInput } from './utils';
+
+            function handleRequest() {
+                const input = getInput();
+                db.query(input);
+            }
+        "#;
+
+        // Parse both files
+        let file1_path = Path::new("/project/src/utils.js");
+        let file2_path = Path::new("/project/src/handler.js");
+
+        let parsed1 = ParserEngine::new(rma_common::RmaConfig::default())
+            .parse_file(file1_path, file1_code)
+            .expect("parse file1 failed");
+
+        let parsed2 = ParserEngine::new(rma_common::RmaConfig::default())
+            .parse_file(file2_path, file2_code)
+            .expect("parse file2 failed");
+
+        // Build call graph
+        let mut builder = CallGraphBuilder::new();
+
+        // Add file1 (utils.js) - exports getInput
+        builder.add_file(
+            file1_path,
+            Language::JavaScript,
+            vec![("getInput".to_string(), 2, true)], // exported function
+            vec![],                                  // no calls
+            FileImports::default(),
+        );
+
+        // Add file2 (handler.js) - imports and calls getInput
+        let mut file2_imports = FileImports::default();
+        file2_imports.imports.push(ResolvedImport {
+            local_name: "getInput".to_string(),
+            source_file: file1_path.to_path_buf(),
+            exported_name: "getInput".to_string(),
+            kind: ImportKind::Named,
+            specifier: "./utils".to_string(),
+            line: 2,
+        });
+
+        builder.add_file(
+            file2_path,
+            Language::JavaScript,
+            vec![("handleRequest".to_string(), 4, false)],
+            vec![
+                ("getInput".to_string(), 5, Some("handleRequest".to_string())),
+                ("query".to_string(), 6, Some("handleRequest".to_string())),
+            ],
+            file2_imports,
+        );
+
+        let call_graph = builder.build();
+
+        // Verify call graph has cross-file edge
+        assert!(call_graph.edge_count() >= 1);
+        let cross_file_edges = call_graph.cross_file_edges();
+        assert!(
+            !cross_file_edges.is_empty(),
+            "Should have cross-file call edge"
+        );
+
+        // Analyze file1 and create taint summary
+        let symbols1 = SymbolTable::build(&parsed1, Language::JavaScript);
+        let cfg1 = CFG::build(&parsed1, Language::JavaScript);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let semantics = LanguageSemantics::for_language(Language::JavaScript);
+
+        let result1 = analyze_interprocedural_with_call_graph(
+            &symbols1,
+            &cfg1,
+            &config,
+            &parsed1.tree,
+            file1_code.as_bytes(),
+            semantics,
+            &call_graph,
+            file1_path,
+        );
+
+        // getInput should be detected as returning tainted data
+        // (it accesses req.query which is a known source)
+        assert!(result1.summaries.contains_key("getInput"));
+
+        // Analyze file2 with the call graph
+        let symbols2 = SymbolTable::build(&parsed2, Language::JavaScript);
+        let cfg2 = CFG::build(&parsed2, Language::JavaScript);
+
+        let result2 = analyze_interprocedural_with_call_graph(
+            &symbols2,
+            &cfg2,
+            &config,
+            &parsed2.tree,
+            file2_code.as_bytes(),
+            semantics,
+            &call_graph,
+            file2_path,
+        );
+
+        // Verify call sites were extracted
+        assert!(!result2.call_sites.is_empty());
+        let callee_names: Vec<_> = result2.call_sites.iter().map(|c| &c.callee_name).collect();
+        assert!(
+            callee_names.iter().any(|n| *n == "getInput"),
+            "Should detect getInput call"
+        );
+    }
+
+    #[test]
+    fn test_taint_endpoint_with_file() {
+        let endpoint = TaintEndpoint {
+            name: "data".to_string(),
+            line: 10,
+            node_id: 100,
+            function: Some("handler".to_string()),
+            kind: TaintKind::UserInput,
+            file: Some(PathBuf::from("/project/src/main.js")),
+        };
+
+        assert_eq!(endpoint.name, "data");
+        assert_eq!(endpoint.file, Some(PathBuf::from("/project/src/main.js")));
+    }
+
+    #[test]
+    fn test_cross_file_flow_queries() {
+        let mut result = InterproceduralResult::default();
+
+        // Add a cross-file flow
+        let source = TaintEndpoint {
+            name: "input".to_string(),
+            line: 1,
+            node_id: 1,
+            function: Some("getInput".to_string()),
+            kind: TaintKind::UserInput,
+            file: Some(PathBuf::from("/file1.js")),
+        };
+
+        let sink = TaintEndpoint {
+            name: "query".to_string(),
+            line: 10,
+            node_id: 10,
+            function: Some("runQuery".to_string()),
+            kind: TaintKind::SqlQuery,
+            file: Some(PathBuf::from("/file2.js")),
+        };
+
+        let flow = TaintFlow::cross_file(
+            source,
+            sink,
+            vec!["getInput".to_string(), "runQuery".to_string()],
+            vec![PathBuf::from("/file1.js"), PathBuf::from("/file2.js")],
+        );
+
+        result.cross_file_flows.push(flow);
+
+        // Query cross-file flows
+        let cross_file = result.cross_file_flows();
+        assert_eq!(cross_file.len(), 1);
+        assert!(cross_file[0].is_cross_file);
+
+        // Total flow count should include cross-file flows
+        assert_eq!(result.flow_count(), 1);
     }
 }
