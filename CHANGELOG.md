@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Typestate Analysis Framework**: Track object state transitions through their lifecycle
+  - `generic/file-typestate`: Detect use-after-close, unclosed files, double-open
+  - `generic/lock-typestate`: Detect double-lock, double-unlock, unlock-without-lock
+  - `generic/crypto-typestate`: Detect use of uninitialized ciphers
+  - `generic/database-typestate`: Detect query-before-connect, query-after-close
+  - `generic/iterator-typestate`: Detect iterator use after exhaustion
+  - Language support: JavaScript, TypeScript, Python, Go, Java
+  - Safe pattern recognition: `with`, `defer`, try-with-resources, RAII
+  - FlowContext integration with `compute_typestate()` and `typestate_violations()` methods
+  - `builtin_typestate_rules()` convenience function for all typestate rules
+
 ## [0.13.0] - 2026-02-02
 
 ### Added
