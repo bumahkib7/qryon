@@ -1116,6 +1116,8 @@ mod tests {
             diff: false,
             diff_base: "origin/main".to_string(),
             diff_stdin: false,
+            skip_tests: false,
+            skip_tests_all: false,
         }
     }
 

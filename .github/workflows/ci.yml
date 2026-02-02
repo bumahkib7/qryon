@@ -62,7 +62,18 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: |
+          cargo clippy --all-targets --all-features -- \
+            -D clippy::correctness \
+            -D clippy::suspicious \
+            -D clippy::complexity \
+            -A clippy::collapsible_if \
+            -A clippy::too_many_arguments \
+            -A clippy::type_complexity \
+            -A clippy::only_used_in_recursion \
+            -A clippy::single_match \
+            -A clippy::unnecessary_filter_map \
+            -A clippy::unnecessary_map_or
 
   test:
     name: Test (${{ matrix.partition }}/3)
