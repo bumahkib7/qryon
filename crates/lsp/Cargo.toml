@@ -1,9 +1,12 @@
 [package]
 name = "rma-lsp"
-description = "Language Server Protocol implementation for RMA"
+description = "Language Server Protocol implementation for RMA - provides IDE integration for security analysis"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository = "https://github.com/bumahkib7/rust-monorepo-analyzer"
+keywords = ["lsp", "language-server", "security", "static-analysis"]
+categories = ["development-tools"]
 
 [[bin]]
 name = "rma-lsp"
