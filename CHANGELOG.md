@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-02-03
+
+### Added
+- **ROADMAP.md**: Comprehensive project roadmap documenting evolution from v0.1.0 to current and future plans
+
+### Fixed
+- **Crates.io Publishing**: All 10 workspace crates now publish correctly
+  - Added missing `rma-rules` to publish workflow (was blocking `rma-analyzer`)
+  - Added missing `rma-lsp` to publish workflow
+  - Fixed dependency order for layered publishing
+  - Added repository metadata to `rma-rules` and `rma-lsp`
+  - Fixed incorrect repository URLs in `rma-cli` (was pointing to wrong repo)
+
+### Changed
+- **Publish Order**: Crates now publish in correct dependency layers:
+  1. `rma-common`
+  2. `rma-parser`, `rma-rules`, `rma-ai`, `rma-plugins`
+  3. `rma-analyzer`
+  4. `rma-indexer`, `rma-lsp`
+  5. `rma-daemon`
+  6. `rma-cli`
+
 ## [0.16.0] - 2026-02-03
 
 ### Added
