@@ -187,22 +187,36 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          # Publish in dependency order
+          # Publish in dependency order (all workspace crates)
+          # Layer 1: No internal dependencies
           cargo publish -p rma-common --allow-dirty || true
-          sleep 15
+          sleep 20
+
+          # Layer 2: Depends on rma-common only
           cargo publish -p rma-parser --allow-dirty || true
-          sleep 15
-          # Analyzer (oxc deps stripped above)
-          cargo publish -p rma-analyzer --allow-dirty || true
-          sleep 15
-          cargo publish -p rma-indexer --allow-dirty || true
-          sleep 15
+          sleep 20
+          cargo publish -p rma-rules --allow-dirty || true
+          sleep 20
           cargo publish -p rma-ai --allow-dirty || true
-          sleep 15
+          sleep 20
           cargo publish -p rma-plugins --allow-dirty || true
-          sleep 15
+          sleep 20
+
+          # Layer 3: Depends on parser/rules (oxc deps stripped above)
+          cargo publish -p rma-analyzer --allow-dirty || true
+          sleep 20
+
+          # Layer 4: Depends on analyzer
+          cargo publish -p rma-indexer --allow-dirty || true
+          sleep 20
+          cargo publish -p rma-lsp --allow-dirty || true
+          sleep 20
+
+          # Layer 5: Depends on indexer
           cargo publish -p rma-daemon --allow-dirty || true
-          sleep 15
+          sleep 20
+
+          # Layer 6: CLI depends on everything
           cargo publish -p rma-cli --allow-dirty || true
 
   docker:
