@@ -464,6 +464,200 @@ impl TypestateResult {
 }
 
 // =============================================================================
+// Cross-File Typestate Summaries
+// =============================================================================
+
+/// Summary of a function's typestate behavior for cross-file analysis
+///
+/// This tracks which functions manage resource lifecycle, allowing typestate
+/// analysis to understand resource state changes across file boundaries.
+#[derive(Debug, Clone)]
+pub struct TypestateSummary {
+    /// Function name
+    pub function_name: String,
+    /// File containing this function
+    pub file: Option<std::path::PathBuf>,
+    /// Resources (by type) that this function acquires/opens
+    pub opens_resources: Vec<ResourceAction>,
+    /// Resources (by type) that this function releases/closes
+    pub closes_resources: Vec<ResourceAction>,
+    /// Whether this function returns an open resource
+    pub returns_open_resource: bool,
+    /// Resource type returned (if any)
+    pub return_resource_type: Option<String>,
+    /// Parameters that receive resources (by index)
+    pub resource_params: Vec<usize>,
+}
+
+/// Represents an action on a resource (open, close, etc.)
+#[derive(Debug, Clone)]
+pub struct ResourceAction {
+    /// Type of resource (e.g., "Connection", "File", "Lock")
+    pub resource_type: String,
+    /// Line number where the action occurs
+    pub line: usize,
+    /// Variable name involved (if known)
+    pub variable: Option<String>,
+}
+
+impl TypestateSummary {
+    /// Create a new typestate summary for a function
+    pub fn new(function_name: impl Into<String>) -> Self {
+        Self {
+            function_name: function_name.into(),
+            file: None,
+            opens_resources: Vec::new(),
+            closes_resources: Vec::new(),
+            returns_open_resource: false,
+            return_resource_type: None,
+            resource_params: Vec::new(),
+        }
+    }
+
+    /// Set the file path
+    pub fn with_file(mut self, file: std::path::PathBuf) -> Self {
+        self.file = Some(file);
+        self
+    }
+
+    /// Record that this function opens a resource
+    pub fn opens(
+        &mut self,
+        resource_type: impl Into<String>,
+        line: usize,
+        variable: Option<String>,
+    ) {
+        self.opens_resources.push(ResourceAction {
+            resource_type: resource_type.into(),
+            line,
+            variable,
+        });
+    }
+
+    /// Record that this function closes a resource
+    pub fn closes(
+        &mut self,
+        resource_type: impl Into<String>,
+        line: usize,
+        variable: Option<String>,
+    ) {
+        self.closes_resources.push(ResourceAction {
+            resource_type: resource_type.into(),
+            line,
+            variable,
+        });
+    }
+
+    /// Mark that this function returns an open resource
+    pub fn returns_resource(mut self, resource_type: impl Into<String>) -> Self {
+        self.returns_open_resource = true;
+        self.return_resource_type = Some(resource_type.into());
+        self
+    }
+
+    /// Mark a parameter as receiving a resource
+    pub fn with_resource_param(mut self, param_idx: usize) -> Self {
+        self.resource_params.push(param_idx);
+        self
+    }
+
+    /// Check if this function opens any resources
+    pub fn opens_any(&self) -> bool {
+        !self.opens_resources.is_empty()
+    }
+
+    /// Check if this function closes any resources
+    pub fn closes_any(&self) -> bool {
+        !self.closes_resources.is_empty()
+    }
+
+    /// Check if this function opens a specific resource type
+    pub fn opens_resource_type(&self, resource_type: &str) -> bool {
+        self.opens_resources
+            .iter()
+            .any(|r| r.resource_type == resource_type)
+    }
+
+    /// Check if this function closes a specific resource type
+    pub fn closes_resource_type(&self, resource_type: &str) -> bool {
+        self.closes_resources
+            .iter()
+            .any(|r| r.resource_type == resource_type)
+    }
+}
+
+/// Registry of typestate summaries for cross-file analysis
+#[derive(Debug, Default)]
+pub struct TypestateSummaryRegistry {
+    /// Summaries indexed by file path and function name
+    summaries: HashMap<String, TypestateSummary>,
+}
+
+impl TypestateSummaryRegistry {
+    /// Create a new empty registry
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a summary to the registry
+    pub fn add(&mut self, summary: TypestateSummary) {
+        let key = if let Some(ref file) = summary.file {
+            format!("{}:{}", file.display(), summary.function_name)
+        } else {
+            summary.function_name.clone()
+        };
+        self.summaries.insert(key, summary);
+    }
+
+    /// Get a summary by function name
+    pub fn get(&self, function_name: &str) -> Option<&TypestateSummary> {
+        self.summaries.get(function_name)
+    }
+
+    /// Get a summary by file and function name
+    pub fn get_by_file(
+        &self,
+        file: &std::path::Path,
+        function_name: &str,
+    ) -> Option<&TypestateSummary> {
+        let key = format!("{}:{}", file.display(), function_name);
+        self.summaries.get(&key)
+    }
+
+    /// Get all summaries that open a specific resource type
+    pub fn functions_that_open(&self, resource_type: &str) -> Vec<&TypestateSummary> {
+        self.summaries
+            .values()
+            .filter(|s| s.opens_resource_type(resource_type))
+            .collect()
+    }
+
+    /// Get all summaries that close a specific resource type
+    pub fn functions_that_close(&self, resource_type: &str) -> Vec<&TypestateSummary> {
+        self.summaries
+            .values()
+            .filter(|s| s.closes_resource_type(resource_type))
+            .collect()
+    }
+
+    /// Check if a function opens a resource
+    pub fn function_opens_resource(&self, function_name: &str) -> bool {
+        self.summaries
+            .get(function_name)
+            .map(|s| s.opens_any())
+            .unwrap_or(false)
+    }
+
+    /// Check if a function closes a resource
+    pub fn function_closes_resource(&self, function_name: &str) -> bool {
+        self.summaries
+            .get(function_name)
+            .map(|s| s.closes_any())
+            .unwrap_or(false)
+    }
+}
+
+// =============================================================================
 // Method Call Detection
 // =============================================================================
 
@@ -510,17 +704,16 @@ pub fn find_method_calls_on_var(
                         func_node.child_by_field_name(semantics.property_field),
                     ) {
                         // Check if the object is our target variable
-                        if let Ok(obj_text) = obj.utf8_text(source) {
-                            if obj_text == var_name {
-                                if let Ok(method_text) = method.utf8_text(source) {
-                                    results.push(MethodCallInfo {
-                                        node_id: node.id(),
-                                        line: node.start_position().row + 1,
-                                        method_name: method_text.to_string(),
-                                        receiver: Some(var_name.to_string()),
-                                    });
-                                }
-                            }
+                        if let Ok(obj_text) = obj.utf8_text(source)
+                            && obj_text == var_name
+                            && let Ok(method_text) = method.utf8_text(source)
+                        {
+                            results.push(MethodCallInfo {
+                                node_id: node.id(),
+                                line: node.start_position().row + 1,
+                                method_name: method_text.to_string(),
+                                receiver: Some(var_name.to_string()),
+                            });
                         }
                     }
                 }
@@ -572,14 +765,12 @@ pub fn find_assignments_to_var(
                 .child_by_field_name(semantics.left_field)
                 .or_else(|| node.child_by_field_name(semantics.name_field));
 
-            if let Some(left) = left {
-                if let Ok(left_text) = left.utf8_text(source) {
-                    if left_text == var_name
-                        || left_text.trim_start_matches("mut ").trim() == var_name
-                    {
-                        results.push((node.id(), node.start_position().row + 1));
-                    }
-                }
+            if let Some(left) = left
+                && let Ok(left_text) = left.utf8_text(source)
+                && (left_text == var_name
+                    || left_text.trim_start_matches("mut ").trim() == var_name)
+            {
+                results.push((node.id(), node.start_position().row + 1));
             }
         }
 
@@ -686,40 +877,38 @@ impl TypestateAnalyzer {
                     .child_by_field_name(semantics.value_field)
                     .or_else(|| node.child_by_field_name("value"));
 
-                if let (Some(name_node), Some(value_node)) = (name, value) {
-                    if let Ok(var_name) = name_node.utf8_text(source) {
-                        let var_name = var_name.trim_start_matches("mut ").trim().to_string();
+                if let (Some(name_node), Some(value_node)) = (name, value)
+                    && let Ok(var_name) = name_node.utf8_text(source)
+                {
+                    let var_name = var_name.trim_start_matches("mut ").trim().to_string();
 
-                        // Check if the value is a call to a tracked type constructor
-                        if semantics.is_call(value_node.kind()) {
-                            if let Some(func) =
-                                value_node.child_by_field_name(semantics.function_field)
+                    // Check if the value is a call to a tracked type constructor
+                    if semantics.is_call(value_node.kind())
+                        && let Some(func) = value_node.child_by_field_name(semantics.function_field)
+                        && let Ok(func_name) = func.utf8_text(source)
+                    {
+                        // Check if any state machine tracks this function/type
+                        for sm in state_machines {
+                            if sm.tracks_type(func_name)
+                                || sm
+                                    .transitions
+                                    .iter()
+                                    .any(|t| t.trigger.matches_function_return(func_name))
                             {
-                                if let Ok(func_name) = func.utf8_text(source) {
-                                    // Check if any state machine tracks this function/type
-                                    for sm in state_machines {
-                                        if sm.tracks_type(func_name)
-                                            || sm.transitions.iter().any(|t| {
-                                                t.trigger.matches_function_return(func_name)
-                                            })
-                                        {
-                                            tracked.push((var_name.clone(), sm));
-                                            break;
-                                        }
-                                    }
-                                }
+                                tracked.push((var_name.clone(), sm));
+                                break;
                             }
                         }
+                    }
 
-                        // Also check for member access that returns tracked type
-                        if semantics.is_member_access(value_node.kind()) {
-                            if let Ok(expr_text) = value_node.utf8_text(source) {
-                                for sm in state_machines {
-                                    if sm.tracks_type(expr_text) {
-                                        tracked.push((var_name.clone(), sm));
-                                        break;
-                                    }
-                                }
+                    // Also check for member access that returns tracked type
+                    if semantics.is_member_access(value_node.kind())
+                        && let Ok(expr_text) = value_node.utf8_text(source)
+                    {
+                        for sm in state_machines {
+                            if sm.tracks_type(expr_text) {
+                                tracked.push((var_name.clone(), sm));
+                                break;
                             }
                         }
                     }
@@ -991,11 +1180,10 @@ impl TypestateAnalyzer {
         _violations: &mut Vec<TypestateViolation>,
     ) -> TrackedState {
         // Check for assignment transition
-        if let TrackedState::Known(state_name) = current_state {
-            if let Some(transition) = sm.get_transition(state_name, &TransitionTrigger::Assignment)
-            {
-                return TrackedState::Known(transition.to.clone());
-            }
+        if let TrackedState::Known(state_name) = current_state
+            && let Some(transition) = sm.get_transition(state_name, &TransitionTrigger::Assignment)
+        {
+            return TrackedState::Known(transition.to.clone());
         }
 
         // Default: assignment resets to initial state (new object assigned)
@@ -1026,13 +1214,12 @@ impl TypestateAnalyzer {
                 Terminator::Return | Terminator::Unreachable
             );
 
-            if is_exit {
-                if let Some(exit_state) = result.block_exit_states.get(&block.id) {
-                    match exit_state {
-                        TrackedState::Known(state_name) => {
-                            if !sm.is_final_state(state_name) && !sm.is_error_state(state_name) {
-                                let line = self.get_line_for_block(parsed, cfg, block.id);
-                                result.violations.push(TypestateViolation::new(
+            if is_exit && let Some(exit_state) = result.block_exit_states.get(&block.id) {
+                match exit_state {
+                    TrackedState::Known(state_name) => {
+                        if !sm.is_final_state(state_name) && !sm.is_error_state(state_name) {
+                            let line = self.get_line_for_block(parsed, cfg, block.id);
+                            result.violations.push(TypestateViolation::new(
                                     ViolationKind::NonFinalStateAtExit,
                                     block.statements.last().copied().unwrap_or(0),
                                     line,
@@ -1049,18 +1236,18 @@ impl TypestateAnalyzer {
                                             .join(", ")
                                     ),
                                 ));
-                            }
                         }
-                        TrackedState::Conflicting(states) => {
-                            let non_final: Vec<_> = states
-                                .iter()
-                                .filter(|s| !sm.is_final_state(s))
-                                .cloned()
-                                .collect();
+                    }
+                    TrackedState::Conflicting(states) => {
+                        let non_final: Vec<_> = states
+                            .iter()
+                            .filter(|s| !sm.is_final_state(s))
+                            .cloned()
+                            .collect();
 
-                            if !non_final.is_empty() {
-                                let line = self.get_line_for_block(parsed, cfg, block.id);
-                                result.violations.push(TypestateViolation::new(
+                        if !non_final.is_empty() {
+                            let line = self.get_line_for_block(parsed, cfg, block.id);
+                            result.violations.push(TypestateViolation::new(
                                     ViolationKind::NonFinalStateAtExit,
                                     block.statements.last().copied().unwrap_or(0),
                                     line,
@@ -1071,11 +1258,10 @@ impl TypestateAnalyzer {
                                         non_final.join(", ")
                                     ),
                                 ));
-                            }
                         }
-                        TrackedState::Unknown => {
-                            // Unknown state at exit - could be a problem but we're lenient
-                        }
+                    }
+                    TrackedState::Unknown => {
+                        // Unknown state at exit - could be a problem but we're lenient
                     }
                 }
             }
@@ -1129,18 +1315,17 @@ impl TypestateAnalyzer {
                 Terminator::Return | Terminator::Unreachable
             );
 
-            if is_exit {
-                if let Some(state) = states.get(&block.id) {
-                    if !sm.is_final_state(state) {
-                        violations.push(TypestateViolation::new(
-                            ViolationKind::NonFinalStateAtExit,
-                            block.statements.last().copied().unwrap_or(0),
-                            0,
-                            state,
-                            format!("Path exits with non-final state: {}", state),
-                        ));
-                    }
-                }
+            if is_exit
+                && let Some(state) = states.get(&block.id)
+                && !sm.is_final_state(state)
+            {
+                violations.push(TypestateViolation::new(
+                    ViolationKind::NonFinalStateAtExit,
+                    block.statements.last().copied().unwrap_or(0),
+                    0,
+                    state,
+                    format!("Path exits with non-final state: {}", state),
+                ));
             }
         }
 

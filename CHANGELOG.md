@@ -7,12 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-02-03
+
+### Added
+
+#### Enhanced Interactive TUI (`rma scan --interactive`)
+- **Call Graph Statistics Panel**: Real-time overview showing total functions, edges, sources, sinks, sanitizers, and unresolved calls
+- **Security Classification Badges**: Visual indicators for taint sources `[HTTP Handler]`, sinks `[SQL Injection]`, sanitizers `[SAN]`, and exported functions `⬆`
+- **Source→Sink Flow Highlighting**: Dangerous flows marked with `⚠` icon and red highlighting
+- **Source→Sink Filter** (press `x`): Toggle to show only potentially dangerous source-to-sink edges
+- **Edge Detail Panel** (press `Enter`): Comprehensive view with:
+  - Caller/callee function info with file paths and line numbers
+  - Source classification type (HTTP Handler, File Input, etc.)
+  - Sink vulnerability types (SQL Injection, XSS, Command Injection, etc.)
+  - Sanitizer information if present
+  - Classification confidence percentage
+  - Security warning box for source→sink flows with remediation guidance
+- **Enhanced Finding Detail View**: Full metadata display including rule ID, language, severity (color-coded), confidence, category, fingerprint, fix suggestions, and complete code snippets
+
+#### Analysis Caching
+- **Incremental Scan Cache**: Content-hash based caching for faster re-scans
+- **`--no-cache` flag**: Force fresh analysis bypassing cache
+- **Cache stored in `.rma/cache/analysis/`**: Per-file analysis results
+
+#### Flows Command Enhancements
+- **`rma flows --interactive`**: Launch TUI for browsing cross-file data flows
+- **Test file filtering**: Flows from/to test files excluded by default
+
 ### Changed
 - **Test Files Excluded by Default**: Tests are now excluded from scans by default across all languages
   - Use `--include-tests` to opt-in to scanning test files
   - Unified test pattern detection: 70+ patterns for JS/TS, Python, Go, Rust, Java, Kotlin
   - `--skip-tests` flag deprecated (tests excluded by default)
   - `security` command now uses same comprehensive patterns as `scan` command
+- **Call Graph Test Filtering**: Call graph edges now exclude test files by default
+- **TUI Status Bar**: Updated help text with available keyboard shortcuts
+
+### Fixed
+- **Zip crate dependency**: Updated from yanked 2.6 to stable 2.4
+- **Clippy warnings**: Fixed trait object syntax and unused imports
+- **Missing SystemTime import**: Fixed compilation error in OSV provider
 
 ## [0.15.1] - 2026-02-02
 

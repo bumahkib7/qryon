@@ -4,6 +4,7 @@ members = [
     "crates/common",
     "crates/parser",
     "crates/analyzer",
+    "crates/rules",
     "crates/indexer",
     "crates/cli",
     "crates/daemon",
@@ -13,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.15.1"
+version = "0.16.0"
 edition = "2024"
 authors = ["Rust Monorepo Analyzer Team"]
 license = "MIT OR Apache-2.0"
@@ -36,14 +37,58 @@ tokio = { version = "1.43", features = ["full"] }
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }
 
-# Parsing - tree-sitter 0.23.x for stable grammar compatibility
-tree-sitter = "0.23"
-tree-sitter-rust = "0.23"
-tree-sitter-javascript = "0.23"
-tree-sitter-python = "0.23"
-tree-sitter-typescript = "0.23"
-tree-sitter-go = "0.23"
+# Parsing - tree-sitter 0.24.x for maximum performance + 30+ grammars
+tree-sitter = "0.25"
+
+# Systems languages
+tree-sitter-rust = "0.24"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+
+# JVM languages
 tree-sitter-java = "0.23"
+tree-sitter-kotlin = { package = "tree-sitter-kotlin-ng", version = "1.1" }
+tree-sitter-scala = "0.23"
+
+# Web languages
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-html = "0.23"
+tree-sitter-css = "0.23"
+
+# Scripting languages
+tree-sitter-python = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-php = "0.23"
+tree-sitter-lua = "0.2"
+
+# Functional languages
+tree-sitter-haskell = "0.23"
+tree-sitter-ocaml = "0.23"
+tree-sitter-elixir = "0.3"
+
+# Other compiled languages
+tree-sitter-go = "0.23"
+tree-sitter-swift = "0.6"
+tree-sitter-c-sharp = "0.23"
+
+# Data/Config languages
+tree-sitter-json = "0.24"
+tree-sitter-yaml = "0.7"
+tree-sitter-toml = { package = "tree-sitter-toml-ng", version = "0.7" }
+# tree-sitter-sql disabled - no compatible crate for tree-sitter 0.24
+
+# Infrastructure
+tree-sitter-bash = "0.23"
+# tree-sitter-dockerfile disabled - no compatible crate for tree-sitter 0.24
+tree-sitter-hcl = "1.1"
+
+# Markup
+tree-sitter-markdown = { package = "tree-sitter-md", version = "0.5" }
+
+# Other
+tree-sitter-solidity = "1.2"
+# tree-sitter-protobuf disabled - no compatible crate for tree-sitter 0.24
 
 # Parallelism
 rayon = "1.10"

@@ -87,6 +87,10 @@ pub fn output_with_path(
                         // Optional fields
                         "snippet": f.snippet,
                         "suggestion": f.suggestion,
+
+                        // Deduplication fields (when same rule fires multiple times in same file)
+                        "occurrence_count": f.occurrence_count,
+                        "additional_locations": f.additional_locations,
                     })
                 }).collect::<Vec<_>>()
             })

@@ -13,8 +13,8 @@ use anyhow::Result;
 use colored::Colorize;
 use rma_analyzer::providers::{AnalysisProvider, OsvProvider, RustSecProvider};
 use rma_common::{
-    Finding, OsvEcosystem, OsvProviderConfig, RmaConfig, Severity,
-    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS,
+    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS, DEFAULT_VENDOR_IGNORE_PATHS, Finding,
+    OsvEcosystem, OsvProviderConfig, RmaConfig, Severity,
 };
 use rma_parser::ParserEngine;
 use serde::{Deserialize, Serialize};
@@ -1257,6 +1257,12 @@ fn scan_code_security(args: &SecurityArgs, report: &mut SecurityReport) -> Resul
     let mut files_excluded = 0;
 
     for parsed in &parsed_files {
+        // Always exclude vendored/bundled/minified files (third-party code)
+        if matches_exclude_pattern(&parsed.path, DEFAULT_VENDOR_IGNORE_PATHS) {
+            files_excluded += 1;
+            continue;
+        }
+
         // Check if file should be excluded (default excludes for tests/fixtures)
         // Use the same comprehensive patterns as the scan command
         if !args.include_tests

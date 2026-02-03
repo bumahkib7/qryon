@@ -111,7 +111,8 @@ impl MetricsCollector {
                     | "catch_clause"
                     | "ternary_expression"
             ),
-            Language::Unknown => false,
+            // Default for other languages - no complexity analysis
+            _ => false,
         }
     }
 
@@ -151,7 +152,8 @@ impl MetricsCollector {
             Language::Python => kind == "function_definition",
             Language::Go => matches!(kind, "function_declaration" | "method_declaration"),
             Language::Java => matches!(kind, "method_declaration" | "constructor_declaration"),
-            Language::Unknown => false,
+            // Default for other languages
+            _ => false,
         }
     }
 
@@ -163,7 +165,8 @@ impl MetricsCollector {
             Language::Python => kind == "class_definition",
             Language::Go => kind == "type_declaration",
             Language::Java => matches!(kind, "class_declaration" | "interface_declaration"),
-            Language::Unknown => false,
+            // Default for other languages
+            _ => false,
         }
     }
 
@@ -175,7 +178,8 @@ impl MetricsCollector {
             Language::Python => matches!(kind, "import_statement" | "import_from_statement"),
             Language::Go => kind == "import_declaration",
             Language::Java => kind == "import_declaration",
-            Language::Unknown => false,
+            // Default for other languages
+            _ => false,
         }
     }
 }
@@ -217,10 +221,16 @@ fn is_comment_line(line: &str, language: Language) -> bool {
         | Language::TypeScript => {
             line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
         }
-        Language::Python => {
+        Language::Python | Language::Ruby | Language::Bash => {
             line.starts_with('#') || line.starts_with("\"\"\"") || line.starts_with("'''")
         }
-        Language::Unknown => false,
+        // Default: C-style comments for most languages
+        _ => {
+            line.starts_with("//")
+                || line.starts_with("/*")
+                || line.starts_with('*')
+                || line.starts_with('#')
+        }
     }
 }
 

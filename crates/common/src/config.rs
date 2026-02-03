@@ -220,6 +220,110 @@ pub const DEFAULT_EXAMPLE_IGNORE_PATHS: &[&str] = &[
     "**/testing_utils/**",
 ];
 
+/// Default ignore paths for vendored/bundled/minified third-party code
+/// These files should not be scanned with application-level rules
+pub const DEFAULT_VENDOR_IGNORE_PATHS: &[&str] = &[
+    // =========================================================================
+    // Vendored/third-party directories
+    // =========================================================================
+    "**/vendor/**",
+    "**/vendors/**",
+    "**/third_party/**",
+    "**/third-party/**",
+    "**/thirdparty/**",
+    "**/external/**",
+    "**/externals/**",
+    "**/deps/**",
+    "**/lib/**/*.min.js",
+    "**/libs/**/*.min.js",
+    // =========================================================================
+    // Node.js / JavaScript package managers
+    // =========================================================================
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/jspm_packages/**",
+    // =========================================================================
+    // Build output / bundled files
+    // =========================================================================
+    "**/dist/**",
+    "**/build/**",
+    "**/out/**",
+    "**/output/**",
+    "**/.next/**",
+    "**/.nuxt/**",
+    "**/.output/**",
+    "**/target/**",
+    // =========================================================================
+    // Minified/bundled JavaScript/CSS
+    // =========================================================================
+    "**/*.min.js",
+    "**/*.min.css",
+    "**/*.bundle.js",
+    "**/*.bundle.css",
+    "**/*-bundle.js",
+    "**/*-min.js",
+    "**/*.packed.js",
+    "**/*.compiled.js",
+    // =========================================================================
+    // Common vendored library patterns
+    // =========================================================================
+    "**/jquery*.js",
+    "**/angular*.js",
+    "**/react*.production*.js",
+    "**/vue*.js",
+    "**/lodash*.js",
+    "**/underscore*.js",
+    "**/backbone*.js",
+    "**/bootstrap*.js",
+    "**/moment*.js",
+    "**/d3*.js",
+    "**/chart*.js",
+    "**/highcharts*.js",
+    "**/livereload*.js",
+    "**/socket.io*.js",
+    "**/polyfill*.js",
+    // =========================================================================
+    // Static asset directories (often contain vendored JS)
+    // =========================================================================
+    "**/static/**/vendor/**",
+    "**/static/**/lib/**",
+    "**/static/**/libs/**",
+    "**/public/**/vendor/**",
+    "**/public/**/lib/**",
+    "**/public/**/libs/**",
+    "**/assets/**/vendor/**",
+    "**/assets/**/lib/**",
+    "**/assets/**/libs/**",
+    "**/resources/**/vendor/**",
+    "**/resources/**/lib/**",
+    "**/resources/**/libs/**",
+    // =========================================================================
+    // IDE/Editor plugins with bundled JS
+    // =========================================================================
+    "**/resources/**/*.js",
+    // =========================================================================
+    // Python vendored packages
+    // =========================================================================
+    "**/_vendor/**",
+    "**/site-packages/**",
+    // =========================================================================
+    // Go vendored modules
+    // =========================================================================
+    "**/go/pkg/**",
+    // =========================================================================
+    // Ruby vendored gems
+    // =========================================================================
+    "**/bundle/**",
+    // =========================================================================
+    // Cache directories
+    // =========================================================================
+    "**/.cache/**",
+    "**/.parcel-cache/**",
+    "**/.turbo/**",
+    "**/.vite/**",
+    "**/cache/**",
+];
+
 /// Rules that should NOT be suppressed in test/example paths
 /// Security rules should still fire in tests to catch issues
 pub const RULES_ALWAYS_ENABLED: &[&str] = &[
@@ -2139,6 +2243,8 @@ pub struct SuppressionEngine {
     test_patterns: Vec<regex::Regex>,
     /// Compiled regex patterns for default example paths
     example_patterns: Vec<regex::Regex>,
+    /// Compiled regex patterns for vendored/bundled/minified files (always applied)
+    vendor_patterns: Vec<regex::Regex>,
     /// Optional suppression store for database-backed suppressions
     suppression_store: Option<std::sync::Arc<crate::suppression::SuppressionStore>>,
 }
@@ -2179,6 +2285,12 @@ impl SuppressionEngine {
             Vec::new()
         };
 
+        // Vendor patterns are ALWAYS compiled - vendored code should never be scanned
+        let vendor_patterns: Vec<regex::Regex> = DEFAULT_VENDOR_IGNORE_PATHS
+            .iter()
+            .filter_map(|p| Self::compile_glob(p))
+            .collect();
+
         Self {
             global_ignore_paths: rules_config.ignore_paths.clone(),
             rule_ignore_paths: rules_config.ignore_paths_by_rule.clone(),
@@ -2189,6 +2301,7 @@ impl SuppressionEngine {
             rule_patterns,
             test_patterns,
             example_patterns,
+            vendor_patterns,
             suppression_store: None,
         }
     }
@@ -2277,12 +2390,13 @@ impl SuppressionEngine {
     ///
     /// Returns a SuppressionResult with details about why it was suppressed (or not).
     /// Order of checks:
-    /// 1. Always-enabled rules (never suppressed by path/preset)
-    /// 2. Inline suppressions
+    /// 1. Inline suppressions (always checked first)
+    /// 2. Always-enabled rules (security rules - skip path/preset checks)
     /// 3. Global path ignores
     /// 4. Per-rule path ignores
     /// 5. Default test/example presets
-    /// 6. Baseline
+    /// 6. Vendored/bundled/minified files (always suppressed)
+    /// 7. Baseline
     pub fn check(
         &self,
         rule_id: &str,
@@ -2382,9 +2496,19 @@ impl SuppressionEngine {
                     );
                 }
             }
+
+            // 5. Check vendored/bundled/minified files (ALWAYS applies)
+            // Third-party code should not be scanned with application-level rules
+            if Self::matches_patterns(&path_str, &self.vendor_patterns) {
+                return SuppressionResult::suppressed(
+                    SuppressionSource::Preset,
+                    "File is vendored/bundled/minified third-party code".to_string(),
+                    "vendor-preset".to_string(),
+                );
+            }
         }
 
-        // 5. Check baseline (applies to all rules including always-enabled)
+        // 7. Check baseline (applies to all rules including always-enabled)
         if let Some(ref baseline) = self.baseline
             && let Some(fp) = fingerprint
         {

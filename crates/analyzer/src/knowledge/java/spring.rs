@@ -11,12 +11,134 @@
 //! - Path traversal via file operations
 //! - Auto-escaping sanitizers (Thymeleaf th:text)
 //! - Safe patterns (JPA, Spring Data repositories)
+//! - Dependency Injection annotations (@Autowired, @Inject, etc.)
 
 use crate::knowledge::types::{
     DangerousPattern, FrameworkProfile, PatternKind, ResourceType, SafePattern, SanitizerDef,
     SanitizerKind, SinkDef, SinkKind, SourceDef, SourceKind,
 };
 use rma_common::Severity;
+
+// =============================================================================
+// Dependency Injection Annotations
+// =============================================================================
+
+/// DI (Dependency Injection) annotations used in Spring and Jakarta EE
+///
+/// These annotations indicate that a field is managed by the container and
+/// should not trigger "uninitialized" warnings in typestate analysis.
+#[allow(dead_code)]
+pub static DI_ANNOTATIONS: &[&str] = &[
+    "@Autowired",
+    "@Inject",
+    "@Resource",
+    "@Value",
+    "@PersistenceContext",
+    "@PersistenceUnit",
+    "@EJB",
+    "@ManagedProperty",
+    // Lombok annotations that generate constructors/injection
+    "@RequiredArgsConstructor",
+    "@AllArgsConstructor",
+];
+
+/// Test lifecycle annotations that indicate setup methods
+///
+/// Variables initialized in these methods should be available in test methods.
+#[allow(dead_code)]
+pub static TEST_SETUP_ANNOTATIONS: &[&str] = &[
+    "@Before",
+    "@BeforeEach",
+    "@BeforeAll",
+    "@BeforeClass",
+    "@BeforeMethod",  // TestNG
+    "@PostConstruct", // Used for initialization
+];
+
+/// Test lifecycle annotations for teardown
+#[allow(dead_code)]
+pub static TEST_TEARDOWN_ANNOTATIONS: &[&str] = &[
+    "@After",
+    "@AfterEach",
+    "@AfterAll",
+    "@AfterClass",
+    "@AfterMethod", // TestNG
+    "@PreDestroy",
+];
+
+/// Check if a line contains a DI annotation
+#[allow(dead_code)]
+pub fn has_di_annotation(line: &str) -> bool {
+    DI_ANNOTATIONS.iter().any(|ann| line.contains(ann))
+}
+
+/// Check if a line contains a test setup annotation
+#[allow(dead_code)]
+pub fn has_test_setup_annotation(line: &str) -> bool {
+    TEST_SETUP_ANNOTATIONS.iter().any(|ann| line.contains(ann))
+}
+
+/// Check if a line contains a test teardown annotation
+#[allow(dead_code)]
+pub fn has_test_teardown_annotation(line: &str) -> bool {
+    TEST_TEARDOWN_ANNOTATIONS
+        .iter()
+        .any(|ann| line.contains(ann))
+}
+
+/// Extract field name from a DI-annotated line
+///
+/// Examples:
+/// - `@Autowired private DataSource dataSource;` -> Some("dataSource")
+/// - `@Inject DataSource ds;` -> Some("ds")
+/// - `@Value("${db.url}") String url;` -> Some("url")
+#[allow(dead_code)]
+pub fn extract_di_field_name(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+
+    // Skip if no DI annotation
+    if !has_di_annotation(trimmed) {
+        return None;
+    }
+
+    // Find the part after the annotation(s)
+    // Handle multiple annotations like @Autowired @Qualifier("main")
+    let mut remaining = trimmed;
+    while remaining.starts_with('@') {
+        // Skip the annotation
+        if let Some(paren_pos) = remaining.find('(') {
+            // Has parameters, find closing paren
+            let mut depth = 0;
+            let mut end_pos = paren_pos;
+            for (i, c) in remaining[paren_pos..].char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_pos = paren_pos + i + 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            remaining = remaining[end_pos..].trim_start();
+        } else if let Some(space_pos) = remaining.find(' ') {
+            remaining = remaining[space_pos..].trim_start();
+        } else {
+            return None;
+        }
+    }
+
+    // Now we should have: [modifiers] Type fieldName;
+    // Extract the last word before the semicolon
+    let field_part = remaining.trim_end_matches(';').trim();
+    let words: Vec<&str> = field_part.split_whitespace().collect();
+
+    // The field name is the last word
+    words.last().map(|s| s.to_string())
+}
 
 /// Spring Framework profile for comprehensive web security analysis
 pub static SPRING_PROFILE: FrameworkProfile = FrameworkProfile {
@@ -795,5 +917,38 @@ mod tests {
         assert!(pattern_names.iter().any(|n| n.contains("concat")));
         assert!(pattern_names.iter().any(|n| n.contains("th:utext")));
         assert!(pattern_names.iter().any(|n| n.contains("Optional")));
+    }
+
+    #[test]
+    fn test_di_annotations() {
+        assert!(has_di_annotation("@Autowired private DataSource ds;"));
+        assert!(has_di_annotation("@Inject DataSource ds;"));
+        assert!(has_di_annotation("@Value(\"${db.url}\") String url;"));
+        assert!(!has_di_annotation("private DataSource ds;"));
+    }
+
+    #[test]
+    fn test_test_setup_annotations() {
+        assert!(has_test_setup_annotation("@Before"));
+        assert!(has_test_setup_annotation("@BeforeEach"));
+        assert!(has_test_setup_annotation("@BeforeAll public void setUp()"));
+        assert!(!has_test_setup_annotation("@Test public void test()"));
+    }
+
+    #[test]
+    fn test_extract_di_field_name() {
+        assert_eq!(
+            extract_di_field_name("@Autowired private DataSource dataSource;"),
+            Some("dataSource".to_string())
+        );
+        assert_eq!(
+            extract_di_field_name("@Inject DataSource ds;"),
+            Some("ds".to_string())
+        );
+        assert_eq!(
+            extract_di_field_name("@Value(\"${db.url}\") String url;"),
+            Some("url".to_string())
+        );
+        assert_eq!(extract_di_field_name("private DataSource ds;"), None);
     }
 }

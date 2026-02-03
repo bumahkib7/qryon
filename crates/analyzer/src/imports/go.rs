@@ -177,15 +177,15 @@ fn resolve_go_import(import_path: &str, file_path: &Path, project_root: &Path) -
     // Look for go.mod to find module path
     let module_path = find_go_module_path(project_root);
 
-    if let Some(mod_path) = module_path {
-        if import_path.starts_with(&mod_path) {
-            // Internal package
-            let relative = import_path.strip_prefix(&mod_path)?;
-            let relative = relative.trim_start_matches('/');
-            let target_dir = project_root.join(relative);
-            if target_dir.is_dir() {
-                return find_go_file_in_dir(&target_dir);
-            }
+    if let Some(mod_path) = module_path
+        && import_path.starts_with(&mod_path)
+    {
+        // Internal package
+        let relative = import_path.strip_prefix(&mod_path)?;
+        let relative = relative.trim_start_matches('/');
+        let target_dir = project_root.join(relative);
+        if target_dir.is_dir() {
+            return find_go_file_in_dir(&target_dir);
         }
     }
 
@@ -201,12 +201,12 @@ fn find_go_file_in_dir(dir: &Path) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "go") {
+            if path.extension().is_some_and(|e| e == "go") {
                 // Skip test files
                 if !path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .map_or(false, |n| n.ends_with("_test.go"))
+                    .is_some_and(|n| n.ends_with("_test.go"))
                 {
                     return Some(path.canonicalize().unwrap_or(path));
                 }
@@ -306,36 +306,35 @@ fn is_external_go_package(path: &str) -> bool {
 
 /// Extract function export (Go exports are uppercase)
 fn extract_function_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            // Go exports start with uppercase
-            if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                file_imports.exports.push(Export {
-                    name: name.to_string(),
-                    is_default: false,
-                    node_id: node.id(),
-                    line: node.start_position().row + 1,
-                    kind: ExportKind::Function,
-                });
-            }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        // Go exports start with uppercase
+        if name.chars().next().is_some_and(|c| c.is_uppercase()) {
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: node.id(),
+                line: node.start_position().row + 1,
+                kind: ExportKind::Function,
+            });
         }
     }
 }
 
 /// Extract method export
 fn extract_method_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                file_imports.exports.push(Export {
-                    name: name.to_string(),
-                    is_default: false,
-                    node_id: node.id(),
-                    line: node.start_position().row + 1,
-                    kind: ExportKind::Function,
-                });
-            }
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+        && name.chars().next().is_some_and(|c| c.is_uppercase())
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Function,
+        });
     }
 }
 
@@ -343,20 +342,18 @@ fn extract_method_export(node: tree_sitter::Node, source: &[u8], file_imports: &
 fn extract_type_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "type_spec" {
-            if let Some(name_node) = child.child_by_field_name("name") {
-                if let Ok(name) = name_node.utf8_text(source) {
-                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                        file_imports.exports.push(Export {
-                            name: name.to_string(),
-                            is_default: false,
-                            node_id: child.id(),
-                            line: child.start_position().row + 1,
-                            kind: ExportKind::Type,
-                        });
-                    }
-                }
-            }
+        if child.kind() == "type_spec"
+            && let Some(name_node) = child.child_by_field_name("name")
+            && let Ok(name) = name_node.utf8_text(source)
+            && name.chars().next().is_some_and(|c| c.is_uppercase())
+        {
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: child.id(),
+                line: child.start_position().row + 1,
+                kind: ExportKind::Type,
+            });
         }
     }
 }
@@ -365,20 +362,18 @@ fn extract_type_export(node: tree_sitter::Node, source: &[u8], file_imports: &mu
 fn extract_var_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "var_spec" || child.kind() == "const_spec" {
-            if let Some(name_node) = child.child_by_field_name("name") {
-                if let Ok(name) = name_node.utf8_text(source) {
-                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                        file_imports.exports.push(Export {
-                            name: name.to_string(),
-                            is_default: false,
-                            node_id: child.id(),
-                            line: child.start_position().row + 1,
-                            kind: ExportKind::Variable,
-                        });
-                    }
-                }
-            }
+        if (child.kind() == "var_spec" || child.kind() == "const_spec")
+            && let Some(name_node) = child.child_by_field_name("name")
+            && let Ok(name) = name_node.utf8_text(source)
+            && name.chars().next().is_some_and(|c| c.is_uppercase())
+        {
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: child.id(),
+                line: child.start_position().row + 1,
+                kind: ExportKind::Variable,
+            });
         }
     }
 }

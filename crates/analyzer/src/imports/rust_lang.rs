@@ -350,10 +350,10 @@ fn is_external_crate(path: &str) -> bool {
 fn has_visibility(node: tree_sitter::Node, source: &[u8]) -> bool {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "visibility_modifier" {
-            if let Ok(text) = child.utf8_text(source) {
-                return text.starts_with("pub");
-            }
+        if child.kind() == "visibility_modifier"
+            && let Ok(text) = child.utf8_text(source)
+        {
+            return text.starts_with("pub");
         }
     }
     false
@@ -365,16 +365,16 @@ fn extract_function_export(node: tree_sitter::Node, source: &[u8], file_imports:
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Function,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Function,
+        });
     }
 }
 
@@ -384,16 +384,16 @@ fn extract_struct_export(node: tree_sitter::Node, source: &[u8], file_imports: &
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -403,16 +403,16 @@ fn extract_enum_export(node: tree_sitter::Node, source: &[u8], file_imports: &mu
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -422,16 +422,16 @@ fn extract_trait_export(node: tree_sitter::Node, source: &[u8], file_imports: &m
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -441,16 +441,16 @@ fn extract_const_export(node: tree_sitter::Node, source: &[u8], file_imports: &m
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Variable,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Variable,
+        });
     }
 }
 
@@ -460,16 +460,16 @@ fn extract_type_export(node: tree_sitter::Node, source: &[u8], file_imports: &mu
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -479,16 +479,16 @@ fn extract_mod_declaration(node: tree_sitter::Node, source: &[u8], file_imports:
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Module,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Module,
+        });
     }
 }
 

@@ -65,14 +65,14 @@ impl<F: Fact> DataflowResult<F> {
     pub fn contains_at_entry(&self, block_id: BlockId, fact: &F) -> bool {
         self.block_entry
             .get(&block_id)
-            .map_or(false, |set| set.contains(fact))
+            .is_some_and(|set| set.contains(fact))
     }
 
     /// Check if a fact holds at the exit of a specific block
     pub fn contains_at_exit(&self, block_id: BlockId, fact: &F) -> bool {
         self.block_exit
             .get(&block_id)
-            .map_or(false, |set| set.contains(fact))
+            .is_some_and(|set| set.contains(fact))
     }
 
     /// Check if a fact holds at a specific AST node (uses CFG's node_to_block mapping)
@@ -81,7 +81,7 @@ impl<F: Fact> DataflowResult<F> {
         // (precise per-statement analysis would need statement-level tracking)
         cfg.node_to_block
             .get(&node_id)
-            .map_or(false, |&block_id| self.contains_at_entry(block_id, fact))
+            .is_some_and(|&block_id| self.contains_at_entry(block_id, fact))
     }
 
     /// Get all facts that hold at a specific AST node
@@ -247,7 +247,7 @@ pub fn solve<F: Fact, T: TransferFunction<F>>(
 
                 // Check if exit state changed
                 let old_exit = block_exit.get(&block_id);
-                let changed = old_exit.map_or(true, |old| *old != new_exit);
+                let changed = old_exit.is_none_or(|old| *old != new_exit);
 
                 if changed {
                     block_exit.insert(block_id, new_exit);
@@ -277,7 +277,7 @@ pub fn solve<F: Fact, T: TransferFunction<F>>(
 
                 // Check if entry state changed
                 let old_entry = block_entry.get(&block_id);
-                let changed = old_entry.map_or(true, |old| *old != new_entry);
+                let changed = old_entry.is_none_or(|old| *old != new_entry);
 
                 if changed {
                     block_entry.insert(block_id, new_entry);

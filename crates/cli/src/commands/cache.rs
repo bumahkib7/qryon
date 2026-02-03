@@ -1,9 +1,17 @@
 //! Cache command - manage RMA cache (OSV vulnerability data, etc.)
+//!
+//! The cache system includes:
+//! - **OSV Local Database**: Full vulnerability database downloaded from GCS (recommended)
+//! - **API Response Cache**: Individual package vulnerability lookups (fallback)
+//!
+//! Use `rma cache update` to download the OSV database for offline scanning.
 
 use crate::CacheAction;
 use crate::ui::theme::Theme;
 use anyhow::Result;
 use colored::Colorize;
+use rma_analyzer::providers::{OsvDatabase, osv_db};
+use rma_common::OsvEcosystem;
 use std::fs;
 use std::path::PathBuf;
 
@@ -70,6 +78,7 @@ impl CacheStats {
 pub fn run(action: CacheAction) -> Result<()> {
     match action {
         CacheAction::Status => show_status(),
+        CacheAction::Update { ecosystems, force } => update_database(ecosystems, force),
         CacheAction::Clear { force } => clear_cache(force),
     }
 }
@@ -77,70 +86,285 @@ pub fn run(action: CacheAction) -> Result<()> {
 fn show_status() -> Result<()> {
     println!();
     println!("{}", "📦 RMA Cache Status".cyan().bold());
-    println!("{}", Theme::separator(50));
+    println!("{}", Theme::separator(60));
 
-    // OSV Cache
+    // OSV Local Database (primary - high performance)
+    println!();
+    println!(
+        "  {}",
+        "OSV Local Database (Recommended)".bright_white().bold()
+    );
+
+    let db_path = get_osv_db_dir();
+    if let Ok(db) = OsvDatabase::new(db_path.clone()) {
+        println!(
+            "    {} {}",
+            "Path:".dimmed(),
+            db.base_path().display().to_string().cyan()
+        );
+
+        let ecosystems = [
+            OsvEcosystem::CratesIo,
+            OsvEcosystem::Npm,
+            OsvEcosystem::PyPI,
+            OsvEcosystem::Go,
+            OsvEcosystem::Maven,
+        ];
+
+        let mut total_vulns = 0;
+        let mut total_packages = 0;
+
+        for eco in &ecosystems {
+            if let Ok(eco_db) = db.ecosystem(*eco) {
+                let stats = eco_db.stats();
+                total_vulns += stats.vuln_count;
+                total_packages += stats.package_count;
+
+                let age = if stats.last_updated > 0 {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let age_secs = now.saturating_sub(stats.last_updated);
+                    format_duration_ago(age_secs)
+                } else {
+                    "never".to_string()
+                };
+
+                let _status_color = if stats.vuln_count > 0 {
+                    "ready".green()
+                } else {
+                    "empty".yellow()
+                };
+
+                println!(
+                    "    {} {:12} {:>6} vulns, {:>6} packages, updated {}",
+                    Theme::bullet(),
+                    format!("{}:", eco).bright_white(),
+                    stats.vuln_count.to_string().cyan(),
+                    stats.package_count.to_string().dimmed(),
+                    age.dimmed()
+                );
+            } else {
+                println!(
+                    "    {} {:12} {}",
+                    Theme::bullet(),
+                    format!("{}:", eco).bright_white(),
+                    "not downloaded".yellow()
+                );
+            }
+        }
+
+        if total_vulns > 0 {
+            println!();
+            println!(
+                "    {} {} vulnerabilities across {} packages",
+                "Total:".bright_white(),
+                total_vulns.to_string().cyan().bold(),
+                total_packages.to_string().bright_white()
+            );
+            println!(
+                "    {} Bloom filter: O(1) negative lookups, ~1% false positive rate",
+                Theme::info_mark()
+            );
+        }
+    } else {
+        println!(
+            "    {} {}",
+            "Path:".dimmed(),
+            db_path.display().to_string().cyan()
+        );
+        println!("    {} {}", "Status:".dimmed(), "not initialized".yellow());
+        println!(
+            "    {} Run {} to download vulnerability databases",
+            Theme::info_mark(),
+            "rma cache update".cyan()
+        );
+    }
+
+    // API Response Cache (fallback)
+    println!();
+    println!(
+        "  {}",
+        "API Response Cache (Fallback)".bright_white().bold()
+    );
     let osv_cache_dir = get_osv_cache_dir();
     let osv_stats = CacheStats::gather(&osv_cache_dir);
 
-    println!();
-    println!("  {}", "OSV Vulnerability Cache".bright_white().bold());
     println!(
         "    {} {}",
         "Path:".dimmed(),
         osv_stats.path.display().to_string().cyan()
     );
 
-    if osv_stats.exists {
-        println!("    {} {}", "Status:".dimmed(), "present".green());
+    if osv_stats.exists && osv_stats.entry_count > 0 {
         println!(
-            "    {} {}",
-            "Entries:".dimmed(),
-            osv_stats.entry_count.to_string().bright_white()
+            "    {} {} entries, {}",
+            "Cached:".dimmed(),
+            osv_stats.entry_count.to_string().bright_white(),
+            osv_stats.format_size().dimmed()
         );
-        println!(
-            "    {} {}",
-            "Size:".dimmed(),
-            osv_stats.format_size().bright_white()
-        );
-        println!("    {} {}", "Default TTL:".dimmed(), "24h".bright_white());
+        println!("    {} {}", "TTL:".dimmed(), "24h".bright_white());
     } else {
-        println!("    {} {}", "Status:".dimmed(), "not created yet".yellow());
+        println!("    {} {}", "Status:".dimmed(), "empty".dimmed());
     }
 
     // Local project cache
     let local_cache = PathBuf::from(".rma/cache/osv");
     if local_cache.exists() {
         let local_stats = CacheStats::gather(&local_cache);
-        println!();
-        println!("  {}", "Local Project Cache".bright_white().bold());
-        println!(
-            "    {} {}",
-            "Path:".dimmed(),
-            local_stats.path.display().to_string().cyan()
-        );
-        println!(
-            "    {} {}",
-            "Entries:".dimmed(),
-            local_stats.entry_count.to_string().bright_white()
-        );
-        println!(
-            "    {} {}",
-            "Size:".dimmed(),
-            local_stats.format_size().bright_white()
-        );
+        if local_stats.entry_count > 0 {
+            println!();
+            println!("  {}", "Local Project Cache".bright_white().bold());
+            println!(
+                "    {} {} entries, {}",
+                "Cached:".dimmed(),
+                local_stats.entry_count.to_string().bright_white(),
+                local_stats.format_size().dimmed()
+            );
+        }
     }
 
     println!();
-    println!("{}", Theme::separator(50));
+    println!("{}", Theme::separator(60));
     println!(
-        "  {} Use {} to remove cache files",
+        "  {} {} - Download OSV databases for offline scanning",
+        Theme::info_mark(),
+        "rma cache update".cyan()
+    );
+    println!(
+        "  {} {} - Remove all cached data",
         Theme::info_mark(),
         "rma cache clear".cyan()
     );
     println!();
 
     Ok(())
+}
+
+/// Update OSV vulnerability databases
+fn update_database(ecosystems: Option<Vec<String>>, _force: bool) -> Result<()> {
+    println!();
+    println!(
+        "{}",
+        "📥 Updating OSV Vulnerability Databases".cyan().bold()
+    );
+    println!("{}", Theme::separator(60));
+
+    // Parse ecosystems or use defaults
+    let ecosystems_to_update: Vec<OsvEcosystem> = if let Some(eco_strs) = ecosystems {
+        eco_strs
+            .iter()
+            .filter_map(|s| match s.to_lowercase().as_str() {
+                "cargo" | "crates.io" | "crates" | "rust" => Some(OsvEcosystem::CratesIo),
+                "npm" | "node" | "js" | "javascript" => Some(OsvEcosystem::Npm),
+                "pypi" | "python" | "pip" => Some(OsvEcosystem::PyPI),
+                "go" | "golang" => Some(OsvEcosystem::Go),
+                "maven" | "java" | "gradle" => Some(OsvEcosystem::Maven),
+                _ => {
+                    eprintln!("{} Unknown ecosystem: {}", Theme::warning_mark(), s);
+                    None
+                }
+            })
+            .collect()
+    } else {
+        vec![
+            OsvEcosystem::CratesIo,
+            OsvEcosystem::Npm,
+            OsvEcosystem::PyPI,
+            OsvEcosystem::Go,
+            OsvEcosystem::Maven,
+        ]
+    };
+
+    if ecosystems_to_update.is_empty() {
+        anyhow::bail!("No valid ecosystems specified");
+    }
+
+    // Open or create database
+    let db_path = get_osv_db_dir();
+    let db = OsvDatabase::new(db_path)?;
+
+    println!();
+    println!("  Ecosystems to update:");
+    for eco in &ecosystems_to_update {
+        let url = osv_db::ecosystem_url(eco);
+        println!(
+            "    {} {} ({})",
+            Theme::bullet(),
+            eco.to_string().cyan(),
+            url.dimmed()
+        );
+    }
+    println!();
+
+    // Update each ecosystem
+    let mut total_vulns = 0;
+    let mut total_packages = 0;
+
+    for (i, eco) in ecosystems_to_update.iter().enumerate() {
+        print!(
+            "  [{}/{}] Updating {}... ",
+            i + 1,
+            ecosystems_to_update.len(),
+            eco.to_string().cyan()
+        );
+        std::io::Write::flush(&mut std::io::stdout())?;
+
+        match db.update_ecosystem(*eco, None) {
+            Ok(stats) => {
+                println!(
+                    "{} {} vulns, {} packages in {:.1}s",
+                    "done".green(),
+                    stats.vulns_added.to_string().cyan(),
+                    stats.packages_indexed.to_string().dimmed(),
+                    stats.duration.as_secs_f64()
+                );
+                total_vulns += stats.vulns_added;
+                total_packages += stats.packages_indexed;
+            }
+            Err(e) => {
+                println!("{} {}", "failed".red(), e.to_string().dimmed());
+            }
+        }
+    }
+
+    println!();
+    println!("{}", Theme::separator(60));
+    println!(
+        "  {} Downloaded {} vulnerabilities across {} packages",
+        Theme::success_mark(),
+        total_vulns.to_string().cyan().bold(),
+        total_packages.to_string().bright_white()
+    );
+    println!(
+        "  {} Queries now use O(1) bloom filter + local Sled database",
+        Theme::info_mark()
+    );
+    println!();
+
+    Ok(())
+}
+
+/// Get OSV database directory
+fn get_osv_db_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("rma")
+        .join("osv-db")
+}
+
+/// Format seconds ago as human-readable string
+fn format_duration_ago(secs: u64) -> String {
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
 }
 
 fn clear_cache(force: bool) -> Result<()> {

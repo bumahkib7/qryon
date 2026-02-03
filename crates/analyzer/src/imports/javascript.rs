@@ -45,14 +45,12 @@ fn extract_imports_recursive(
         }
         "call_expression" => {
             // Check for require() calls
-            if let Some(func) = node.child_by_field_name("function") {
-                if func.kind() == "identifier" {
-                    if let Ok(name) = func.utf8_text(source) {
-                        if name == "require" {
-                            extract_require(node, source, file_path, project_root, file_imports);
-                        }
-                    }
-                }
+            if let Some(func) = node.child_by_field_name("function")
+                && func.kind() == "identifier"
+                && let Ok(name) = func.utf8_text(source)
+                && name == "require"
+            {
+                extract_require(node, source, file_path, project_root, file_imports);
             }
         }
         "assignment_expression" | "expression_statement" => {
@@ -148,18 +146,18 @@ fn extract_import_names(
                         }
                         "namespace_import" => {
                             // import * as foo from './bar'
-                            if let Some(name_node) = clause_child.child_by_field_name("name") {
-                                if let Ok(name) = name_node.utf8_text(source) {
-                                    add_import_or_unresolved(
-                                        file_imports,
-                                        name,
-                                        "*",
-                                        specifier,
-                                        line,
-                                        ImportKind::Namespace,
-                                        &resolved_path,
-                                    );
-                                }
+                            if let Some(name_node) = clause_child.child_by_field_name("name")
+                                && let Ok(name) = name_node.utf8_text(source)
+                            {
+                                add_import_or_unresolved(
+                                    file_imports,
+                                    name,
+                                    "*",
+                                    specifier,
+                                    line,
+                                    ImportKind::Namespace,
+                                    &resolved_path,
+                                );
                             }
                         }
                         _ => {}
@@ -186,24 +184,24 @@ fn extract_named_imports(
             let name_node = child.child_by_field_name("name");
             let alias_node = child.child_by_field_name("alias");
 
-            if let Some(name) = name_node {
-                if let Ok(exported_name) = name.utf8_text(source) {
-                    let local_name = if let Some(alias) = alias_node {
-                        alias.utf8_text(source).unwrap_or(exported_name)
-                    } else {
-                        exported_name
-                    };
+            if let Some(name) = name_node
+                && let Ok(exported_name) = name.utf8_text(source)
+            {
+                let local_name = if let Some(alias) = alias_node {
+                    alias.utf8_text(source).unwrap_or(exported_name)
+                } else {
+                    exported_name
+                };
 
-                    add_import_or_unresolved(
-                        file_imports,
-                        local_name,
-                        exported_name,
-                        specifier,
-                        line,
-                        ImportKind::Named,
-                        resolved_path,
-                    );
-                }
+                add_import_or_unresolved(
+                    file_imports,
+                    local_name,
+                    exported_name,
+                    specifier,
+                    line,
+                    ImportKind::Named,
+                    resolved_path,
+                );
             }
         }
     }
@@ -337,21 +335,21 @@ fn extract_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut Fil
         match child.kind() {
             "function_declaration" | "class_declaration" => {
                 // export function foo() {} or export class Foo {}
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source) {
-                        let kind = if child.kind() == "function_declaration" {
-                            ExportKind::Function
-                        } else {
-                            ExportKind::Class
-                        };
-                        file_imports.exports.push(Export {
-                            name: name.to_string(),
-                            is_default: false,
-                            node_id: child.id(),
-                            line,
-                            kind,
-                        });
-                    }
+                if let Some(name_node) = child.child_by_field_name("name")
+                    && let Ok(name) = name_node.utf8_text(source)
+                {
+                    let kind = if child.kind() == "function_declaration" {
+                        ExportKind::Function
+                    } else {
+                        ExportKind::Class
+                    };
+                    file_imports.exports.push(Export {
+                        name: name.to_string(),
+                        is_default: false,
+                        node_id: child.id(),
+                        line,
+                        kind,
+                    });
                 }
             }
             "lexical_declaration" | "variable_declaration" => {
@@ -362,22 +360,21 @@ fn extract_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut Fil
                 // export { foo, bar }
                 let mut clause_cursor = child.walk();
                 for export_spec in child.children(&mut clause_cursor) {
-                    if export_spec.kind() == "export_specifier" {
-                        if let Some(name_node) = export_spec.child_by_field_name("name") {
-                            if let Ok(name) = name_node.utf8_text(source) {
-                                let alias = export_spec
-                                    .child_by_field_name("alias")
-                                    .and_then(|a| a.utf8_text(source).ok());
-                                let is_default = alias.map_or(false, |a| a == "default");
-                                file_imports.exports.push(Export {
-                                    name: alias.unwrap_or(name).to_string(),
-                                    is_default,
-                                    node_id: export_spec.id(),
-                                    line,
-                                    kind: ExportKind::Unknown,
-                                });
-                            }
-                        }
+                    if export_spec.kind() == "export_specifier"
+                        && let Some(name_node) = export_spec.child_by_field_name("name")
+                        && let Ok(name) = name_node.utf8_text(source)
+                    {
+                        let alias = export_spec
+                            .child_by_field_name("alias")
+                            .and_then(|a| a.utf8_text(source).ok());
+                        let is_default = alias == Some("default");
+                        file_imports.exports.push(Export {
+                            name: alias.unwrap_or(name).to_string(),
+                            is_default,
+                            node_id: export_spec.id(),
+                            line,
+                            kind: ExportKind::Unknown,
+                        });
                     }
                 }
             }
@@ -416,18 +413,17 @@ fn extract_variable_exports(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "variable_declarator" {
-            if let Some(name_node) = child.child_by_field_name("name") {
-                if let Ok(name) = name_node.utf8_text(source) {
-                    file_imports.exports.push(Export {
-                        name: name.to_string(),
-                        is_default: false,
-                        node_id: child.id(),
-                        line,
-                        kind: ExportKind::Variable,
-                    });
-                }
-            }
+        if child.kind() == "variable_declarator"
+            && let Some(name_node) = child.child_by_field_name("name")
+            && let Ok(name) = name_node.utf8_text(source)
+        {
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: child.id(),
+                line,
+                kind: ExportKind::Variable,
+            });
         }
     }
 }

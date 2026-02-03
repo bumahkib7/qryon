@@ -62,7 +62,7 @@ mod tests {
         let std = std_profile();
         // std should match any Rust code (empty detect_imports or always true)
         assert!(
-            std.detect_imports.iter().any(|i| *i == "std::"),
+            std.detect_imports.contains(&"std::"),
             "std should detect std:: imports"
         );
     }
