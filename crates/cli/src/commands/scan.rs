@@ -8,7 +8,10 @@ use crate::ui::{progress, theme::Theme};
 use crate::{GroupBy, OutputFormat, ScanMode};
 use anyhow::Result;
 use colored::Colorize;
-use rma_analyzer::{AnalyzerEngine, diff, project::ProjectAnalyzer};
+use rma_analyzer::{
+    AnalyzerEngine, diff,
+    project::{ProjectAnalysisResult, ProjectAnalyzer},
+};
 use rma_common::{
     Baseline, BaselineMode, Language, Profile, ProviderType, ProvidersConfig, RmaConfig,
     RmaTomlConfig, Severity, SuppressionEngine, parse_inline_suppressions,
@@ -55,10 +58,12 @@ pub struct ScanArgs {
     pub diff_base: String,
     /// Read unified diff from stdin instead of running git diff
     pub diff_stdin: bool,
-    /// Skip test files and directories (security rules still apply)
-    pub skip_tests: bool,
+    /// Include test files in analysis (tests excluded by default)
+    pub include_tests: bool,
     /// Skip ALL findings in tests including security rules
     pub skip_tests_all: bool,
+    /// [DEPRECATED] Tests are now excluded by default
+    pub skip_tests: bool,
     /// Maximum findings to display
     pub limit: usize,
     /// Show all findings without limit
@@ -111,6 +116,8 @@ pub struct ScanArgs {
     pub filter_profile: Option<String>,
     /// Show filter explanation
     pub explain: bool,
+    /// Disable analysis cache (force fresh analysis)
+    pub no_cache: bool,
 }
 
 /// Effective scan settings after applying mode defaults
@@ -216,10 +223,13 @@ pub fn run(args: ScanArgs) -> Result<()> {
     )?;
     timings.push(("Analyze", analyze_start.elapsed()));
 
-    // Phase 2.5: Cross-file analysis (if enabled)
-    if args.cross_file {
+    // Phase 2.5: Cross-file analysis (if enabled or in interactive mode)
+    // Interactive mode auto-enables cross-file analysis for call graph and flow visualization
+    let mut project_result: Option<ProjectAnalysisResult> = None;
+    let run_cross_file = args.cross_file || args.interactive;
+    if run_cross_file {
         let cross_file_start = Instant::now();
-        run_cross_file_phase(
+        project_result = run_cross_file_phase(
             &args,
             &effective,
             &config,
@@ -378,6 +388,47 @@ pub fn run(args: ScanArgs) -> Result<()> {
     run_index_phase(&args)?;
     timings.push(("Index", index_start.elapsed()));
 
+    // Phase 5: Deduplicate findings (same rule in same file → single finding with count)
+    let dedup_start = Instant::now();
+    let before_dedup = summary.total_findings;
+    for result in &mut results {
+        result.findings = rma_common::deduplicate_findings(std::mem::take(&mut result.findings));
+    }
+
+    // Recalculate summary after deduplication
+    let mut dedup_total = 0usize;
+    let mut dedup_occurrences = 0usize;
+    summary.critical_count = 0;
+    summary.error_count = 0;
+    summary.warning_count = 0;
+    summary.info_count = 0;
+
+    for result in &results {
+        for finding in &result.findings {
+            dedup_total += 1;
+            dedup_occurrences += finding.occurrence_count.unwrap_or(1);
+            match finding.severity {
+                Severity::Critical => summary.critical_count += 1,
+                Severity::Error => summary.error_count += 1,
+                Severity::Warning => summary.warning_count += 1,
+                Severity::Info => summary.info_count += 1,
+            }
+        }
+    }
+    summary.total_findings = dedup_total;
+    timings.push(("Deduplicate", dedup_start.elapsed()));
+
+    // Show deduplication info if it reduced count
+    if !args.quiet && effective.format == OutputFormat::Text && dedup_occurrences > dedup_total {
+        println!(
+            "  {} Deduplicated {} → {} unique findings ({} occurrences consolidated)",
+            Theme::info_mark(),
+            before_dedup.to_string().dimmed(),
+            dedup_total.to_string().green(),
+            (dedup_occurrences - dedup_total).to_string().dimmed()
+        );
+    }
+
     let total_duration = total_start.elapsed();
 
     // Print timing information
@@ -387,7 +438,82 @@ pub fn run(args: ScanArgs) -> Result<()> {
 
     // Launch interactive TUI if requested
     if args.interactive {
-        return tui::run_from_analysis(&results, &summary);
+        // Filter out test files from results if --include-tests is not set
+        let filtered_results: Vec<_> = if args.include_tests {
+            results.clone()
+        } else {
+            results
+                .iter()
+                .filter(|r| !rma_analyzer::project::is_test_file(std::path::Path::new(&r.path)))
+                .cloned()
+                .collect()
+        };
+
+        // Recalculate summary for filtered results
+        let filtered_summary = rma_analyzer::AnalysisSummary {
+            files_analyzed: filtered_results.len(),
+            total_findings: filtered_results.iter().map(|r| r.findings.len()).sum(),
+            critical_count: filtered_results
+                .iter()
+                .flat_map(|r| r.findings.iter())
+                .filter(|f| f.severity == rma_common::Severity::Critical)
+                .count(),
+            error_count: filtered_results
+                .iter()
+                .flat_map(|r| r.findings.iter())
+                .filter(|f| f.severity == rma_common::Severity::Error)
+                .count(),
+            warning_count: filtered_results
+                .iter()
+                .flat_map(|r| r.findings.iter())
+                .filter(|f| f.severity == rma_common::Severity::Warning)
+                .count(),
+            info_count: filtered_results
+                .iter()
+                .flat_map(|r| r.findings.iter())
+                .filter(|f| f.severity == rma_common::Severity::Info)
+                .count(),
+            total_loc: filtered_results
+                .iter()
+                .map(|r| r.metrics.lines_of_code)
+                .sum(),
+            total_complexity: filtered_results
+                .iter()
+                .map(|r| r.metrics.cyclomatic_complexity)
+                .sum(),
+        };
+
+        // Filter cross-file taints to exclude test-only flows
+        let filtered_project = project_result.as_ref().map(|proj| {
+            let filtered_taints: Vec<_> = if args.include_tests {
+                proj.cross_file_taints.clone()
+            } else {
+                proj.cross_file_taints
+                    .iter()
+                    .filter(|t| {
+                        t.reachability != rma_analyzer::project::Reachability::TestOnly
+                            && !rma_analyzer::project::is_test_file(&t.source.file)
+                    })
+                    .cloned()
+                    .collect()
+            };
+
+            rma_analyzer::project::ProjectAnalysisResult {
+                files_analyzed: filtered_results.len(),
+                file_results: filtered_results.clone(),
+                cross_file_taints: filtered_taints,
+                call_graph: proj.call_graph.clone(),
+                import_graph: proj.import_graph.clone(),
+                summary: filtered_summary.clone(),
+                duration_ms: proj.duration_ms,
+            }
+        });
+
+        return tui::run_from_analysis_with_project(
+            &filtered_results,
+            &filtered_summary,
+            filtered_project.as_ref(),
+        );
     }
 
     // Build output options
@@ -464,14 +590,14 @@ fn apply_mode_defaults(args: &ScanArgs) -> EffectiveScanSettings {
         }
         Some(ScanMode::Local) | None => {
             // Local mode: use all explicit settings
-            // --skip-tests or --skip-tests-all enables default test/example suppressions
+            // Tests are excluded by default; use --include-tests to scan them
             EffectiveScanSettings {
                 format: args.format,
                 severity: args.severity,
                 changed_only: args.changed_only,
                 baseline_mode: args.baseline_mode,
                 timing: args.timing,
-                use_default_presets: args.skip_tests || args.skip_tests_all,
+                use_default_presets: !args.include_tests,
                 skip_security_in_tests: args.skip_tests_all,
                 include_suppressed: args.include_suppressed,
                 diff: args.diff,
@@ -551,7 +677,7 @@ fn print_scan_header(
         );
     }
 
-    if args.cross_file {
+    if args.cross_file || args.interactive {
         println!("  {} {}", "Cross-file:".dimmed(), "enabled".green());
     }
 
@@ -863,7 +989,7 @@ fn run_cross_file_phase(
     _parsed_files: &[rma_parser::ParsedFile],
     results: &mut Vec<rma_analyzer::FileAnalysis>,
     summary: &mut rma_analyzer::AnalysisSummary,
-) -> Result<()> {
+) -> Result<Option<ProjectAnalysisResult>> {
     let spinner = if !args.quiet && effective.format == OutputFormat::Text {
         let s = progress::create_spinner("Running cross-file analysis...");
         Some(s)
@@ -874,7 +1000,8 @@ fn run_cross_file_phase(
     // Use ProjectAnalyzer for cross-file analysis
     let project_analyzer = ProjectAnalyzer::new(config.clone())
         .with_cross_file(true)
-        .with_parallel(args.jobs == 0 || args.jobs > 1);
+        .with_parallel(args.jobs == 0 || args.jobs > 1)
+        .with_cache(!args.no_cache);
 
     // Run the cross-file analysis on the project
     let project_result = project_analyzer.analyze_project(&args.path)?;
@@ -912,6 +1039,8 @@ fn run_cross_file_phase(
             category: rma_common::FindingCategory::Security,
             fingerprint: None,
             properties: None,
+            occurrence_count: None,
+            additional_locations: None,
         };
 
         // Find or create the file result
@@ -948,7 +1077,7 @@ fn run_cross_file_phase(
         ));
     }
 
-    Ok(())
+    Ok(Some(project_result))
 }
 
 fn run_ai_phase(args: &ScanArgs, _results: &mut [rma_analyzer::FileAnalysis]) -> Result<()> {
@@ -1557,6 +1686,7 @@ mod tests {
             diff: false,
             diff_base: "origin/main".to_string(),
             diff_stdin: false,
+            include_tests: false,
             skip_tests: false,
             skip_tests_all: false,
             limit: 20,
@@ -1583,6 +1713,7 @@ mod tests {
             preset_review: false,
             filter_profile: None,
             explain: false,
+            no_cache: false,
         }
     }
 
@@ -1603,7 +1734,20 @@ mod tests {
         assert!(effective.changed_only);
         assert!(effective.baseline_mode);
         assert!(effective.timing);
-        assert!(!effective.use_default_presets); // Local mode doesn't use presets
+        assert!(effective.use_default_presets); // Tests excluded by default
+    }
+
+    #[test]
+    fn test_include_tests_disables_presets() {
+        let args = ScanArgs {
+            mode: Some(ScanMode::Local),
+            include_tests: true, // Opt-in to scan test files
+            ..create_test_args()
+        };
+
+        let effective = apply_mode_defaults(&args);
+
+        assert!(!effective.use_default_presets); // Tests included when flag is set
     }
 
     #[test]

@@ -161,15 +161,13 @@ impl LivenessTransfer {
 
         // For augmented assignments (+=, -=), the left side is also a USE
         let kind = node.kind();
-        if sem.is_augmented_assignment(kind)
+        if (sem.is_augmented_assignment(kind)
             || kind.contains("augmented")
-            || kind.contains("compound")
+            || kind.contains("compound"))
+            && let Some(left) = node.child_by_field_name(sem.left_field)
+            && let Ok(name) = left.utf8_text(source)
         {
-            if let Some(left) = node.child_by_field_name(sem.left_field) {
-                if let Ok(name) = left.utf8_text(source) {
-                    vars.push(name.to_string());
-                }
-            }
+            vars.push(name.to_string());
         }
 
         vars

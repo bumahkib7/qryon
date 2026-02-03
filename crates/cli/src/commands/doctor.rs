@@ -63,7 +63,8 @@ pub fn run(args: DoctorArgs) -> Result<()> {
             Language::Python => "py",
             Language::Go => "go",
             Language::Java => "java",
-            Language::Unknown => "txt",
+            // Fallback for other languages
+            _ => "txt",
         };
 
         let test_path = format!("test.{}", ext);

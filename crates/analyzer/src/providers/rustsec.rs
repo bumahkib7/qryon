@@ -139,6 +139,8 @@ impl RustSecProvider {
             category: FindingCategory::Security,
             fingerprint: None,
             properties: None,
+            occurrence_count: None,
+            additional_locations: None,
         }
     }
 

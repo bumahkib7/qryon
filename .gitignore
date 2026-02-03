@@ -28,3 +28,16 @@ coverage/
 
 # Logs
 *.log
+
+# Secret detection test fixtures (contain sample secrets for testing)
+# Keep only .yaml rule files, exclude all test case files
+crates/rules/rules/generic/secrets/**/*.txt
+crates/rules/rules/generic/secrets/**/*.go
+crates/rules/rules/generic/secrets/**/*.js
+crates/rules/rules/generic/secrets/**/*.jsx
+crates/rules/rules/generic/secrets/**/*.php
+crates/rules/rules/generic/secrets/**/*.npmrc
+crates/rules/rules/generic/secrets/**/*.generic
+
+# External repos
+external/

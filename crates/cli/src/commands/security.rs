@@ -12,27 +12,15 @@
 use anyhow::Result;
 use colored::Colorize;
 use rma_analyzer::providers::{AnalysisProvider, OsvProvider, RustSecProvider};
-use rma_common::{Finding, OsvEcosystem, OsvProviderConfig, RmaConfig, Severity};
+use rma_common::{
+    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS, DEFAULT_VENDOR_IGNORE_PATHS, Finding,
+    OsvEcosystem, OsvProviderConfig, RmaConfig, Severity,
+};
 use rma_parser::ParserEngine;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Default patterns to exclude from code security scanning (test fixtures)
-pub const DEFAULT_SECURITY_EXCLUDES: &[&str] = &[
-    "**/tests/**",
-    "**/test/**",
-    "**/fixtures/**",
-    "**/__tests__/**",
-    "**/*.test.*",
-    "**/*.spec.*",
-    "**/testdata/**",
-    "**/test_*",
-    "**/*_test.rs",
-    "**/*_test.go",
-    "**/*_test.py",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FailSeverity {
@@ -1269,8 +1257,18 @@ fn scan_code_security(args: &SecurityArgs, report: &mut SecurityReport) -> Resul
     let mut files_excluded = 0;
 
     for parsed in &parsed_files {
+        // Always exclude vendored/bundled/minified files (third-party code)
+        if matches_exclude_pattern(&parsed.path, DEFAULT_VENDOR_IGNORE_PATHS) {
+            files_excluded += 1;
+            continue;
+        }
+
         // Check if file should be excluded (default excludes for tests/fixtures)
-        if !args.include_tests && matches_exclude_pattern(&parsed.path, DEFAULT_SECURITY_EXCLUDES) {
+        // Use the same comprehensive patterns as the scan command
+        if !args.include_tests
+            && (matches_exclude_pattern(&parsed.path, DEFAULT_TEST_IGNORE_PATHS)
+                || matches_exclude_pattern(&parsed.path, DEFAULT_EXAMPLE_IGNORE_PATHS))
+        {
             files_excluded += 1;
             continue;
         }
@@ -2008,35 +2006,39 @@ mod tests {
 
     #[test]
     fn test_matches_exclude_pattern() {
+        // Test patterns should match test directories
         assert!(matches_exclude_pattern(
             Path::new("/project/src/tests/test_foo.rs"),
-            DEFAULT_SECURITY_EXCLUDES
+            DEFAULT_TEST_IGNORE_PATHS
         ));
 
+        // Example patterns should match fixtures
         assert!(matches_exclude_pattern(
             Path::new("/project/fixtures/secrets.json"),
-            DEFAULT_SECURITY_EXCLUDES
+            DEFAULT_EXAMPLE_IGNORE_PATHS
         ));
 
+        // Test patterns should match *.test.ts files
         assert!(matches_exclude_pattern(
             Path::new("/project/src/foo.test.ts"),
-            DEFAULT_SECURITY_EXCLUDES
+            DEFAULT_TEST_IGNORE_PATHS
         ));
 
+        // Test patterns should match __tests__ directories
         assert!(matches_exclude_pattern(
             Path::new("/project/__tests__/auth.spec.js"),
-            DEFAULT_SECURITY_EXCLUDES
+            DEFAULT_TEST_IGNORE_PATHS
         ));
 
         // Should NOT match regular source files
         assert!(!matches_exclude_pattern(
             Path::new("/project/src/auth/login.rs"),
-            DEFAULT_SECURITY_EXCLUDES
+            DEFAULT_TEST_IGNORE_PATHS
         ));
 
         assert!(!matches_exclude_pattern(
             Path::new("/project/lib/security.py"),
-            DEFAULT_SECURITY_EXCLUDES
+            DEFAULT_TEST_IGNORE_PATHS
         ));
     }
 

@@ -117,23 +117,23 @@ fn extract_import_statement(
                 let name_node = child.child_by_field_name("name");
                 let alias_node = child.child_by_field_name("alias");
 
-                if let Some(name) = name_node {
-                    if let Ok(module_name) = name.utf8_text(source) {
-                        let local_name = alias_node
-                            .and_then(|a| a.utf8_text(source).ok())
-                            .unwrap_or(module_name);
+                if let Some(name) = name_node
+                    && let Ok(module_name) = name.utf8_text(source)
+                {
+                    let local_name = alias_node
+                        .and_then(|a| a.utf8_text(source).ok())
+                        .unwrap_or(module_name);
 
-                        add_python_import(
-                            file_imports,
-                            local_name,
-                            module_name,
-                            module_name,
-                            line,
-                            ImportKind::Namespace,
-                            file_path,
-                            project_root,
-                        );
-                    }
+                    add_python_import(
+                        file_imports,
+                        local_name,
+                        module_name,
+                        module_name,
+                        line,
+                        ImportKind::Namespace,
+                        file_path,
+                        project_root,
+                    );
                 }
             }
             _ => {}
@@ -204,23 +204,23 @@ fn extract_from_import(
                 let name_node = child.child_by_field_name("name");
                 let alias_node = child.child_by_field_name("alias");
 
-                if let Some(name) = name_node {
-                    if let Ok(exported_name) = name.utf8_text(source) {
-                        let local_name = alias_node
-                            .and_then(|a| a.utf8_text(source).ok())
-                            .unwrap_or(exported_name);
+                if let Some(name) = name_node
+                    && let Ok(exported_name) = name.utf8_text(source)
+                {
+                    let local_name = alias_node
+                        .and_then(|a| a.utf8_text(source).ok())
+                        .unwrap_or(exported_name);
 
-                        add_python_import(
-                            file_imports,
-                            local_name,
-                            exported_name,
-                            &full_specifier,
-                            line,
-                            ImportKind::Named,
-                            file_path,
-                            project_root,
-                        );
-                    }
+                    add_python_import(
+                        file_imports,
+                        local_name,
+                        exported_name,
+                        &full_specifier,
+                        line,
+                        ImportKind::Named,
+                        file_path,
+                        project_root,
+                    );
                 }
             }
             "wildcard_import" => {
@@ -435,36 +435,36 @@ fn is_python_stdlib(module: &str) -> bool {
 
 /// Extract function export
 fn extract_function_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            // Skip private functions (start with _)
-            if !name.starts_with('_') || name.starts_with("__") && name.ends_with("__") {
-                file_imports.exports.push(Export {
-                    name: name.to_string(),
-                    is_default: false,
-                    node_id: node.id(),
-                    line: node.start_position().row + 1,
-                    kind: ExportKind::Function,
-                });
-            }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        // Skip private functions (start with _)
+        if !name.starts_with('_') || name.starts_with("__") && name.ends_with("__") {
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: node.id(),
+                line: node.start_position().row + 1,
+                kind: ExportKind::Function,
+            });
         }
     }
 }
 
 /// Extract class export
 fn extract_class_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            // Skip private classes
-            if !name.starts_with('_') {
-                file_imports.exports.push(Export {
-                    name: name.to_string(),
-                    is_default: false,
-                    node_id: node.id(),
-                    line: node.start_position().row + 1,
-                    kind: ExportKind::Class,
-                });
-            }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        // Skip private classes
+        if !name.starts_with('_') {
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: node.id(),
+                line: node.start_position().row + 1,
+                kind: ExportKind::Class,
+            });
         }
     }
 }
@@ -472,21 +472,20 @@ fn extract_class_export(node: tree_sitter::Node, source: &[u8], file_imports: &m
 /// Extract variable export (module-level assignment)
 fn extract_variable_export(node: tree_sitter::Node, source: &[u8], file_imports: &mut FileImports) {
     // Get the left side of assignment
-    if let Some(left) = node.child_by_field_name("left") {
-        if left.kind() == "identifier" {
-            if let Ok(name) = left.utf8_text(source) {
-                // Skip private variables and dunder names
-                if !name.starts_with('_') {
-                    // Check for __all__ which defines explicit exports
-                    file_imports.exports.push(Export {
-                        name: name.to_string(),
-                        is_default: false,
-                        node_id: node.id(),
-                        line: node.start_position().row + 1,
-                        kind: ExportKind::Variable,
-                    });
-                }
-            }
+    if let Some(left) = node.child_by_field_name("left")
+        && left.kind() == "identifier"
+        && let Ok(name) = left.utf8_text(source)
+    {
+        // Skip private variables and dunder names
+        if !name.starts_with('_') {
+            // Check for __all__ which defines explicit exports
+            file_imports.exports.push(Export {
+                name: name.to_string(),
+                is_default: false,
+                node_id: node.id(),
+                line: node.start_position().row + 1,
+                kind: ExportKind::Variable,
+            });
         }
     }
 }
@@ -530,7 +529,7 @@ mod tests {
         );
 
         // Both should be unresolved (stdlib)
-        assert!(imports.unresolved.len() >= 1);
+        assert!(!imports.unresolved.is_empty());
     }
 
     #[test]

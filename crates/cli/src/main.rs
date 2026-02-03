@@ -181,15 +181,19 @@ pub enum Commands {
         #[arg(long, requires = "diff")]
         diff_stdin: bool,
 
-        /// Skip test files and test directories (security rules still apply)
-        /// Automatically excludes common test patterns: *_test.go, *.test.ts, test_*.py, src/test/**, etc.
+        /// Include test files in analysis (tests are excluded by default)
+        /// Use this flag to scan test files: *_test.go, *.test.ts, test_*.py, src/test/**, etc.
         #[arg(long)]
-        skip_tests: bool,
+        include_tests: bool,
 
         /// Skip ALL findings in test files including security rules
-        /// Use with caution - security vulnerabilities in tests can still be exploited
+        /// By default, tests are excluded but security rules still apply if tests are included
         #[arg(long)]
         skip_tests_all: bool,
+
+        /// [DEPRECATED] Tests are now excluded by default. Use --include-tests to scan them.
+        #[arg(long, hide = true)]
+        skip_tests: bool,
 
         /// Maximum findings to display (default: 20, use --all for unlimited)
         #[arg(long, default_value = "20")]
@@ -284,6 +288,10 @@ pub enum Commands {
         /// Launch interactive TUI viewer for browsing findings
         #[arg(short = 'I', long)]
         interactive: bool,
+
+        /// Disable analysis cache (force fresh analysis)
+        #[arg(long)]
+        no_cache: bool,
     },
 
     /// Watch for file changes and re-analyze in real-time
@@ -614,6 +622,98 @@ pub enum Commands {
         #[arg(short, long, default_value = "pretty")]
         format: String,
     },
+
+    /// Analyze and visualize cross-file data flows
+    ///
+    /// Shows source-to-sink taint paths with evidence and confidence scores.
+    /// Use this to understand how data flows across file boundaries and
+    /// identify potential security vulnerabilities.
+    ///
+    /// Examples:
+    ///   rma flows .                           # Analyze current directory
+    ///   rma flows --sort-by confidence        # Sort by confidence score
+    ///   rma flows --sink-type sql             # Filter SQL injection flows
+    ///   rma flows --evidence                  # Show full flow paths
+    ///   rma flows --group-by sink-type        # Group by vulnerability type
+    ///   rma flows --dedupe --stats            # Dedupe and show statistics
+    #[command(visible_alias = "flow")]
+    Flows {
+        /// Path to analyze
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output format (text, json, compact)
+        #[arg(short, long, default_value = "text", value_enum)]
+        format: OutputFormat,
+
+        /// Output file (stdout if not specified)
+        #[arg(short = 'o', long)]
+        output: Option<PathBuf>,
+
+        /// Sort flows by (severity, confidence, sink-type, source-type, file, path-length)
+        #[arg(long, default_value = "severity")]
+        sort_by: String,
+
+        /// Reverse sort order
+        #[arg(short, long)]
+        reverse: bool,
+
+        /// Group flows by (sink-type, source-type, file, none)
+        #[arg(long, default_value = "sink-type")]
+        group_by: String,
+
+        /// Minimum confidence threshold (0.0 - 1.0)
+        #[arg(long, default_value = "0.0")]
+        min_confidence: f32,
+
+        /// Filter by sink type (sql, command, path, xss, ldap, etc.)
+        #[arg(long)]
+        sink_type: Option<String>,
+
+        /// Filter by source type (http, file, env, message, etc.)
+        #[arg(long)]
+        source_type: Option<String>,
+
+        /// Show detailed evidence (full flow paths)
+        #[arg(short, long)]
+        evidence: bool,
+
+        /// Only show flows passing through specific file
+        #[arg(long)]
+        through_file: Option<PathBuf>,
+
+        /// Maximum flows to display
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Show all flows without limit
+        #[arg(long, conflicts_with = "limit")]
+        all: bool,
+
+        /// Suppress non-essential output
+        #[arg(short, long)]
+        quiet: bool,
+
+        /// Deduplicate flows (group by source+sink)
+        #[arg(long)]
+        dedupe: bool,
+
+        /// Show statistics summary
+        #[arg(long)]
+        stats: bool,
+
+        /// Include test files (by default, test sources are excluded)
+        #[arg(long)]
+        include_tests: bool,
+
+        /// Disable analysis cache (force fresh analysis)
+        #[arg(long)]
+        no_cache: bool,
+
+        /// Launch interactive TUI viewer for browsing flows
+        #[arg(short, long)]
+        interactive: bool,
+    },
 }
 
 /// Suppress subcommands
@@ -718,6 +818,15 @@ pub enum SuppressAction {
 pub enum CacheAction {
     /// Show cache status (path, size, TTL, entries)
     Status,
+    /// Download/update OSV vulnerability databases for offline scanning
+    Update {
+        /// Specific ecosystems to update (default: all enabled)
+        #[arg(short, long, value_delimiter = ',')]
+        ecosystems: Option<Vec<String>>,
+        /// Force update even if cache is fresh
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Clear all cache files
     Clear {
         /// Don't ask for confirmation
@@ -929,6 +1038,7 @@ fn main() -> Result<()> {
             diff,
             diff_base,
             diff_stdin,
+            include_tests,
             skip_tests,
             skip_tests_all,
             limit,
@@ -953,6 +1063,7 @@ fn main() -> Result<()> {
             stream,
             no_progress,
             interactive,
+            no_cache,
         } => commands::scan::run(commands::scan::ScanArgs {
             path,
             format,
@@ -981,6 +1092,7 @@ fn main() -> Result<()> {
             diff,
             diff_base,
             diff_stdin,
+            include_tests,
             skip_tests,
             skip_tests_all,
             limit,
@@ -1005,6 +1117,7 @@ fn main() -> Result<()> {
             stream,
             no_progress,
             interactive,
+            no_cache,
         }),
 
         Commands::Watch {
@@ -1260,6 +1373,53 @@ fn main() -> Result<()> {
                 targets,
                 allow_vulnerable_target,
                 format,
+            })
+        }
+
+        Commands::Flows {
+            path,
+            format,
+            output,
+            sort_by,
+            reverse,
+            group_by,
+            min_confidence,
+            sink_type,
+            source_type,
+            evidence,
+            through_file,
+            limit,
+            all,
+            quiet,
+            dedupe,
+            stats,
+            include_tests,
+            no_cache,
+            interactive,
+        } => {
+            let sort_by = sort_by.parse().unwrap_or_default();
+            let group_by = group_by.parse().unwrap_or_default();
+
+            commands::flows::run(commands::flows::FlowsArgs {
+                path,
+                format,
+                output,
+                sort_by,
+                reverse,
+                group_by,
+                min_confidence,
+                sink_type,
+                source_type,
+                evidence,
+                through_file,
+                limit,
+                all,
+                quiet: quiet || cli.quiet,
+                dedupe,
+                stats,
+                include_tests,
+                no_cache,
+                interactive,
             })
         }
     };

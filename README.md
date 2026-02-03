@@ -36,7 +36,7 @@ cargo install rma-cli
 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 
 # Install specific version
-VERSION=0.15.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+VERSION=0.16.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
 ```
 
 **Windows PowerShell:**
@@ -51,7 +51,7 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
 
 **GitHub Actions:**
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer@v0.15.0
+- uses: bumahkib7/rust-monorepo-analyzer@v0.16.0
   with:
     path: '.'
     upload-sarif: true
@@ -62,40 +62,106 @@ docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/bumahkib7/rust-monorepo-analyzer
-    rev: v0.15.0
+    rev: v0.16.0
     hooks:
       - id: rma
 ```
 
 ## Supported Languages
 
-| Language | Extensions | Security Rules | Metrics |
-|----------|------------|----------------|---------|
-| Rust | `.rs` | unsafe blocks, unwrap, panic | complexity, LOC |
-| JavaScript | `.js`, `.jsx`, `.mjs` | XSS, injection, secrets | complexity, LOC |
-| TypeScript | `.ts`, `.tsx` | XSS, injection, secrets | complexity, LOC |
-| Python | `.py` | exec, shell injection, secrets | complexity, LOC |
-| Go | `.go` | unsafe, SQL injection | complexity, LOC |
-| Java | `.java` | injection, crypto issues | complexity, LOC |
+RMA supports 28+ programming languages with varying levels of analysis depth.
+
+### Primary Languages (Full Analysis)
+
+| Language | Extensions | Security Rules | Metrics | Framework Knowledge |
+|----------|------------|----------------|---------|---------------------|
+| Rust | `.rs` | unsafe, injection, crypto | ✓ | Actix, Axum, Rocket |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | XSS, injection, secrets | ✓ | Express, React, Vue |
+| TypeScript | `.ts`, `.tsx`, `.mts`, `.cts` | XSS, injection, secrets | ✓ | Express, Next.js |
+| Python | `.py`, `.pyi` | exec, injection, secrets | ✓ | Django, Flask, FastAPI |
+| Go | `.go` | unsafe, SQL injection | ✓ | Gin, Echo, GORM |
+| Java | `.java` | injection, crypto, deser | ✓ | Spring, Jakarta |
+
+### Additional Languages (Parsing + Metrics)
+
+The following languages have full tree-sitter parsing support with code metrics (LOC, complexity):
+
+| Category | Languages |
+|----------|-----------|
+| JVM | Kotlin, Scala |
+| Systems | C, C++, C# |
+| Scripting | Ruby, PHP, Lua, Bash |
+| Apple | Swift |
+| Functional | Haskell, OCaml, Elixir |
+| Web/Markup | HTML, CSS, SCSS |
+| Data/Config | JSON, YAML, TOML, Markdown |
+| Infrastructure | HCL/Terraform |
+| Blockchain | Solidity |
 
 ## Features
 
-- **Polyglot Support**: Rust, JavaScript/TypeScript, Python, Go, Java
-- **Parallel Parsing**: Multi-threaded AST parsing with tree-sitter
-- **Security Analysis**: Detect vulnerabilities, unsafe patterns, hardcoded secrets
-- **Rich Diagnostics**: Rustc-style error output with source context and error codes
+### Core Analysis Engine
+
+- **Semgrep Community Rules**: 647+ [Semgrep community rules](https://github.com/semgrep/semgrep-rules) compiled to native Rust matchers at build time
+- **Polyglot Support**: Rust, JavaScript/TypeScript, Python, Go, Java with unified analysis
+- **Parallel Parsing**: Multi-threaded AST parsing with tree-sitter and rayon
+- **Cross-File Taint Tracking**: Interprocedural dataflow analysis across function and file boundaries
+- **Typestate Analysis**: Resource lifecycle verification for files, connections, locks, and iterators
+- **Field-Sensitive Analysis**: Track taint through struct fields and object properties
+- **Context-Sensitive Analysis**: Path-sensitive analysis with calling context awareness
+- **Alias/Points-To Analysis**: Track pointer and reference relationships
+- **Callback & Async Propagation**: Taint tracking through callbacks, promises, and async/await
+- **Symbolic Path Conditions**: Track conditions under which vulnerabilities are reachable
+
+### Security Detection
+
+- **Injection Attacks**: SQL injection, command injection, XSS, LDAP injection, template injection
+- **Server-Side Vulnerabilities**: SSRF, path traversal, deserialization attacks
+- **Secrets Detection**: Hardcoded API keys, passwords, tokens, and credentials
+- **Cryptographic Issues**: Weak algorithms (MD5, SHA-1, DES, RC4), insecure modes (ECB)
+- **Resource Safety**: Resource leaks, use-after-close, double-free detection
+- **Null Pointer Analysis**: Potential null dereference detection
+- **Unsafe Code Review**: Language-specific unsafe pattern detection (Rust unsafe, Go unsafe pkg)
+
+### Vulnerability Scanning
+
+- **OSV.dev Integration**: Real-time vulnerability database queries for known CVEs
+- **5 Ecosystem Support**: Cargo (Rust), npm (JavaScript), PyPI (Python), Go modules, Maven (Java)
+- **Import-Aware Reachability**: Only flag vulnerabilities in actually-used dependencies
+- **CVSS Severity Scoring**: Prioritize findings by industry-standard severity metrics
+
+### Framework Knowledge (20+ Frameworks)
+
+| Language | Supported Frameworks |
+|----------|---------------------|
+| **Java** | Spring (Boot, MVC, Security), Jakarta EE, JDBC |
+| **Go** | GORM, Gin, Echo, net/http, Chi |
+| **JavaScript** | Express, Next.js, React, Vue, Prisma, Sequelize |
+| **Python** | Django, Flask, FastAPI, SQLAlchemy |
+| **Rust** | Actix-web, Axum, Rocket, Diesel |
+
+### Developer Experience
+
+- **Interactive TUI** (`--interactive`): Browse findings, call graphs, and metrics with keyboard navigation
+  - **Findings Tab**: Navigate findings with `j/k`, view details with `Enter`, filter by severity with `s`
+  - **Call Graph Tab**: Visualize function calls with security badges (`[SRC]`, `[SINK]`, `[SAN]`), press `x` to filter source→sink flows
+  - **Metrics Tab**: View code complexity, LOC, and function counts per file
+  - **Cross-File Flows Tab**: Explore taint flows across file boundaries
+- **Analysis Caching**: Content-hash based caching for 10x faster re-scans (`--no-cache` to bypass)
+- **Rich Diagnostics**: Rustc-style error output with source context, error codes, and fix suggestions
 - **AI-Powered Analysis**: Optional AI-assisted vulnerability detection with `--ai` flag
-- **Code Metrics**: Cyclomatic complexity, cognitive complexity, LOC
-- **Fast Indexing**: Tantivy-based full-text search
-- **Incremental Mode**: Only re-analyze changed files
-- **Multiple Output Formats**: Text, JSON, SARIF, Compact, Markdown, GitHub
+- **Code Metrics**: Cyclomatic complexity, cognitive complexity, lines of code, maintainability index
+- **Fast Indexing**: Tantivy-based full-text search across your codebase
+- **Incremental Mode**: Only re-analyze changed files for fast iteration
+- **Multiple Output Formats**: Text, JSON, SARIF, Compact, Markdown, GitHub annotations
 - **Real-time Watch Mode**: WebSocket-based live updates with interactive keyboard controls
 - **HTTP API**: Daemon mode with WebSocket support for IDE integration
 - **IDE Integrations**: VS Code, Neovim, JetBrains, and Web Dashboard
 - **Doctor Command**: Health check for RMA installation (`rma doctor`)
 - **Duplicate Detection**: Find copy-pasted functions across your codebase
 - **WASM Plugins**: Extend with custom analysis rules
-- **External Providers**: Optional integration with PMD for enhanced Java analysis
+- **Semgrep Rule Engine**: Rust-native execution of 647+ Semgrep community rules
+- **Optional Providers**: PMD, Oxlint, Gosec for supplementary coverage
 - **Shell Completions**: Bash, Zsh, Fish, PowerShell, Elvish
 
 ## Quick Start
@@ -103,6 +169,12 @@ repos:
 ```bash
 # Scan current directory
 rma scan .
+
+# Interactive TUI mode - browse findings with keyboard
+rma scan . --interactive
+
+# Browse cross-file data flows interactively
+rma flows . --interactive
 
 # Scan with AI-powered analysis
 rma scan ./src --ai
@@ -131,38 +203,89 @@ rma scan . --changed-only
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `scan` | Scan a repository for security issues and metrics |
-| `watch` | Watch for file changes and re-analyze in real-time |
-| `search` | Search the index for files or findings |
-| `stats` | Show index and analysis statistics |
-| `init` | Initialize RMA configuration in current directory |
-| `daemon` | Start HTTP API server for IDE integration |
-| `doctor` | Check RMA installation health and configuration |
-| `plugin` | Manage WASM analysis plugins |
-| `config` | View and modify configuration |
-| `completions` | Generate shell completions |
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `scan` | `s` | Security & code quality scanning with 50+ flags |
+| `watch` | `w` | Real-time file monitoring with re-analysis |
+| `flows` | `flow` | Cross-file taint flow visualization |
+| `security` | `audit` | Comprehensive security audit (deps, Docker, code) |
+| `fix` | `autofix` | Auto-fix vulnerable dependencies |
+| `doctor` | - | Installation health diagnostics |
+| `stats` | - | Repository metrics and statistics |
+| `search` | `q` | Search indexed findings |
+| `suppress` | - | Manage finding suppressions (add, list, remove, export, import) |
+| `init` | - | Initialize RMA in a repository |
+| `baseline` | - | Generate baseline for legacy code |
+| `config` | - | Manage configuration (get, set, list, edit, validate) |
+| `cache` | - | Manage vulnerability cache (status, clear) |
+| `plugin` | - | WASM plugin management (list, install, remove, test) |
+| `daemon` | - | HTTP daemon server with REST API + WebSocket |
+| `bench` | `benchmark` | Performance benchmarking |
+| `completions` | - | Shell completion generation |
 
-### Scan Options
+### Scan Command - Full Options
 
 ```
 rma scan [PATH] [OPTIONS]
-
-Options:
-  -o, --output <FORMAT>     Output format: text, json, sarif, compact, markdown [default: text]
-  -f, --output-file <FILE>  Output file (stdout if not specified)
-  -s, --severity <LEVEL>    Minimum severity: info, warning, error, critical
-  -i, --incremental         Enable incremental mode (only scan changed files)
-      --changed-only        Only scan files changed in git (for PR workflows)
-  -j, --parallelism <N>     Number of parallel workers (0 = auto-detect)
-  -l, --languages <LANGS>   Languages to scan (comma-separated)
-      --providers <LIST>    Analysis providers (rma,pmd,oxlint) [default: rma]
-      --ai                  Enable AI-powered vulnerability analysis
-      --no-progress         Disable progress bars
-  -v, --verbose             Increase verbosity (-v, -vv, -vvv)
-  -q, --quiet               Suppress non-essential output
 ```
+
+**Output Options:**
+| Flag | Description |
+|------|-------------|
+| `-f, --format <FORMAT>` | text, json, sarif, compact, markdown, github, html |
+| `-o, --output <PATH>` | Output file (stdout if not specified) |
+| `-i, --interactive` | Launch interactive TUI for browsing results |
+| `--limit <NUM>` | Max findings to display (default: 20) |
+| `--all` | Show all findings without limit |
+| `--group-by <METHOD>` | Group by: file, rule, severity, none |
+
+**Severity & Filtering:**
+| Flag | Description |
+|------|-------------|
+| `--severity <LEVEL>` | Minimum: info, warning, error, critical |
+| `--rules <PATTERNS>` | Filter by rule IDs (glob patterns) |
+| `--exclude-rules <PATTERNS>` | Exclude specific rules |
+| `--category <CAT>` | Filter: security, quality, performance, style |
+| `--fixable` | Only show findings with fixes |
+| `--high-confidence` | Only high-confidence findings |
+
+**Analysis Configuration:**
+| Flag | Description |
+|------|-------------|
+| `-p, --profile <NAME>` | Profile: fast, balanced, strict |
+| `-j, --jobs <NUM>` | Parallel workers (0 = auto) |
+| `--languages <LIST>` | Languages to scan (comma-separated) |
+| `--cross-file` | Enable cross-file analysis |
+| `--no-cache` | Disable analysis cache (force fresh analysis) |
+| `--providers <LIST>` | rma, oxc, pmd, oxlint, rustsec, gosec, osv |
+
+**AI Analysis:**
+| Flag | Description |
+|------|-------------|
+| `--ai` | Enable AI-powered deep analysis |
+| `--ai-provider <PROVIDER>` | claude, openai, local |
+
+**Diff & PR Workflows:**
+| Flag | Description |
+|------|-------------|
+| `--changed-only` | Scan only changed files |
+| `--base <REF>` | Base git ref (default: origin/main) |
+| `--diff` | Only findings on changed lines |
+| `--diff-stdin` | Read diff from stdin |
+
+**Test Files:**
+| Flag | Description |
+|------|-------------|
+| `--include-tests` | Include test files (excluded by default) |
+| `--skip-tests-all` | Skip ALL findings in test files |
+
+**Smart Presets:**
+| Flag | Description |
+|------|-------------|
+| `--preset-security` | Security rules, high confidence, warning+ |
+| `--preset-ci` | Errors only, compact output |
+| `--preset-review` | Warnings+, grouped by file |
+| `--mode <MODE>` | local, ci, pr |
 
 ### Watch Options
 
@@ -199,6 +322,92 @@ Options:
 | `compact` | Minimal output for CI logs |
 | `markdown` | Documentation and reports |
 | `github` | GitHub Actions workflow commands (annotations) |
+
+## Interactive TUI
+
+Launch an interactive terminal interface for browsing analysis results:
+
+```bash
+rma scan . --interactive
+# or
+rma scan . -i
+```
+
+### Screenshots
+
+**Findings Tab** - Browse security findings with severity filtering:
+![Findings Tab](pics/tui-findings.png)
+
+**Cross-File Flows Tab** - Visualize taint flows across files:
+![Cross-File Flows](pics/tui-cross-file-flows.png)
+
+**Metrics Tab** - Code metrics and complexity analysis:
+![Metrics Tab](pics/tui-metrics.png)
+
+**Call Graph Tab** - Function calls with security badges:
+![Call Graph](pics/tui-call-graph.png)
+
+**Call Graph Detail** - Detailed edge information with security warnings:
+![Call Graph Detail](pics/tui-call-graph-detail.png)
+
+### Four Analysis Tabs
+
+| Tab | Content |
+|-----|---------|
+| **Findings** | Security findings with rule metadata, severity, confidence, and full code snippets |
+| **Cross-File Flows** | Taint flows spanning multiple files with source→sink paths |
+| **Metrics** | Code metrics: LOC, complexity, function/class counts per file and language |
+| **Call Graph** | Function calls with security badges, source→sink highlighting, and statistics |
+
+### Keyboard Controls
+
+**Navigation:**
+| Key | Action |
+|-----|--------|
+| `Tab` / `1-4` | Switch tabs |
+| `j/k` or `↑/↓` | Move up/down |
+| `g/G` | Jump to first/last |
+| `PgUp/PgDn` | Page scrolling |
+
+**Filtering:**
+| Key | Action |
+|-----|--------|
+| `/` | Enter search mode |
+| `s` | Cycle severity filter |
+| `c` | Clear all filters |
+| `Enter` | Toggle detail view |
+| `x` | Toggle source→sink filter (Call Graph tab) |
+
+**Other:**
+| Key | Action |
+|-----|--------|
+| `?` | Show help |
+| `q` | Quit |
+
+### Call Graph Features
+
+The **Call Graph** tab provides deep visibility into function relationships:
+
+- **Statistics Panel**: Total functions, edges, cross-file calls, sources, sinks, sanitizers
+- **Security Badges**:
+  - `[HTTP Handler]` - Taint source classification
+  - `[SQL Injection]` - Sink vulnerability type
+  - `[SAN]` - Function calls sanitizers
+  - `⬆` - Exported/public function
+  - `⚠` - Dangerous source→sink flow
+- **Edge Detail Panel** (press `Enter`):
+  - Full caller/callee info with file paths and line numbers
+  - Security classification details
+  - Confidence percentage
+  - Remediation guidance for risky flows
+- **Source→Sink Filter** (press `x`): Show only potentially dangerous flows
+
+### Features
+- Real-time statistics dashboard (critical/error/warning/info counts)
+- Severity-colored findings with selection highlights
+- Split-screen detail view with full code snippets, rule metadata, and fix suggestions
+- Vim-style navigation
+- Test files excluded by default
 
 ### Rich Diagnostics Output
 
@@ -256,7 +465,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run RMA Security Scan
-        uses: bumahkib7/rust-monorepo-analyzer@v0.15.0
+        uses: bumahkib7/rust-monorepo-analyzer@v0.16.0
         with:
           path: '.'
           severity: 'warning'
@@ -282,7 +491,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run RMA Security Scan
-        uses: bumahkib7/rust-monorepo-analyzer@v0.15.0
+        uses: bumahkib7/rust-monorepo-analyzer@v0.16.0
         with:
           path: '.'
           format: 'sarif'
@@ -332,6 +541,7 @@ rust-monorepo-analyzer/
 ├── crates/
 │   ├── common/      # Shared types and utilities
 │   ├── parser/      # Tree-sitter based polyglot parser
+│   ├── rules/       # Semgrep rule compiler and matcher
 │   ├── analyzer/    # Security and code analysis engine
 │   ├── indexer/     # Tantivy/Sled based indexing
 │   ├── cli/         # Command-line interface
@@ -347,7 +557,8 @@ rust-monorepo-analyzer/
 |-------|---------|
 | `rma-common` | Core types: Language, Severity, Finding, Config |
 | `rma-parser` | Parallel AST parsing with tree-sitter |
-| `rma-analyzer` | Security rules and metrics computation |
+| `rma-rules` | **Semgrep rule translator** - compiles YAML rules to native matchers |
+| `rma-analyzer` | Flow analysis, metrics, and provider orchestration |
 | `rma-indexer` | Full-text search and incremental updates |
 | `rma-cli` | User-facing CLI binary |
 | `rma-daemon` | Axum-based HTTP API server |
@@ -355,26 +566,160 @@ rust-monorepo-analyzer/
 | `rma-lsp` | Language Server Protocol implementation |
 | `rma-ai` | AI-powered vulnerability detection |
 
+## Rule Engine Architecture
+
+RMA includes a **Rust-native Semgrep rule engine** - it does NOT shell out to Semgrep. Instead, it compiles [Semgrep community rules](https://github.com/semgrep/semgrep-rules) at build time and executes them using tree-sitter ASTs.
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         BUILD TIME                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   semgrep/semgrep-rules/**/*.yaml  ──►    build.rs (translator)     │
+│   (Semgrep community rules)                     │                   │
+│                                                 ▼                   │
+│                                        Pattern Compilation          │
+│                                                 │                   │
+│                            ┌────────────────────┼────────────────┐  │
+│                            ▼                    ▼                ▼  │
+│                     TreeSitterQuery      LiteralSearch       Regex  │
+│                     (~70% of rules)      (fastest)     (validated)  │
+│                            │                    │                │  │
+│                            └────────────────────┼────────────────┘  │
+│                                                 ▼                   │
+│                                    compiled_rules.bin (bincode)     │
+│                                                 │                   │
+│                                                 ▼                   │
+│                                   Embedded via include_bytes!()     │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                          RUNTIME                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   Source File  ──►  tree-sitter  ──►  AST  ──►  Pattern Matching    │
+│                                                        │            │
+│   Embedded Rules  ──►  RuleRunner  ────────────────────┘            │
+│                                                        │            │
+│                                                        ▼            │
+│                                                    Findings         │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Architecture?
+
+| Benefit | Description |
+|---------|-------------|
+| **No Semgrep dependency** | RMA is a single binary - no need to install Semgrep |
+| **Community-vetted rules** | Leverage 2500+ battle-tested Semgrep rules |
+| **Build-time optimization** | Rules compiled to optimized matchers, not interpreted at runtime |
+| **Zero startup cost** | Rules embedded in binary via `include_bytes!()` |
+| **Consistent results** | Same rules, deterministic execution |
+
+### Build-Time Compilation
+
+The translator converts Semgrep YAML patterns into optimized matching strategies:
+
+| Strategy | Use Case | Performance |
+|----------|----------|-------------|
+| `TreeSitterQuery` | AST pattern matching (`$FUNC(...)`) | Fast - native tree-sitter queries |
+| `LiteralSearch` | Simple string patterns | Fastest - direct string search |
+| `Regex` | Regex patterns | Fast - pre-compiled at build time |
+| `AstWalker` | Complex patterns (`pattern-inside`, etc.) | Medium - full AST traversal |
+| `Taint` | Source→sink tracking | Uses flow analysis engine |
+
+### Supported Pattern Features
+
+RMA supports the Semgrep pattern syntax:
+
+| Feature | Example | Description |
+|---------|---------|-------------|
+| **Metavariables** | `$FUNC`, `$X` | Capture any expression |
+| **Ellipsis** | `func(...)` | Match any arguments |
+| **Typed ellipsis** | `$...ARGS` | Capture zero or more |
+| **pattern-either** | OR matching | Match any of multiple patterns |
+| **patterns** | AND matching | All patterns must match |
+| **pattern-not** | Negation | Exclude matches |
+| **pattern-inside** | Context | Match must be inside another pattern |
+| **pattern-regex** | Regex | Regular expression matching |
+| **metavariable-regex** | Constraint | Constrain captured value |
+| **Taint mode** | `pattern-sources/sinks` | Source→sink tracking |
+
+### Key Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Rule Format | `crates/rules/src/format.rs` | Semgrep-compatible YAML schema |
+| Translator | `crates/rules/build.rs` | Converts patterns → optimized matchers |
+| Pattern Compiler | `crates/rules/src/pattern.rs` | Metavariable & ellipsis handling |
+| Matcher | `crates/rules/src/matcher.rs` | Runtime pattern execution |
+| Registry | `crates/rules/src/registry.rs` | Language-indexed O(1) lookup |
+| Embedded Rules | `crates/rules/src/embedded.rs` | Zero-filesystem rule loading |
+
+### Adding Custom Rules
+
+You can add your own Semgrep-format rules:
+
+```bash
+# Create custom rules directory
+mkdir -p .rma/rules
+
+# Add a rule file (standard Semgrep YAML format)
+cat > .rma/rules/my-rules.yaml << 'EOF'
+rules:
+- id: no-console-log
+  message: "Remove console.log before committing"
+  severity: WARNING
+  languages: [javascript, typescript]
+  pattern: console.log(...)
+EOF
+
+# Scan with custom rules
+rma scan . --ruleset .rma/rules
+```
+
 ## Security Rules
+
+RMA uses **Semgrep community rules** - the same battle-tested rules used by thousands of organizations. Key coverage includes:
 
 ### Rust
 - `rust/unsafe-block` - Detects unsafe blocks requiring manual review
 - `rust/unwrap-used` - Detects .unwrap() calls that may panic
 - `rust/panic-used` - Detects panic! macro usage
+- `rust/sql-injection` - SQL query injection patterns
+- `rust/command-injection` - Shell command injection
 
 ### JavaScript/TypeScript
-- `js/dynamic-code` - Detects dangerous dynamic code execution
-- `js/innerHTML-xss` - Detects innerHTML usage (XSS risk)
+- `js/dynamic-code` - Detects dangerous dynamic code execution (eval, Function)
+- `js/innerHTML-xss` - Detects innerHTML/outerHTML XSS sinks
 - `js/hardcoded-secret` - Detects hardcoded credentials
+- `js/prototype-pollution` - Prototype pollution vulnerabilities
+- `js/path-traversal` - File path manipulation
 
 ### Python
-- `python/exec-usage` - Detects exec/compile calls
-- `python/shell-injection` - Detects shell=True patterns
+- `python/exec-usage` - Detects exec/compile/eval calls
+- `python/shell-injection` - Detects subprocess shell=True patterns
 - `python/hardcoded-secret` - Detects hardcoded credentials
+- `python/sql-injection` - SQL string formatting
+- `python/unsafe-deserialization` - Unsafe serialization loading
 
 ### Go
 - `go/unsafe-usage` - Detects unsafe package usage
 - `go/sql-injection` - Detects SQL injection patterns
+- `go/command-injection` - exec with user input
+- `go/path-traversal` - filepath.Join with user input
+- `go/weak-crypto` - MD5, SHA1, DES usage
+
+### Java
+- `java/sql-injection` - JDBC string concatenation
+- `java/command-injection` - Runtime.exec patterns
+- `java/unsafe-deserialization` - ObjectInputStream vulnerabilities
+- `java/xxe` - XML external entity injection
+- `java/weak-crypto` - Insecure algorithms
 
 ### Generic (All Languages)
 - `generic/todo-fixme` - Detects TODO/FIXME comments
@@ -383,6 +728,49 @@ rust-monorepo-analyzer/
 - `generic/hardcoded-secret` - Detects API keys and passwords
 - `generic/duplicate-function` - Detects copy-pasted functions (10+ lines)
 - `generic/insecure-crypto` - Detects MD5, SHA-1, DES, RC4, ECB usage
+
+## Data Flow Analysis
+
+RMA includes a sophisticated data flow analysis engine for detecting complex vulnerabilities that span multiple files and functions.
+
+### Taint Analysis
+- **Forward taint propagation** tracking user-controlled data
+- **Cross-file tracking** via call graph integration
+- **Path-sensitive analysis** with three taint levels (Clean, Partial, Full)
+- **Sanitizer recognition** that blocks taint propagation
+
+### Interprocedural Analysis
+- **Function summaries** capturing parameter-to-return taint flows
+- **Context-sensitive analysis** for different calling contexts
+- **Taint kinds**: UserInput, FilePath, SqlQuery, Command, Html, Url
+
+### Typestate Analysis
+Tracks object state transitions to detect:
+- Use-after-close (reading from closed files)
+- Resource leaks (missing cleanup)
+- Invalid state transitions
+
+Pre-built state machines for:
+- Files (Unopened → Open → Closed)
+- Connections (Created → Connected → Closed)
+- Locks (Unlocked → Locked → Unlocked)
+- Iterators (Created → Valid → Invalid)
+
+### Advanced Features
+- **Field-sensitive tracking** at property/field level
+- **Alias analysis** for pointer/reference tracking
+- **Implicit flow detection** for control-dependent leaks
+- **Callback analysis** for async/Promise chains
+- **Collection tracking** for arrays, maps, sets
+
+### Visualize Flows
+```bash
+# Show cross-file taint flows
+rma flows . --evidence --group-by sink-type
+
+# Filter by sink type
+rma flows . --sink-type sql --min-confidence 0.8
+```
 
 ## HTTP API (Daemon Mode)
 
@@ -503,59 +891,134 @@ rma plugin test my-plugin --file src/main.rs
 rma plugin remove my-plugin
 ```
 
-## External Providers
+## Analysis Providers
 
-RMA supports optional integration with external static analysis tools for enhanced language-specific coverage.
-
-### PMD for Java
-
-[PMD](https://pmd.github.io/) provides comprehensive Java static analysis with hundreds of rules for security, best practices, and code style.
-
-**Enable PMD:**
-```bash
-# Use PMD alongside RMA's native rules
-rma scan . --providers rma,pmd
-
-# Configure PMD in rma.toml (see Configuration section)
-```
-
-**Requirements:**
-- PMD 6.x or 7.x installed and available in PATH
-- Or specify custom path in `rma.toml`
-
-**PMD Rulesets:**
-RMA uses PMD's security, error-prone, and best practices rulesets by default. You can customize which rulesets to use in the configuration.
+RMA's core analysis is powered by its **Semgrep rule engine** (see [Rule Engine Architecture](#rule-engine-architecture)). Additionally, you can enable optional external tools for supplementary coverage.
 
 ### Available Providers
 
-| Provider | Languages | Description |
-|----------|-----------|-------------|
-| `rma` | All | Built-in Rust-native rules (always enabled) |
-| `pmd` | Java | PMD static analysis for Java |
-| `oxlint` | JS/TS | Oxlint for JavaScript/TypeScript |
-| `gosec` | Go | Gosec for Go security analysis |
+| Provider | Type | Languages | Description |
+|----------|------|-----------|-------------|
+| `rma` | Built-in | All | **Semgrep rule engine** - 647+ community rules compiled to native matchers (always enabled) |
+| `osv` | Built-in | All | **OSV.dev** - Dependency vulnerability scanning for Cargo, npm, PyPI, Go, Maven |
+| `oxc` | Built-in | JS/TS | **Oxc** - Rust-native JS/TS linting (520+ rules, no external binary) |
+| `pmd` | External | Java | **PMD** - Java static analysis (requires PMD installation) |
+| `oxlint` | External | JS/TS | **Oxlint** - JS/TS linting (requires oxlint installation) |
+| `gosec` | External | Go | **Gosec** - Go security checker (requires gosec installation) |
+| `rustsec` | Built-in | Rust | **RustSec** - Rust advisory database |
 
-### Gosec for Go
+### Using Providers
 
-[Gosec](https://github.com/securego/gosec) is the Go Security Checker that inspects Go source code for security problems.
-
-**Install Gosec:**
 ```bash
-go install github.com/securego/gosec/v2/cmd/gosec@latest
+# Default: rma (Semgrep rules) + osv (dependency scanning)
+rma scan .
+
+# Add external providers
+rma scan . --providers rma,osv,pmd,gosec
+
+# Security audit with all providers
+rma security . --providers rma,osv,rustsec
 ```
 
-**Enable Gosec:**
+### External Provider Setup
+
+**PMD for Java:**
 ```bash
-# Use gosec alongside RMA's native rules
+# Install PMD (https://pmd.github.io/)
+brew install pmd  # or download from pmd.github.io
+
+# Enable
+rma scan . --providers rma,pmd
+```
+
+**Gosec for Go:**
+```bash
+# Install Gosec
+go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+# Enable
 rma scan . --providers rma,gosec
 ```
 
-**Gosec Rules:**
-Gosec detects common Go security issues including:
-- G101-G110: Hardcoded credentials, bind to all interfaces
-- G201-G204: SQL injection, command injection
-- G301-G307: File permissions, file traversal
-- G401-G505: Weak crypto, insecure TLS
+**Oxlint for JS/TS:**
+```bash
+# Install Oxlint
+npm install -g oxlint
+
+# Enable
+rma scan . --providers rma,oxlint
+```
+
+## Dependency Vulnerability Scanning
+
+RMA integrates with [OSV.dev](https://osv.dev) for comprehensive dependency vulnerability scanning across multiple package ecosystems.
+
+### Supported Ecosystems
+
+| Ecosystem | Lock File | Languages |
+|-----------|-----------|-----------|
+| crates.io | `Cargo.lock` | Rust |
+| npm | `package-lock.json` | JavaScript/TypeScript |
+| PyPI | `requirements.txt`, `poetry.lock` | Python |
+| Go | `go.mod`, `go.sum` | Go |
+| Maven | `pom.xml`, `build.gradle` | Java/Kotlin |
+
+### Usage
+
+```bash
+# Run security audit including dependency scanning
+rma security .
+
+# With detailed CVE information
+rma security . --details
+
+# JSON output for CI/CD
+rma security . --format json --fail-on high
+
+# Offline mode (cache only)
+rma security . --offline
+```
+
+### Features
+
+- **Batch API queries** - Up to 1000 packages per request
+- **24-hour cache** - Fast subsequent scans with configurable TTL
+- **Import-aware reachability** - Higher confidence for actually imported packages
+- **CVSS severity mapping** - Critical (≥9.0), High (≥7.0), Medium (≥4.0)
+- **Offline mode** - Scan in air-gapped environments
+
+### Auto-Fix Vulnerabilities
+
+```bash
+# Show fix plan (dry run)
+rma fix .
+
+# Apply fixes
+rma fix . --apply
+
+# Conservative patching (patch versions only)
+rma fix . --strategy minimal --max-bump patch
+
+# Create git branch and commit
+rma fix . --apply --branch-name rma/fix-deps --commit
+```
+
+### Configuration
+
+```toml
+# rma.toml
+[providers.osv]
+include_dev_deps = false
+cache_ttl = "24h"
+enabled_ecosystems = ["crates.io", "npm", "PyPI", "Go", "Maven"]
+offline = false
+
+[providers.osv.severity_overrides]
+"GHSA-xxxx-yyyy" = "warning"
+
+[providers.osv.ignore_list]
+"CVE-2024-xxxxx"
+```
 
 ## Configuration
 

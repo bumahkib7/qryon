@@ -210,6 +210,8 @@ impl GosecProvider {
             category,
             fingerprint: None,
             properties: None,
+            occurrence_count: None,
+            additional_locations: None,
         };
 
         finding.compute_fingerprint();

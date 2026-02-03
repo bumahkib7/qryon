@@ -161,76 +161,75 @@ impl SymbolTable {
                 "formal_parameters" => {
                     param_index = 0;
                     for i in 0..node.named_child_count() {
-                        if let Some(param) = node.named_child(i) {
-                            if let Some(name) = Self::extract_js_param_name(&param, content) {
-                                table.symbols.insert(
-                                    name.clone(),
-                                    SymbolInfo {
-                                        name: name.clone(),
-                                        declaration_node_id: param.id(),
-                                        initializer: ValueOrigin::Parameter(param_index),
-                                        reassignments: Vec::new(),
-                                        line: param.start_position().row + 1,
-                                        scope_depth,
-                                    },
-                                );
-                                param_index += 1;
-                            }
+                        if let Some(param) = node.named_child(i)
+                            && let Some(name) = Self::extract_js_param_name(&param, content)
+                        {
+                            table.symbols.insert(
+                                name.clone(),
+                                SymbolInfo {
+                                    name: name.clone(),
+                                    declaration_node_id: param.id(),
+                                    initializer: ValueOrigin::Parameter(param_index),
+                                    reassignments: Vec::new(),
+                                    line: param.start_position().row + 1,
+                                    scope_depth,
+                                },
+                            );
+                            param_index += 1;
                         }
                     }
                 }
 
                 // Variable declarations: const x = ..., let y = ..., var z = ...
                 "variable_declarator" => {
-                    if let Some(name_node) = node.child_by_field_name("name") {
-                        if let Ok(name) = name_node.utf8_text(content.as_bytes()) {
-                            let initializer = node
-                                .child_by_field_name("value")
-                                .map(|v| Self::classify_origin(&v, content))
-                                .unwrap_or(ValueOrigin::Unknown);
+                    if let Some(name_node) = node.child_by_field_name("name")
+                        && let Ok(name) = name_node.utf8_text(content.as_bytes())
+                    {
+                        let initializer = node
+                            .child_by_field_name("value")
+                            .map(|v| Self::classify_origin(&v, content))
+                            .unwrap_or(ValueOrigin::Unknown);
 
-                            table.symbols.insert(
-                                name.to_string(),
-                                SymbolInfo {
-                                    name: name.to_string(),
-                                    declaration_node_id: node.id(),
-                                    initializer,
-                                    reassignments: Vec::new(),
-                                    line: node.start_position().row + 1,
-                                    scope_depth,
-                                },
-                            );
-                        }
+                        table.symbols.insert(
+                            name.to_string(),
+                            SymbolInfo {
+                                name: name.to_string(),
+                                declaration_node_id: node.id(),
+                                initializer,
+                                reassignments: Vec::new(),
+                                line: node.start_position().row + 1,
+                                scope_depth,
+                            },
+                        );
                     }
                 }
 
                 // Assignment expressions: x = ...
                 "assignment_expression" => {
-                    if let Some(left) = node.child_by_field_name("left") {
-                        if left.kind() == "identifier" {
-                            if let Ok(name) = left.utf8_text(content.as_bytes()) {
-                                let origin = node
-                                    .child_by_field_name("right")
-                                    .map(|v| Self::classify_origin(&v, content))
-                                    .unwrap_or(ValueOrigin::Unknown);
+                    if let Some(left) = node.child_by_field_name("left")
+                        && left.kind() == "identifier"
+                        && let Ok(name) = left.utf8_text(content.as_bytes())
+                    {
+                        let origin = node
+                            .child_by_field_name("right")
+                            .map(|v| Self::classify_origin(&v, content))
+                            .unwrap_or(ValueOrigin::Unknown);
 
-                                if let Some(info) = table.symbols.get_mut(name) {
-                                    info.reassignments.push(origin);
-                                } else {
-                                    // Implicit global or undeclared
-                                    table.symbols.insert(
-                                        name.to_string(),
-                                        SymbolInfo {
-                                            name: name.to_string(),
-                                            declaration_node_id: node.id(),
-                                            initializer: origin,
-                                            reassignments: Vec::new(),
-                                            line: node.start_position().row + 1,
-                                            scope_depth,
-                                        },
-                                    );
-                                }
-                            }
+                        if let Some(info) = table.symbols.get_mut(name) {
+                            info.reassignments.push(origin);
+                        } else {
+                            // Implicit global or undeclared
+                            table.symbols.insert(
+                                name.to_string(),
+                                SymbolInfo {
+                                    name: name.to_string(),
+                                    declaration_node_id: node.id(),
+                                    initializer: origin,
+                                    reassignments: Vec::new(),
+                                    line: node.start_position().row + 1,
+                                    scope_depth,
+                                },
+                            );
                         }
                     }
                 }
@@ -282,65 +281,64 @@ impl SymbolTable {
                 match node.kind() {
                     // Function parameters
                     "parameter" => {
-                        if let Some(pattern) = node.child_by_field_name("pattern") {
-                            if let Ok(name) = pattern.utf8_text(content.as_bytes()) {
-                                // Strip mutability: mut x -> x
-                                let clean_name = name.trim_start_matches("mut ").trim();
-                                table.symbols.insert(
-                                    clean_name.to_string(),
-                                    SymbolInfo {
-                                        name: clean_name.to_string(),
-                                        declaration_node_id: node.id(),
-                                        initializer: ValueOrigin::Parameter(param_index),
-                                        reassignments: Vec::new(),
-                                        line: node.start_position().row + 1,
-                                        scope_depth,
-                                    },
-                                );
-                                param_index += 1;
-                            }
+                        if let Some(pattern) = node.child_by_field_name("pattern")
+                            && let Ok(name) = pattern.utf8_text(content.as_bytes())
+                        {
+                            // Strip mutability: mut x -> x
+                            let clean_name = name.trim_start_matches("mut ").trim();
+                            table.symbols.insert(
+                                clean_name.to_string(),
+                                SymbolInfo {
+                                    name: clean_name.to_string(),
+                                    declaration_node_id: node.id(),
+                                    initializer: ValueOrigin::Parameter(param_index),
+                                    reassignments: Vec::new(),
+                                    line: node.start_position().row + 1,
+                                    scope_depth,
+                                },
+                            );
+                            param_index += 1;
                         }
                     }
 
                     // Let declarations: let x = ...
                     "let_declaration" => {
-                        if let Some(pattern) = node.child_by_field_name("pattern") {
-                            if let Ok(name) = pattern.utf8_text(content.as_bytes()) {
-                                let clean_name = name.trim_start_matches("mut ").trim();
-                                let initializer = node
-                                    .child_by_field_name("value")
-                                    .map(|v| Self::classify_origin(&v, content))
-                                    .unwrap_or(ValueOrigin::Unknown);
+                        if let Some(pattern) = node.child_by_field_name("pattern")
+                            && let Ok(name) = pattern.utf8_text(content.as_bytes())
+                        {
+                            let clean_name = name.trim_start_matches("mut ").trim();
+                            let initializer = node
+                                .child_by_field_name("value")
+                                .map(|v| Self::classify_origin(&v, content))
+                                .unwrap_or(ValueOrigin::Unknown);
 
-                                table.symbols.insert(
-                                    clean_name.to_string(),
-                                    SymbolInfo {
-                                        name: clean_name.to_string(),
-                                        declaration_node_id: node.id(),
-                                        initializer,
-                                        reassignments: Vec::new(),
-                                        line: node.start_position().row + 1,
-                                        scope_depth,
-                                    },
-                                );
-                            }
+                            table.symbols.insert(
+                                clean_name.to_string(),
+                                SymbolInfo {
+                                    name: clean_name.to_string(),
+                                    declaration_node_id: node.id(),
+                                    initializer,
+                                    reassignments: Vec::new(),
+                                    line: node.start_position().row + 1,
+                                    scope_depth,
+                                },
+                            );
                         }
                     }
 
                     // Assignment: x = ...
                     "assignment_expression" => {
-                        if let Some(left) = node.child_by_field_name("left") {
-                            if left.kind() == "identifier" {
-                                if let Ok(name) = left.utf8_text(content.as_bytes()) {
-                                    let origin = node
-                                        .child_by_field_name("right")
-                                        .map(|v| Self::classify_origin(&v, content))
-                                        .unwrap_or(ValueOrigin::Unknown);
+                        if let Some(left) = node.child_by_field_name("left")
+                            && left.kind() == "identifier"
+                            && let Ok(name) = left.utf8_text(content.as_bytes())
+                        {
+                            let origin = node
+                                .child_by_field_name("right")
+                                .map(|v| Self::classify_origin(&v, content))
+                                .unwrap_or(ValueOrigin::Unknown);
 
-                                    if let Some(info) = table.symbols.get_mut(name) {
-                                        info.reassignments.push(origin);
-                                    }
-                                }
+                            if let Some(info) = table.symbols.get_mut(name) {
+                                info.reassignments.push(origin);
                             }
                         }
                     }
@@ -378,50 +376,48 @@ impl SymbolTable {
                     "parameter_declaration" => {
                         // Go params: name type or name1, name2 type
                         for i in 0..node.named_child_count() {
-                            if let Some(child) = node.named_child(i) {
-                                if child.kind() == "identifier" {
-                                    if let Ok(name) = child.utf8_text(content.as_bytes()) {
-                                        table.symbols.insert(
-                                            name.to_string(),
-                                            SymbolInfo {
-                                                name: name.to_string(),
-                                                declaration_node_id: node.id(),
-                                                initializer: ValueOrigin::Parameter(param_index),
-                                                reassignments: Vec::new(),
-                                                line: node.start_position().row + 1,
-                                                scope_depth,
-                                            },
-                                        );
-                                        param_index += 1;
-                                    }
-                                }
+                            if let Some(child) = node.named_child(i)
+                                && child.kind() == "identifier"
+                                && let Ok(name) = child.utf8_text(content.as_bytes())
+                            {
+                                table.symbols.insert(
+                                    name.to_string(),
+                                    SymbolInfo {
+                                        name: name.to_string(),
+                                        declaration_node_id: node.id(),
+                                        initializer: ValueOrigin::Parameter(param_index),
+                                        reassignments: Vec::new(),
+                                        line: node.start_position().row + 1,
+                                        scope_depth,
+                                    },
+                                );
+                                param_index += 1;
                             }
                         }
                     }
 
                     // Short var declaration: x := ...
                     "short_var_declaration" => {
-                        if let Some(left) = node.child_by_field_name("left") {
-                            if let Some(right) = node.child_by_field_name("right") {
-                                // Handle expression_list on both sides
-                                let names = Self::extract_go_identifiers(&left, content);
-                                let values = Self::extract_go_values(&right, content);
+                        if let Some(left) = node.child_by_field_name("left")
+                            && let Some(right) = node.child_by_field_name("right")
+                        {
+                            // Handle expression_list on both sides
+                            let names = Self::extract_go_identifiers(&left, content);
+                            let values = Self::extract_go_values(&right, content);
 
-                                for (i, name) in names.into_iter().enumerate() {
-                                    let origin =
-                                        values.get(i).cloned().unwrap_or(ValueOrigin::Unknown);
-                                    table.symbols.insert(
-                                        name.clone(),
-                                        SymbolInfo {
-                                            name,
-                                            declaration_node_id: node.id(),
-                                            initializer: origin,
-                                            reassignments: Vec::new(),
-                                            line: node.start_position().row + 1,
-                                            scope_depth,
-                                        },
-                                    );
-                                }
+                            for (i, name) in names.into_iter().enumerate() {
+                                let origin = values.get(i).cloned().unwrap_or(ValueOrigin::Unknown);
+                                table.symbols.insert(
+                                    name.clone(),
+                                    SymbolInfo {
+                                        name,
+                                        declaration_node_id: node.id(),
+                                        initializer: origin,
+                                        reassignments: Vec::new(),
+                                        line: node.start_position().row + 1,
+                                        scope_depth,
+                                    },
+                                );
                             }
                         }
                     }
@@ -430,46 +426,44 @@ impl SymbolTable {
                     "var_declaration" => {
                         // Walk var_spec children
                         for i in 0..node.named_child_count() {
-                            if let Some(spec) = node.named_child(i) {
-                                if spec.kind() == "var_spec" {
-                                    if let Some(name_node) = spec.child_by_field_name("name") {
-                                        if let Ok(name) = name_node.utf8_text(content.as_bytes()) {
-                                            let origin = spec
-                                                .child_by_field_name("value")
-                                                .map(|v| Self::classify_origin(&v, content))
-                                                .unwrap_or(ValueOrigin::Unknown);
+                            if let Some(spec) = node.named_child(i)
+                                && spec.kind() == "var_spec"
+                                && let Some(name_node) = spec.child_by_field_name("name")
+                                && let Ok(name) = name_node.utf8_text(content.as_bytes())
+                            {
+                                let origin = spec
+                                    .child_by_field_name("value")
+                                    .map(|v| Self::classify_origin(&v, content))
+                                    .unwrap_or(ValueOrigin::Unknown);
 
-                                            table.symbols.insert(
-                                                name.to_string(),
-                                                SymbolInfo {
-                                                    name: name.to_string(),
-                                                    declaration_node_id: node.id(),
-                                                    initializer: origin,
-                                                    reassignments: Vec::new(),
-                                                    line: node.start_position().row + 1,
-                                                    scope_depth,
-                                                },
-                                            );
-                                        }
-                                    }
-                                }
+                                table.symbols.insert(
+                                    name.to_string(),
+                                    SymbolInfo {
+                                        name: name.to_string(),
+                                        declaration_node_id: node.id(),
+                                        initializer: origin,
+                                        reassignments: Vec::new(),
+                                        line: node.start_position().row + 1,
+                                        scope_depth,
+                                    },
+                                );
                             }
                         }
                     }
 
                     // Assignment: x = ...
                     "assignment_statement" => {
-                        if let Some(left) = node.child_by_field_name("left") {
-                            if let Some(right) = node.child_by_field_name("right") {
-                                let names = Self::extract_go_identifiers(&left, content);
-                                let values = Self::extract_go_values(&right, content);
+                        if let Some(left) = node.child_by_field_name("left")
+                            && let Some(right) = node.child_by_field_name("right")
+                        {
+                            let names = Self::extract_go_identifiers(&left, content);
+                            let values = Self::extract_go_values(&right, content);
 
-                                for (i, name) in names.into_iter().enumerate() {
-                                    if let Some(info) = table.symbols.get_mut(&name) {
-                                        let origin =
-                                            values.get(i).cloned().unwrap_or(ValueOrigin::Unknown);
-                                        info.reassignments.push(origin);
-                                    }
+                            for (i, name) in names.into_iter().enumerate() {
+                                if let Some(info) = table.symbols.get_mut(&name) {
+                                    let origin =
+                                        values.get(i).cloned().unwrap_or(ValueOrigin::Unknown);
+                                    info.reassignments.push(origin);
                                 }
                             }
                         }
@@ -493,12 +487,11 @@ impl SymbolTable {
             }
         } else if node.kind() == "expression_list" {
             for i in 0..node.named_child_count() {
-                if let Some(child) = node.named_child(i) {
-                    if child.kind() == "identifier" {
-                        if let Ok(name) = child.utf8_text(content.as_bytes()) {
-                            names.push(name.to_string());
-                        }
-                    }
+                if let Some(child) = node.named_child(i)
+                    && child.kind() == "identifier"
+                    && let Ok(name) = child.utf8_text(content.as_bytes())
+                {
+                    names.push(name.to_string());
                 }
             }
         }
@@ -577,31 +570,30 @@ impl SymbolTable {
 
                     // Assignment: x = ...
                     "assignment" => {
-                        if let Some(left) = node.child_by_field_name("left") {
-                            if left.kind() == "identifier" {
-                                if let Ok(name) = left.utf8_text(content.as_bytes()) {
-                                    let origin = node
-                                        .child_by_field_name("right")
-                                        .map(|v| Self::classify_origin(&v, content))
-                                        .unwrap_or(ValueOrigin::Unknown);
+                        if let Some(left) = node.child_by_field_name("left")
+                            && left.kind() == "identifier"
+                            && let Ok(name) = left.utf8_text(content.as_bytes())
+                        {
+                            let origin = node
+                                .child_by_field_name("right")
+                                .map(|v| Self::classify_origin(&v, content))
+                                .unwrap_or(ValueOrigin::Unknown);
 
-                                    if let Some(info) = table.symbols.get_mut(name) {
-                                        info.reassignments.push(origin);
-                                    } else {
-                                        // Python: assignment is also declaration
-                                        table.symbols.insert(
-                                            name.to_string(),
-                                            SymbolInfo {
-                                                name: name.to_string(),
-                                                declaration_node_id: node.id(),
-                                                initializer: origin,
-                                                reassignments: Vec::new(),
-                                                line: node.start_position().row + 1,
-                                                scope_depth,
-                                            },
-                                        );
-                                    }
-                                }
+                            if let Some(info) = table.symbols.get_mut(name) {
+                                info.reassignments.push(origin);
+                            } else {
+                                // Python: assignment is also declaration
+                                table.symbols.insert(
+                                    name.to_string(),
+                                    SymbolInfo {
+                                        name: name.to_string(),
+                                        declaration_node_id: node.id(),
+                                        initializer: origin,
+                                        reassignments: Vec::new(),
+                                        line: node.start_position().row + 1,
+                                        scope_depth,
+                                    },
+                                );
                             }
                         }
                     }
@@ -901,10 +893,10 @@ impl SymbolTable {
                     Self::collect_argument_variables(&args, content, variables);
                 }
                 // Also check the function part (for method calls like x.toString())
-                if let Some(func) = node.child_by_field_name("function") {
-                    if let Some(obj) = func.child_by_field_name("object") {
-                        Self::collect_expression_variables(&obj, content, variables);
-                    }
+                if let Some(func) = node.child_by_field_name("function")
+                    && let Some(obj) = func.child_by_field_name("object")
+                {
+                    Self::collect_expression_variables(&obj, content, variables);
                 }
             }
             "parenthesized_expression" => {
@@ -985,69 +977,65 @@ impl SymbolTable {
                     // Method parameters
                     "formal_parameter" => {
                         // Java param: type name or final type name
-                        if let Some(name_node) = node.child_by_field_name("name") {
-                            if let Ok(name) = name_node.utf8_text(content.as_bytes()) {
-                                table.symbols.insert(
-                                    name.to_string(),
-                                    SymbolInfo {
-                                        name: name.to_string(),
-                                        declaration_node_id: node.id(),
-                                        initializer: ValueOrigin::Parameter(param_index),
-                                        reassignments: Vec::new(),
-                                        line: node.start_position().row + 1,
-                                        scope_depth,
-                                    },
-                                );
-                                param_index += 1;
-                            }
+                        if let Some(name_node) = node.child_by_field_name("name")
+                            && let Ok(name) = name_node.utf8_text(content.as_bytes())
+                        {
+                            table.symbols.insert(
+                                name.to_string(),
+                                SymbolInfo {
+                                    name: name.to_string(),
+                                    declaration_node_id: node.id(),
+                                    initializer: ValueOrigin::Parameter(param_index),
+                                    reassignments: Vec::new(),
+                                    line: node.start_position().row + 1,
+                                    scope_depth,
+                                },
+                            );
+                            param_index += 1;
                         }
                     }
 
                     // Local variable declaration: Type name = value;
                     "local_variable_declaration" => {
                         for i in 0..node.named_child_count() {
-                            if let Some(declarator) = node.named_child(i) {
-                                if declarator.kind() == "variable_declarator" {
-                                    if let Some(name_node) = declarator.child_by_field_name("name")
-                                    {
-                                        if let Ok(name) = name_node.utf8_text(content.as_bytes()) {
-                                            let initializer = declarator
-                                                .child_by_field_name("value")
-                                                .map(|v| Self::classify_origin(&v, content))
-                                                .unwrap_or(ValueOrigin::Unknown);
+                            if let Some(declarator) = node.named_child(i)
+                                && declarator.kind() == "variable_declarator"
+                                && let Some(name_node) = declarator.child_by_field_name("name")
+                                && let Ok(name) = name_node.utf8_text(content.as_bytes())
+                            {
+                                let initializer = declarator
+                                    .child_by_field_name("value")
+                                    .map(|v| Self::classify_origin(&v, content))
+                                    .unwrap_or(ValueOrigin::Unknown);
 
-                                            table.symbols.insert(
-                                                name.to_string(),
-                                                SymbolInfo {
-                                                    name: name.to_string(),
-                                                    declaration_node_id: node.id(),
-                                                    initializer,
-                                                    reassignments: Vec::new(),
-                                                    line: node.start_position().row + 1,
-                                                    scope_depth,
-                                                },
-                                            );
-                                        }
-                                    }
-                                }
+                                table.symbols.insert(
+                                    name.to_string(),
+                                    SymbolInfo {
+                                        name: name.to_string(),
+                                        declaration_node_id: node.id(),
+                                        initializer,
+                                        reassignments: Vec::new(),
+                                        line: node.start_position().row + 1,
+                                        scope_depth,
+                                    },
+                                );
                             }
                         }
                     }
 
                     // Assignment: name = value
                     "assignment_expression" => {
-                        if let Some(left) = node.child_by_field_name("left") {
-                            if left.kind() == "identifier" {
-                                if let Ok(name) = left.utf8_text(content.as_bytes()) {
-                                    let origin = node
-                                        .child_by_field_name("right")
-                                        .map(|v| Self::classify_origin(&v, content))
-                                        .unwrap_or(ValueOrigin::Unknown);
+                        if let Some(left) = node.child_by_field_name("left")
+                            && left.kind() == "identifier"
+                            && let Ok(name) = left.utf8_text(content.as_bytes())
+                        {
+                            let origin = node
+                                .child_by_field_name("right")
+                                .map(|v| Self::classify_origin(&v, content))
+                                .unwrap_or(ValueOrigin::Unknown);
 
-                                    if let Some(info) = table.symbols.get_mut(name) {
-                                        info.reassignments.push(origin);
-                                    }
-                                }
+                            if let Some(info) = table.symbols.get_mut(name) {
+                                info.reassignments.push(origin);
                             }
                         }
                     }

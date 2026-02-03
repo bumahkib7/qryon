@@ -93,32 +93,32 @@ impl ReachingDefsTransfer {
         let sem = self.semantics;
 
         // Variable declaration with initializer
-        if sem.is_variable_declaration(kind) {
-            if let Some((var_name, origin, line)) = self.extract_definition(node, source) {
-                // KILL: remove all previous definitions of this variable
-                state.retain(|d| d.var_name != var_name);
+        if sem.is_variable_declaration(kind)
+            && let Some((var_name, origin, line)) = self.extract_definition(node, source)
+        {
+            // KILL: remove all previous definitions of this variable
+            state.retain(|d| d.var_name != var_name);
 
-                // GEN: add the new definition
-                state.insert(Definition {
-                    var_name,
-                    node_id: node.id(),
-                    line,
-                    origin,
-                });
-            }
+            // GEN: add the new definition
+            state.insert(Definition {
+                var_name,
+                node_id: node.id(),
+                line,
+                origin,
+            });
         }
 
         // Assignment expression (reassignment)
-        if sem.is_assignment(kind) || sem.is_augmented_assignment(kind) {
-            if let Some((var_name, origin, line)) = self.extract_assignment(node, source) {
-                state.retain(|d| d.var_name != var_name);
-                state.insert(Definition {
-                    var_name,
-                    node_id: node.id(),
-                    line,
-                    origin,
-                });
-            }
+        if (sem.is_assignment(kind) || sem.is_augmented_assignment(kind))
+            && let Some((var_name, origin, line)) = self.extract_assignment(node, source)
+        {
+            state.retain(|d| d.var_name != var_name);
+            state.insert(Definition {
+                var_name,
+                node_id: node.id(),
+                line,
+                origin,
+            });
         }
 
         // Recurse into children for nested statements (e.g., nested blocks)
@@ -417,10 +417,10 @@ impl DefUseChains {
                 Self::collect_uses(value, source, semantics, uses, false);
             }
             // For augmented assignments, the left side is ALSO a use
-            if semantics.is_augmented_assignment(kind) {
-                if let Some(left) = node.child_by_field_name(semantics.left_field) {
-                    Self::collect_uses(left, source, semantics, uses, false);
-                }
+            if semantics.is_augmented_assignment(kind)
+                && let Some(left) = node.child_by_field_name(semantics.left_field)
+            {
+                Self::collect_uses(left, source, semantics, uses, false);
             }
             return;
         }
@@ -439,9 +439,7 @@ impl DefUseChains {
 
     /// Is this definition used anywhere? If not, it's a dead store.
     pub fn is_dead_store(&self, def: &Definition) -> bool {
-        self.def_to_uses
-            .get(def)
-            .map_or(true, |uses| uses.is_empty())
+        self.def_to_uses.get(def).is_none_or(|uses| uses.is_empty())
     }
 
     /// Get all definitions that have no uses (dead stores)

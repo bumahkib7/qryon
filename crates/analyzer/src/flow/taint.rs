@@ -4,14 +4,27 @@
 //! by propagating taint through assignments.
 //!
 //! Supports cross-file taint tracking via CallGraph integration.
+//!
+//! ## Function Body Taint Analysis
+//!
+//! The `FunctionBodyTaintAnalyzer` provides fine-grained intra-procedural taint
+//! tracking by walking the AST and tracking taint flow through:
+//! - Assignments: `x = tainted_var` propagates taint to `x`
+//! - Method calls: `x = obj.method(tainted)` may propagate taint
+//! - Binary operations: `x = tainted + "safe"` propagates taint
+//! - Return statements: tracks what flows to return values
 
 use super::cfg::CFG;
 use super::interprocedural::TaintSummary;
 use super::sources::{SourcePattern, TaintConfig};
 use super::symbol_table::{SymbolTable, ValueOrigin};
 use crate::callgraph::CallGraph;
+use crate::semantics::LanguageSemantics;
+use rma_common::Language;
+use rma_parser::ParsedFile;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use tree_sitter::Node;
 
 /// Taint level for path-sensitive analysis
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,11 +79,10 @@ impl TaintAnalyzer {
                     // Check if this function call is a cross-file source
                     if let Some(is_source) =
                         Self::check_cross_file_source(func_name, cg, fp, cross_file_summaries)
+                        && is_source
                     {
-                        if is_source {
-                            tainted.insert(name.clone());
-                            cross_file_sources.insert(name.clone());
-                        }
+                        tainted.insert(name.clone());
+                        cross_file_sources.insert(name.clone());
                     }
                 }
             }
@@ -167,16 +179,16 @@ impl TaintAnalyzer {
             // Check if we have a summary for this cross-file function
             if let Some(summaries) = cross_file_summaries {
                 let key = format!("{}:{}", func.file.display(), func_name);
-                if let Some(summary) = summaries.get(&key) {
-                    if summary.is_source() {
-                        return Some(true);
-                    }
+                if let Some(summary) = summaries.get(&key)
+                    && summary.is_source()
+                {
+                    return Some(true);
                 }
                 // Also check by just the function name
-                if let Some(summary) = summaries.get(func_name) {
-                    if summary.is_source() {
-                        return Some(true);
-                    }
+                if let Some(summary) = summaries.get(func_name)
+                    && summary.is_source()
+                {
+                    return Some(true);
                 }
             }
         }
@@ -207,10 +219,10 @@ impl TaintAnalyzer {
                         return Some(true);
                     }
                 }
-                if let Some(summary) = summaries.get(func_name) {
-                    if summary.propagates_taint {
-                        return Some(true);
-                    }
+                if let Some(summary) = summaries.get(func_name)
+                    && summary.propagates_taint
+                {
+                    return Some(true);
                 }
             }
         }
@@ -237,14 +249,12 @@ impl TaintAnalyzer {
                 }
 
                 // Check cross-file sources
-                if let (Some(cg), Some(fp)) = (call_graph, file_path) {
-                    if let Some(is_source) =
+                if let (Some(cg), Some(fp)) = (call_graph, file_path)
+                    && let Some(is_source) =
                         Self::check_cross_file_source(func_name, cg, fp, cross_file_summaries)
-                    {
-                        if is_source {
-                            return (true, false);
-                        }
-                    }
+                    && is_source
+                {
+                    return (true, false);
                 }
 
                 (false, false)
@@ -338,10 +348,10 @@ impl TaintAnalyzer {
 
                 if is_propagating {
                     // Check if receiver is tainted
-                    if let Some(recv) = receiver {
-                        if tainted.contains(recv) || config.is_source_member(recv) {
-                            return (true, false);
-                        }
+                    if let Some(recv) = receiver
+                        && (tainted.contains(recv) || config.is_source_member(recv))
+                    {
+                        return (true, false);
                     }
 
                     // Check if any argument is tainted
@@ -432,10 +442,10 @@ impl TaintAnalyzer {
                     return true;
                 }
                 // Check if receiver is a source
-                if let Some(recv) = receiver {
-                    if config.is_source_member(recv) {
-                        return true;
-                    }
+                if let Some(recv) = receiver
+                    && config.is_source_member(recv)
+                {
+                    return true;
                 }
                 // Check arguments
                 arguments.iter().any(|arg| config.is_source_member(arg))
@@ -444,6 +454,886 @@ impl TaintAnalyzer {
             // Unknown is conservatively not tainted (would cause too many FPs)
             ValueOrigin::Unknown => false,
         }
+    }
+}
+
+// =============================================================================
+// Function Body Taint Analyzer
+// =============================================================================
+
+/// Taint state at a specific program point
+#[derive(Debug, Clone, Default)]
+pub struct TaintState {
+    /// Variables that are tainted at this point
+    pub tainted: HashSet<String>,
+    /// Variables that have been sanitized at this point
+    pub sanitized: HashSet<String>,
+}
+
+impl TaintState {
+    /// Create a new empty taint state
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a taint state with initial tainted variables
+    pub fn with_tainted(tainted: HashSet<String>) -> Self {
+        Self {
+            tainted,
+            sanitized: HashSet::new(),
+        }
+    }
+
+    /// Check if a variable is tainted
+    pub fn is_tainted(&self, var: &str) -> bool {
+        self.tainted.contains(var) && !self.sanitized.contains(var)
+    }
+
+    /// Mark a variable as tainted
+    pub fn mark_tainted(&mut self, var: String) {
+        self.sanitized.remove(&var);
+        self.tainted.insert(var);
+    }
+
+    /// Mark a variable as sanitized (no longer tainted)
+    pub fn mark_sanitized(&mut self, var: String) {
+        self.tainted.remove(&var);
+        self.sanitized.insert(var);
+    }
+
+    /// Mark a variable as clean (never tainted)
+    pub fn mark_clean(&mut self, var: &str) {
+        self.tainted.remove(var);
+    }
+
+    /// Merge another state into this one (union for taint, intersection for sanitized)
+    pub fn merge(&mut self, other: &TaintState) {
+        self.tainted.extend(other.tainted.iter().cloned());
+        // For sanitized, we need intersection (only sanitized if sanitized on all paths)
+        self.sanitized = self
+            .sanitized
+            .intersection(&other.sanitized)
+            .cloned()
+            .collect();
+    }
+
+    /// Clone the current state
+    pub fn clone_state(&self) -> Self {
+        self.clone()
+    }
+}
+
+/// Result of function body taint analysis
+#[derive(Debug, Clone)]
+pub struct FunctionBodyTaintResult {
+    /// Function name being analyzed
+    pub function_name: String,
+    /// Taint state at each statement (node_id -> state)
+    pub states_at: HashMap<usize, TaintState>,
+    /// Variables that flow to return statements
+    pub return_tainted: HashSet<String>,
+    /// Final taint state at function exit
+    pub exit_state: TaintState,
+    /// Parameters that are marked as tainted
+    pub tainted_params: HashSet<String>,
+    /// Variables assigned from tainted sources within the function
+    pub taint_sources: HashMap<String, TaintSourceInfo>,
+}
+
+/// Information about where a variable's taint originated
+#[derive(Debug, Clone)]
+pub struct TaintSourceInfo {
+    /// Variable name
+    pub var_name: String,
+    /// Line number where taint was introduced
+    pub line: usize,
+    /// Node ID where taint was introduced
+    pub node_id: usize,
+    /// Source of taint (e.g., parameter name, function call)
+    pub source: String,
+}
+
+impl FunctionBodyTaintResult {
+    /// Check if a variable is tainted at a specific program point
+    pub fn is_tainted_at(&self, var: &str, node_id: usize) -> bool {
+        self.states_at
+            .get(&node_id)
+            .map(|state| state.is_tainted(var))
+            .unwrap_or(false)
+    }
+
+    /// Check if any return value is tainted
+    pub fn has_tainted_return(&self) -> bool {
+        !self.return_tainted.is_empty()
+    }
+
+    /// Get all variables that are tainted at function exit
+    pub fn tainted_at_exit(&self) -> &HashSet<String> {
+        &self.exit_state.tainted
+    }
+
+    /// Check if a parameter propagates to tainted return
+    pub fn param_taints_return(&self, param: &str) -> bool {
+        self.tainted_params.contains(param) && self.return_tainted.contains(param)
+    }
+}
+
+/// Analyzes taint flow within a single function body
+///
+/// This analyzer walks the AST of a function and tracks taint propagation
+/// through assignments, method calls, binary operations, and return statements.
+///
+/// # Example
+///
+/// ```ignore
+/// let analyzer = FunctionBodyTaintAnalyzer::new(config, semantics);
+/// let result = analyzer.analyze_function(parsed, func_node);
+/// if result.has_tainted_return() {
+///     println!("Function returns tainted data!");
+/// }
+/// ```
+pub struct FunctionBodyTaintAnalyzer<'a> {
+    /// Taint configuration
+    config: &'a TaintConfig,
+    /// Language semantics for AST traversal
+    semantics: &'static LanguageSemantics,
+    /// Current taint state during analysis
+    current_state: TaintState,
+    /// States at each node
+    states_at: HashMap<usize, TaintState>,
+    /// Variables flowing to return
+    return_tainted: HashSet<String>,
+    /// Taint sources discovered
+    taint_sources: HashMap<String, TaintSourceInfo>,
+    /// Source content for text extraction
+    source: &'a [u8],
+}
+
+impl<'a> FunctionBodyTaintAnalyzer<'a> {
+    /// Create a new function body taint analyzer
+    pub fn new(
+        config: &'a TaintConfig,
+        semantics: &'static LanguageSemantics,
+        source: &'a [u8],
+    ) -> Self {
+        Self {
+            config,
+            semantics,
+            current_state: TaintState::new(),
+            states_at: HashMap::new(),
+            return_tainted: HashSet::new(),
+            taint_sources: HashMap::new(),
+            source,
+        }
+    }
+
+    /// Analyze a function body for taint flow
+    ///
+    /// # Arguments
+    /// * `func_node` - The tree-sitter node for the function definition
+    /// * `initial_tainted` - Variables that are initially tainted (e.g., parameters)
+    ///
+    /// # Returns
+    /// A `FunctionBodyTaintResult` containing the analysis results
+    pub fn analyze_function(
+        mut self,
+        func_node: Node<'_>,
+        initial_tainted: HashSet<String>,
+    ) -> FunctionBodyTaintResult {
+        // Extract function name
+        let function_name = func_node
+            .child_by_field_name(self.semantics.name_field)
+            .and_then(|n| n.utf8_text(self.source).ok())
+            .unwrap_or("anonymous")
+            .to_string();
+
+        // Initialize with tainted parameters
+        let tainted_params = initial_tainted.clone();
+        self.current_state = TaintState::with_tainted(initial_tainted);
+
+        // Find and analyze the function body
+        if let Some(body) = func_node.child_by_field_name("body") {
+            self.analyze_block(body);
+        }
+
+        FunctionBodyTaintResult {
+            function_name,
+            states_at: self.states_at,
+            return_tainted: self.return_tainted,
+            exit_state: self.current_state,
+            tainted_params,
+            taint_sources: self.taint_sources,
+        }
+    }
+
+    /// Analyze a block of statements
+    fn analyze_block(&mut self, block: Node<'_>) {
+        let mut cursor = block.walk();
+        for child in block.children(&mut cursor) {
+            if child.is_named() {
+                self.analyze_statement(child);
+            }
+        }
+    }
+
+    /// Analyze a single statement
+    fn analyze_statement(&mut self, node: Node<'_>) {
+        let kind = node.kind();
+
+        // Record state before processing this node
+        self.states_at
+            .insert(node.id(), self.current_state.clone_state());
+
+        // Handle different statement types
+        if self.semantics.is_assignment(kind) || self.is_variable_declaration(kind) {
+            self.analyze_assignment(node);
+        } else if self.semantics.is_return(kind) {
+            self.analyze_return(node);
+        } else if self.is_if_statement(kind) {
+            self.analyze_if(node);
+        } else if self.semantics.is_loop(kind) {
+            self.analyze_loop(node);
+        } else if self.is_block(kind) {
+            self.analyze_block(node);
+        } else if self.semantics.is_call(kind) {
+            // Standalone call expression (side effects only)
+            self.analyze_call_expression(node);
+        } else {
+            // Recurse into children for nested statements
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.is_named() {
+                    self.analyze_statement(child);
+                }
+            }
+        }
+    }
+
+    /// Analyze an assignment or variable declaration
+    fn analyze_assignment(&mut self, node: Node<'_>) {
+        // Extract variable name and check if value is tainted
+        let (var_name, is_tainted, is_sanitized, source_desc) = self.analyze_assignment_node(node);
+
+        if let Some(var_name) = var_name {
+            if is_sanitized {
+                self.current_state.mark_sanitized(var_name.clone());
+            } else if is_tainted {
+                self.current_state.mark_tainted(var_name.clone());
+                // Record taint source
+                if let Some(source) = source_desc {
+                    self.taint_sources.insert(
+                        var_name.clone(),
+                        TaintSourceInfo {
+                            var_name: var_name.clone(),
+                            line: node.start_position().row + 1,
+                            node_id: node.id(),
+                            source,
+                        },
+                    );
+                }
+            } else {
+                self.current_state.mark_clean(&var_name);
+            }
+        }
+    }
+
+    /// Analyze an assignment node and return (var_name, is_tainted, is_sanitized, source_desc)
+    fn analyze_assignment_node(
+        &self,
+        node: Node<'_>,
+    ) -> (Option<String>, bool, bool, Option<String>) {
+        let kind = node.kind();
+
+        // Handle variable_declarator (const x = ...)
+        if kind == "variable_declarator" {
+            let name = node
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(self.source).ok())
+                .map(String::from);
+
+            if let Some(value) = node.child_by_field_name("value") {
+                let is_tainted = self.is_expression_tainted(value);
+                let is_sanitized = self.is_sanitizer_call(value);
+                let source_desc = if is_tainted {
+                    Some(self.describe_taint_source(value))
+                } else {
+                    None
+                };
+                return (name, is_tainted, is_sanitized, source_desc);
+            }
+            return (name, false, false, None);
+        }
+
+        // Handle assignment_expression (x = ...)
+        if self.semantics.is_assignment(kind) {
+            let left = node.child_by_field_name("left");
+            let right = node.child_by_field_name("right");
+
+            let name = left
+                .filter(|n| self.semantics.is_identifier(n.kind()) || n.kind() == "identifier")
+                .and_then(|n| n.utf8_text(self.source).ok())
+                .map(String::from);
+
+            if let Some(value) = right {
+                let is_tainted = self.is_expression_tainted(value);
+                let is_sanitized = self.is_sanitizer_call(value);
+                let source_desc = if is_tainted {
+                    Some(self.describe_taint_source(value))
+                } else {
+                    None
+                };
+                return (name, is_tainted, is_sanitized, source_desc);
+            }
+            return (name, false, false, None);
+        }
+
+        // Handle let_declaration (Rust: let x = ...)
+        if kind == "let_declaration" {
+            let pattern = node.child_by_field_name("pattern");
+            let name = pattern
+                .and_then(|n| n.utf8_text(self.source).ok())
+                .map(|s| s.trim_start_matches("mut ").trim().to_string());
+
+            if let Some(value) = node.child_by_field_name("value") {
+                let is_tainted = self.is_expression_tainted(value);
+                let is_sanitized = self.is_sanitizer_call(value);
+                let source_desc = if is_tainted {
+                    Some(self.describe_taint_source(value))
+                } else {
+                    None
+                };
+                return (name, is_tainted, is_sanitized, source_desc);
+            }
+            return (name, false, false, None);
+        }
+
+        // Handle short_var_declaration (Go: x := ...)
+        if kind == "short_var_declaration" {
+            let left = node.child_by_field_name("left");
+            let right = node.child_by_field_name("right");
+
+            let name = left
+                .and_then(|n| {
+                    if n.kind() == "expression_list" {
+                        n.named_child(0)
+                    } else {
+                        Some(n)
+                    }
+                })
+                .and_then(|n| n.utf8_text(self.source).ok())
+                .map(String::from);
+
+            let value = right.and_then(|n| {
+                if n.kind() == "expression_list" {
+                    n.named_child(0)
+                } else {
+                    Some(n)
+                }
+            });
+
+            if let Some(value) = value {
+                let is_tainted = self.is_expression_tainted(value);
+                let is_sanitized = self.is_sanitizer_call(value);
+                let source_desc = if is_tainted {
+                    Some(self.describe_taint_source(value))
+                } else {
+                    None
+                };
+                return (name, is_tainted, is_sanitized, source_desc);
+            }
+            return (name, false, false, None);
+        }
+
+        // Handle variable_declaration children
+        if kind == "variable_declaration" || kind == "lexical_declaration" {
+            // Find the declarator child
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "variable_declarator" {
+                    return self.analyze_assignment_node(child);
+                }
+            }
+        }
+
+        (None, false, false, None)
+    }
+
+    /// Check if an expression is tainted
+    fn is_expression_tainted(&self, node: Node<'_>) -> bool {
+        let kind = node.kind();
+
+        // Identifier - check if variable is tainted
+        if (self.semantics.is_identifier(kind) || kind == "identifier")
+            && let Ok(name) = node.utf8_text(self.source)
+        {
+            return self.current_state.is_tainted(name);
+        }
+
+        // Member access - check if it's a taint source
+        if self.is_member_access(kind)
+            && let Ok(text) = node.utf8_text(self.source)
+        {
+            if self.config.is_source_member(text) {
+                return true;
+            }
+            // Also check if the base object is tainted
+            if let Some(obj) = node.child_by_field_name("object") {
+                return self.is_expression_tainted(obj);
+            }
+        }
+
+        // Function/method call
+        if self.semantics.is_call(kind) {
+            return self.is_call_tainted(node);
+        }
+
+        // Binary expression - tainted if any operand is tainted
+        if self.is_binary_expression(kind) {
+            let left = node.child_by_field_name("left");
+            let right = node.child_by_field_name("right");
+
+            let left_tainted = left.map(|n| self.is_expression_tainted(n)).unwrap_or(false);
+            let right_tainted = right
+                .map(|n| self.is_expression_tainted(n))
+                .unwrap_or(false);
+
+            return left_tainted || right_tainted;
+        }
+
+        // Template literal - check interpolations
+        if kind == "template_string" || kind == "template_literal" {
+            return self.is_template_tainted(node);
+        }
+
+        // Parenthesized expression - unwrap
+        if kind == "parenthesized_expression"
+            && let Some(inner) = node.named_child(0)
+        {
+            return self.is_expression_tainted(inner);
+        }
+
+        // Await expression - check inner
+        if kind == "await_expression"
+            && let Some(inner) = node.named_child(0)
+        {
+            return self.is_expression_tainted(inner);
+        }
+
+        // Array/object - check if any element is tainted
+        if kind == "array" || kind == "array_expression" || kind == "object" {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if self.is_expression_tainted(child) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a call expression produces tainted output
+    fn is_call_tainted(&self, node: Node<'_>) -> bool {
+        let func_node = node
+            .child_by_field_name("function")
+            .or_else(|| node.child(0));
+
+        if let Some(func) = func_node {
+            let func_text = func.utf8_text(self.source).unwrap_or("");
+
+            // Check if it's a known source function
+            if self.config.is_source_function(func_text) {
+                return true;
+            }
+
+            // Check if it's a sanitizer (blocks taint)
+            if self.config.is_sanitizer(func_text) {
+                return false;
+            }
+
+            // Check if it's a method call on a tainted receiver
+            if self.is_member_access(func.kind())
+                && let Some(obj) = func.child_by_field_name("object")
+                && self.is_expression_tainted(obj)
+            {
+                // Check if method propagates taint
+                if let Some(method) = func.child_by_field_name("property") {
+                    let method_name = method.utf8_text(self.source).unwrap_or("");
+                    if self.is_taint_propagating_method(method_name) {
+                        return true;
+                    }
+                }
+            }
+
+            // Check if any argument is tainted and the function propagates taint
+            if let Some(args) = node.child_by_field_name("arguments") {
+                let mut cursor = args.walk();
+                for arg in args.named_children(&mut cursor) {
+                    if self.is_expression_tainted(arg) {
+                        // Check if function is known to propagate taint from args
+                        if self.is_taint_propagating_function(func_text) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a template literal contains tainted interpolations
+    fn is_template_tainted(&self, node: Node<'_>) -> bool {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "template_substitution"
+                && let Some(expr) = child.named_child(0)
+                && self.is_expression_tainted(expr)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if a call is to a sanitizer function
+    fn is_sanitizer_call(&self, node: Node<'_>) -> bool {
+        if !self.semantics.is_call(node.kind()) {
+            return false;
+        }
+
+        let func_node = node
+            .child_by_field_name("function")
+            .or_else(|| node.child(0));
+
+        if let Some(func) = func_node {
+            let func_text = func.utf8_text(self.source).unwrap_or("");
+            return self.config.is_sanitizer(func_text);
+        }
+
+        false
+    }
+
+    /// Check if a method name propagates taint
+    fn is_taint_propagating_method(&self, method: &str) -> bool {
+        let propagating = [
+            "concat",
+            "join",
+            "slice",
+            "substring",
+            "substr",
+            "trim",
+            "toLowerCase",
+            "toUpperCase",
+            "split",
+            "replace",
+            "toString",
+            "valueOf",
+            "format",
+            "append",
+            "push_str",
+            "to_string",
+            "to_str",
+        ];
+        propagating
+            .iter()
+            .any(|m| method.eq_ignore_ascii_case(m) || method.contains(m))
+    }
+
+    /// Check if a function propagates taint from its arguments
+    fn is_taint_propagating_function(&self, func: &str) -> bool {
+        let propagating = [
+            "String",
+            "toString",
+            "format",
+            "sprintf",
+            "printf",
+            "fmt.Sprintf",
+            "fmt.Printf",
+            "String.format",
+            "concat",
+            "join",
+        ];
+        propagating.iter().any(|f| func.contains(f))
+    }
+
+    /// Analyze a return statement
+    fn analyze_return(&mut self, node: Node<'_>) {
+        let value = node
+            .child_by_field_name("value")
+            .or_else(|| node.named_child(0));
+
+        if let Some(val) = value
+            && self.is_expression_tainted(val)
+        {
+            // Collect all tainted variables in the return expression
+            self.collect_tainted_vars_in_expr(val, &mut self.return_tainted.clone());
+        }
+    }
+
+    /// Collect all tainted variable names in an expression
+    fn collect_tainted_vars_in_expr(&self, node: Node<'_>, result: &mut HashSet<String>) {
+        let kind = node.kind();
+
+        if (self.semantics.is_identifier(kind) || kind == "identifier")
+            && let Ok(name) = node.utf8_text(self.source)
+            && self.current_state.is_tainted(name)
+        {
+            result.insert(name.to_string());
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.collect_tainted_vars_in_expr(child, result);
+        }
+    }
+
+    /// Analyze an if statement (branches may have different taint states)
+    fn analyze_if(&mut self, node: Node<'_>) {
+        let condition = node.child_by_field_name("condition");
+        let consequence = node
+            .child_by_field_name("consequence")
+            .or_else(|| node.child_by_field_name("body"));
+        let alternative = node.child_by_field_name("alternative");
+
+        // Analyze condition (might have side effects)
+        if let Some(cond) = condition {
+            self.analyze_statement(cond);
+        }
+
+        let state_after_cond = self.current_state.clone_state();
+
+        // Analyze then branch
+        if let Some(then_branch) = consequence {
+            self.current_state = state_after_cond.clone();
+            self.analyze_statement(then_branch);
+        }
+        let state_after_then = self.current_state.clone_state();
+
+        // Analyze else branch (if present)
+        let state_after_else = if let Some(else_branch) = alternative {
+            self.current_state = state_after_cond.clone();
+            self.analyze_statement(else_branch);
+            self.current_state.clone_state()
+        } else {
+            state_after_cond
+        };
+
+        // Merge states from both branches
+        self.current_state = state_after_then;
+        self.current_state.merge(&state_after_else);
+    }
+
+    /// Analyze a loop (conservative: assume loop body can execute 0+ times)
+    fn analyze_loop(&mut self, node: Node<'_>) {
+        let body = node.child_by_field_name("body");
+        let state_before = self.current_state.clone_state();
+
+        // Analyze loop body
+        if let Some(body_node) = body {
+            self.analyze_statement(body_node);
+        }
+
+        // Merge with pre-loop state (loop might not execute)
+        self.current_state.merge(&state_before);
+    }
+
+    /// Analyze a standalone call expression for side effects
+    fn analyze_call_expression(&mut self, _node: Node<'_>) {
+        // For now, just check if any arguments become tainted
+        // More sophisticated analysis could track object mutations
+    }
+
+    /// Describe the source of taint for an expression
+    fn describe_taint_source(&self, node: Node<'_>) -> String {
+        let kind = node.kind();
+
+        if (self.semantics.is_identifier(kind) || kind == "identifier")
+            && let Ok(name) = node.utf8_text(self.source)
+        {
+            return format!("variable '{}'", name);
+        }
+
+        if self.is_member_access(kind)
+            && let Ok(text) = node.utf8_text(self.source)
+        {
+            return format!("member access '{}'", text);
+        }
+
+        if self.semantics.is_call(kind)
+            && let Some(func) = node
+                .child_by_field_name("function")
+                .or_else(|| node.child(0))
+            && let Ok(text) = func.utf8_text(self.source)
+        {
+            return format!("call to '{}'", text);
+        }
+
+        "unknown source".to_string()
+    }
+
+    // =========================================================================
+    // Helper methods for node kind checking
+    // =========================================================================
+
+    fn is_variable_declaration(&self, kind: &str) -> bool {
+        self.semantics.variable_declaration_kinds.contains(&kind)
+            || kind == "variable_declarator"
+            || kind == "lexical_declaration"
+    }
+
+    fn is_if_statement(&self, kind: &str) -> bool {
+        self.semantics.if_kinds.contains(&kind)
+    }
+
+    fn is_block(&self, kind: &str) -> bool {
+        self.semantics.block_scope_kinds.contains(&kind)
+    }
+
+    fn is_member_access(&self, kind: &str) -> bool {
+        self.semantics.member_access_kinds.contains(&kind) || kind == "member_expression"
+    }
+
+    fn is_binary_expression(&self, kind: &str) -> bool {
+        self.semantics.binary_expression_kinds.contains(&kind) || kind == "binary_expression"
+    }
+}
+
+/// Analyze taint flow within all functions in a parsed file
+///
+/// # Arguments
+/// * `parsed` - The parsed file
+/// * `language` - The programming language
+/// * `config` - Taint configuration
+/// * `initial_taint` - Variables that should be considered tainted at function entry
+///
+/// # Returns
+/// A map from function name to its taint analysis result
+pub fn analyze_function_bodies(
+    parsed: &ParsedFile,
+    language: Language,
+    config: &TaintConfig,
+    initial_taint: Option<HashSet<String>>,
+) -> HashMap<String, FunctionBodyTaintResult> {
+    let semantics = LanguageSemantics::for_language(language);
+    let source = parsed.content.as_bytes();
+    let mut results = HashMap::new();
+
+    // Walk the tree to find all function definitions
+    let root = parsed.tree.root_node();
+    let mut cursor = root.walk();
+
+    fn find_functions<'a>(
+        node: Node<'a>,
+        cursor: &mut tree_sitter::TreeCursor<'a>,
+        semantics: &'static LanguageSemantics,
+        source: &'a [u8],
+        config: &TaintConfig,
+        initial_taint: &Option<HashSet<String>>,
+        results: &mut HashMap<String, FunctionBodyTaintResult>,
+    ) {
+        if semantics.is_function_def(node.kind()) {
+            // Extract parameters as initially tainted
+            let mut params_tainted = initial_taint.clone().unwrap_or_default();
+
+            // Add function parameters to tainted set
+            if let Some(params) = node.child_by_field_name("parameters") {
+                let mut param_cursor = params.walk();
+                for param in params.named_children(&mut param_cursor) {
+                    if let Some(name) = extract_param_name(param, source) {
+                        params_tainted.insert(name);
+                    }
+                }
+            }
+
+            let analyzer = FunctionBodyTaintAnalyzer::new(config, semantics, source);
+            let result = analyzer.analyze_function(node, params_tainted);
+            results.insert(result.function_name.clone(), result);
+        }
+
+        // Recurse into children
+        if cursor.goto_first_child() {
+            loop {
+                find_functions(
+                    cursor.node(),
+                    cursor,
+                    semantics,
+                    source,
+                    config,
+                    initial_taint,
+                    results,
+                );
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+            cursor.goto_parent();
+        }
+    }
+
+    find_functions(
+        root,
+        &mut cursor,
+        semantics,
+        source,
+        config,
+        &initial_taint,
+        &mut results,
+    );
+
+    results
+}
+
+/// Helper to extract parameter name from various parameter node types
+fn extract_param_name(param: Node<'_>, source: &[u8]) -> Option<String> {
+    match param.kind() {
+        "identifier" => param.utf8_text(source).ok().map(String::from),
+        "formal_parameter" | "required_parameter" | "parameter" => param
+            .child_by_field_name("name")
+            .or_else(|| param.child_by_field_name("pattern"))
+            .or_else(|| param.named_child(0))
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.trim_start_matches("mut ").trim().to_string()),
+        "assignment_pattern" | "default_parameter" => param
+            .child_by_field_name("left")
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(String::from),
+        "rest_pattern" | "rest_element" => param
+            .named_child(0)
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(String::from),
+        _ => param.utf8_text(source).ok().map(String::from),
+    }
+}
+
+/// Integrate function body taint results with the main TaintResult
+impl TaintResult {
+    /// Merge results from function body analysis
+    pub fn merge_function_body_results(
+        &mut self,
+        body_results: &HashMap<String, FunctionBodyTaintResult>,
+    ) {
+        for result in body_results.values() {
+            // Add all tainted variables from exit state
+            self.tainted_vars
+                .extend(result.exit_state.tainted.iter().cloned());
+
+            // Track taint sources
+            for var in result.taint_sources.keys() {
+                if !self.tainted_vars.contains(var) {
+                    self.tainted_vars.insert(var.clone());
+                }
+            }
+        }
+    }
+
+    /// Create a TaintResult from function body analysis
+    pub fn from_function_body_results(
+        body_results: HashMap<String, FunctionBodyTaintResult>,
+    ) -> Self {
+        let mut result = TaintResult::default();
+        result.merge_function_body_results(&body_results);
+        result
     }
 }
 
@@ -915,5 +1805,207 @@ mod tests {
             result.is_tainted("query"),
             "concatenation with tainted value should be tainted"
         );
+    }
+
+    // =========================================================================
+    // Function Body Taint Analyzer Tests
+    // =========================================================================
+
+    #[test]
+    fn test_function_body_assignment_propagation() {
+        let code = r#"
+            function handler(userInput) {
+                const a = userInput;
+                const b = a;
+                const c = "safe";
+                return b;
+            }
+        "#;
+        let parsed = parse_js(code);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let results = analyze_function_bodies(&parsed, Language::JavaScript, &config, None);
+
+        assert!(!results.is_empty(), "Should find functions");
+        let handler_result = results
+            .get("handler")
+            .expect("Should find handler function");
+
+        // Parameters should be tainted
+        assert!(handler_result.tainted_params.contains("userInput"));
+
+        // Variables assigned from tainted sources should be tainted at exit
+        assert!(handler_result.exit_state.is_tainted("userInput"));
+        assert!(handler_result.exit_state.is_tainted("a"));
+        assert!(handler_result.exit_state.is_tainted("b"));
+
+        // Safe literal should not be tainted
+        assert!(!handler_result.exit_state.is_tainted("c"));
+    }
+
+    #[test]
+    fn test_function_body_binary_expression_taint() {
+        let code = r#"
+            function buildQuery(userInput) {
+                const query = "SELECT * FROM users WHERE id = " + userInput;
+                return query;
+            }
+        "#;
+        let parsed = parse_js(code);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let results = analyze_function_bodies(&parsed, Language::JavaScript, &config, None);
+
+        let func_result = results.get("buildQuery").expect("Should find buildQuery");
+
+        // query should be tainted due to concatenation with userInput
+        assert!(
+            func_result.exit_state.is_tainted("query"),
+            "query should be tainted from concatenation"
+        );
+    }
+
+    #[test]
+    fn test_function_body_sanitizer_blocks_taint() {
+        let code = r#"
+            function sanitize(userInput) {
+                const safe = encodeURIComponent(userInput);
+                const output = "url=" + safe;
+                return output;
+            }
+        "#;
+        let parsed = parse_js(code);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let results = analyze_function_bodies(&parsed, Language::JavaScript, &config, None);
+
+        let func_result = results
+            .get("sanitize")
+            .expect("Should find sanitize function");
+
+        // userInput is tainted
+        assert!(func_result.exit_state.is_tainted("userInput"));
+
+        // safe should NOT be tainted (sanitizer applied)
+        assert!(
+            !func_result.exit_state.is_tainted("safe"),
+            "sanitized value should not be tainted"
+        );
+
+        // output should also not be tainted (uses sanitized value)
+        assert!(
+            !func_result.exit_state.is_tainted("output"),
+            "concatenation with sanitized value should not be tainted"
+        );
+    }
+
+    #[test]
+    fn test_function_body_method_call_propagation() {
+        let code = r#"
+            function process(input) {
+                const trimmed = input.trim();
+                const upper = trimmed.toUpperCase();
+                const sliced = upper.slice(0, 10);
+                return sliced;
+            }
+        "#;
+        let parsed = parse_js(code);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let results = analyze_function_bodies(&parsed, Language::JavaScript, &config, None);
+
+        let func_result = results
+            .get("process")
+            .expect("Should find process function");
+
+        // All should be tainted - string methods propagate taint
+        assert!(func_result.exit_state.is_tainted("input"));
+        assert!(
+            func_result.exit_state.is_tainted("trimmed"),
+            "trim() should propagate taint"
+        );
+        assert!(
+            func_result.exit_state.is_tainted("upper"),
+            "toUpperCase() should propagate taint"
+        );
+        assert!(
+            func_result.exit_state.is_tainted("sliced"),
+            "slice() should propagate taint"
+        );
+    }
+
+    #[test]
+    fn test_function_body_source_member_taint() {
+        let code = r#"
+            function getQuery() {
+                const id = req.query.id;
+                const name = req.body.name;
+                const safe = "literal";
+                return id;
+            }
+        "#;
+        let parsed = parse_js(code);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let results = analyze_function_bodies(&parsed, Language::JavaScript, &config, None);
+
+        let func_result = results
+            .get("getQuery")
+            .expect("Should find getQuery function");
+
+        // id and name from req.query/body should be tainted
+        assert!(
+            func_result.exit_state.is_tainted("id"),
+            "req.query.id should be tainted"
+        );
+        assert!(
+            func_result.exit_state.is_tainted("name"),
+            "req.body.name should be tainted"
+        );
+
+        // safe literal should not be tainted
+        assert!(!func_result.exit_state.is_tainted("safe"));
+    }
+
+    #[test]
+    fn test_taint_state_operations() {
+        let mut state = TaintState::new();
+
+        // Initially empty
+        assert!(!state.is_tainted("x"));
+
+        // Mark as tainted
+        state.mark_tainted("x".to_string());
+        assert!(state.is_tainted("x"));
+
+        // Mark as sanitized
+        state.mark_sanitized("x".to_string());
+        assert!(!state.is_tainted("x"));
+
+        // Mark another variable
+        state.mark_tainted("y".to_string());
+        assert!(state.is_tainted("y"));
+
+        // Merge states
+        let mut state2 = TaintState::new();
+        state2.mark_tainted("z".to_string());
+        state.merge(&state2);
+
+        assert!(state.is_tainted("y"));
+        assert!(state.is_tainted("z"));
+    }
+
+    #[test]
+    fn test_function_body_result_integration() {
+        let code = r#"
+            function handler(userInput) {
+                const data = userInput;
+                return data;
+            }
+        "#;
+        let parsed = parse_js(code);
+        let config = TaintConfig::for_language(Language::JavaScript);
+        let body_results = analyze_function_bodies(&parsed, Language::JavaScript, &config, None);
+
+        // Create TaintResult from function body results
+        let result = TaintResult::from_function_body_results(body_results);
+
+        assert!(result.is_tainted("userInput"));
+        assert!(result.is_tainted("data"));
     }
 }
