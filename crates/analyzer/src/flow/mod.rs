@@ -10,22 +10,64 @@
 //! - Inter-procedural taint analysis with function summaries
 //! - Type inference for variables without explicit annotations
 //! - Typestate analysis for tracking object state transitions
+//! - Field-sensitive taint tracking for precise property-level analysis
+//! - Alias/points-to analysis for tracking variable aliasing
 //!
 //! Supports both intra-procedural and inter-procedural analysis.
 
+pub mod alias;
+pub mod callbacks;
 mod cfg;
+pub mod collections;
+pub mod context_inference;
 pub mod dataflow;
+pub mod events;
+pub mod field_sensitive;
+pub mod implicit_flow;
 pub mod interprocedural;
 pub mod liveness;
 pub mod reaching_defs;
+pub mod sink_args;
 mod sources;
 mod symbol_table;
+pub mod symbolic;
 mod taint;
 pub mod type_inference;
 pub mod typestate;
 
+pub use alias::{
+    AliasAnalyzer, AliasResult, AliasSet, AllocKind, AllocationSite, Location, LocationId,
+    PointsToGraph, analyze_aliases, any_tainted_with_aliases, propagate_taint_through_aliases,
+};
+
+pub use callbacks::{
+    CallbackAnalyzer, CallbackKind, CallbackPatterns, CallbackRegistry, CallbackSite,
+    CallbackTaintFlow, TaintConfidence, TaintSource as CallbackTaintSource, analyze_callback_taint,
+    propagate_callback_taint,
+};
 pub use cfg::{BasicBlock, BlockId, CFG, Terminator};
+pub use collections::{
+    CollectionKey, CollectionOpResult, CollectionOperation, CollectionTaint,
+    CollectionTaintTracker, CollectionType,
+};
+pub use context_inference::{
+    SafeReason, SinkVerdict as ContextSinkVerdict, fix_recommendation, infer_sink_context,
+    infer_sink_verdict, recommended_sanitizers,
+};
 pub use dataflow::{DataflowResult, Direction, Fact, TransferFunction};
+pub use events::{
+    EventBinding, EventPatterns, EventRegistry, EventSite, extract_emit_args, extract_event_name,
+};
+pub use field_sensitive::{
+    FieldPath, FieldSensitiveAnalyzer, FieldSensitiveTaintResult, FieldTaintFlow, FieldTaintInfo,
+    FieldTaintMap, FieldTaintStatus,
+};
+pub use implicit_flow::{
+    ControlDependence, ControlDependenceGraph, ImplicitFlow, ImplicitFlowAnalyzer,
+    ImplicitFlowResult, ImplicitFlowType, ImplicitFlowViolation, LabelFact, LabelTransfer,
+    SecurityLabel, ViolationSeverity, analyze_implicit_flows, analyze_implicit_flows_with_taint,
+    analyze_labels,
+};
 pub use interprocedural::{
     CallArg, CallSite, FunctionSummary, InterproceduralResult, ParamEffect, TaintEndpoint,
     TaintFlow, TaintKind, TaintSummary, analyze_interprocedural,
@@ -33,26 +75,510 @@ pub use interprocedural::{
 };
 pub use liveness::{LiveVar, analyze_liveness};
 pub use reaching_defs::{DefOrigin, DefUseChains, Definition, Use, analyze_reaching_definitions};
+pub use sink_args::{
+    SinkArgRole, SinkSite, SinkVerdict as ArgSinkVerdict, analyze_rust_command,
+    evaluate_command_sink,
+};
 pub use sources::{SinkPattern, SourcePattern, TaintConfig, TaintSink, TaintSource};
 pub use symbol_table::{SymbolInfo, SymbolTable, ValueOrigin};
-pub use taint::{TaintAnalyzer, TaintLevel, TaintResult};
+pub use symbolic::{
+    ComparisonOp, ConditionExtractor, GuardedType, PathCondition, SymbolicAnalysisResult,
+    SymbolicFact, SymbolicState, SymbolicTransfer, analyze_symbolic_conditions,
+    analyze_symbolic_dataflow, get_constraints, is_feasible,
+};
+pub use taint::{
+    FunctionBodyTaintAnalyzer, FunctionBodyTaintResult, TaintAnalyzer, TaintLevel, TaintResult,
+    TaintSourceInfo, TaintState, analyze_function_bodies,
+};
 pub use type_inference::{
     InferredType, Nullability, NullabilityRefinements, TypeFact, TypeInferrer, TypeInfo, TypeTable,
     analyze_types, compute_nullability_refinements, infer_types_from_symbols,
 };
 pub use typestate::{
-    MethodCallInfo, State, StateMachine, TrackedState, Transition, TransitionTrigger,
-    TypestateAnalyzer, TypestateResult, TypestateViolation, ViolationKind,
-    analyze_typestate_with_context, connection_state_machine, file_state_machine,
-    find_assignments_to_var, find_method_calls_on_var, iterator_state_machine, lock_state_machine,
+    MethodCallInfo, ResourceAction, State, StateMachine, TrackedState, Transition,
+    TransitionTrigger, TypestateAnalyzer, TypestateResult, TypestateSummary,
+    TypestateSummaryRegistry, TypestateViolation, ViolationKind, analyze_typestate_with_context,
+    connection_state_machine, file_state_machine, find_assignments_to_var,
+    find_method_calls_on_var, iterator_state_machine, lock_state_machine,
 };
 
 use crate::callgraph::CallGraph;
 use crate::knowledge::{KnowledgeBuilder, MergedKnowledge};
 use crate::semantics::LanguageSemantics;
-use std::collections::HashMap;
+use rma_common::Language;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+// =============================================================================
+// Test Context for Setup Method Detection
+// =============================================================================
+
+/// Context for tracking test setup methods and the variables they initialize.
+///
+/// This helps reduce false positives in typestate rules by recognizing that
+/// variables initialized in @Before/@BeforeEach/setUp methods are available
+/// in test methods.
+#[derive(Debug, Clone, Default)]
+pub struct TestContext {
+    /// Variables initialized in setup methods (e.g., @Before, setUp)
+    pub setup_initialized_vars: HashSet<String>,
+    /// Line numbers of setup method declarations
+    pub setup_method_lines: HashSet<usize>,
+    /// Whether the file is a test file
+    pub is_test_file: bool,
+    /// Setup method names detected
+    pub setup_methods: Vec<String>,
+}
+
+impl TestContext {
+    /// Create a new empty test context
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Build test context from parsed file content
+    pub fn from_content(content: &str, language: Language) -> Self {
+        let mut ctx = Self::new();
+        ctx.detect_test_context(content, language);
+        ctx
+    }
+
+    /// Detect test context from file content
+    fn detect_test_context(&mut self, content: &str, language: Language) {
+        // Detect if this is a test file
+        self.is_test_file = Self::is_test_content(content, language);
+        if !self.is_test_file {
+            return;
+        }
+
+        // Find setup methods and their initialized variables
+        let setup_patterns = Self::setup_patterns(language);
+
+        for (line_num, line) in content.lines().enumerate() {
+            let line_num = line_num + 1;
+
+            // Check if this line declares a setup method
+            for pattern in &setup_patterns {
+                if line.contains(pattern) {
+                    self.setup_method_lines.insert(line_num);
+
+                    // Extract method name if possible
+                    if let Some(method_name) = Self::extract_method_name(line, language) {
+                        self.setup_methods.push(method_name);
+                    }
+                }
+            }
+        }
+
+        // Now find variables assigned in setup method blocks
+        self.find_setup_initialized_vars(content, language);
+    }
+
+    /// Check if content indicates a test file
+    fn is_test_content(content: &str, language: Language) -> bool {
+        match language {
+            Language::Java => {
+                content.contains("@Test")
+                    || content.contains("@Before")
+                    || content.contains("@BeforeEach")
+                    || content.contains("@BeforeAll")
+                    || content.contains("org.junit")
+                    || content.contains("org.testng")
+            }
+            Language::JavaScript | Language::TypeScript => {
+                content.contains("describe(")
+                    || content.contains("it(")
+                    || content.contains("test(")
+                    || content.contains("beforeEach(")
+                    || content.contains("beforeAll(")
+                    || content.contains("jest")
+                    || content.contains("mocha")
+                    || content.contains("vitest")
+            }
+            Language::Python => {
+                content.contains("def test_")
+                    || content.contains("unittest")
+                    || content.contains("pytest")
+                    || content.contains("@pytest.fixture")
+                    || content.contains("def setUp(")
+            }
+            Language::Go => {
+                content.contains("func Test")
+                    || content.contains("func Benchmark")
+                    || content.contains("testing.T")
+                    || content.contains("func TestMain")
+            }
+            Language::Rust => {
+                content.contains("#[test]")
+                    || content.contains("#[cfg(test)]")
+                    || content.contains("mod tests")
+            }
+            _ => false,
+        }
+    }
+
+    /// Get setup method patterns for a language
+    fn setup_patterns(language: Language) -> Vec<&'static str> {
+        match language {
+            Language::Java => vec![
+                "@Before",
+                "@BeforeEach",
+                "@BeforeAll",
+                "@BeforeClass",
+                "void setUp(",
+                "public void setUp(",
+            ],
+            Language::JavaScript | Language::TypeScript => {
+                vec!["beforeEach(", "beforeAll(", "before("]
+            }
+            Language::Python => vec![
+                "def setUp(",
+                "@pytest.fixture",
+                "@fixture",
+                "def setup_method(",
+                "def setup_function(",
+            ],
+            Language::Go => vec!["func TestMain(", "func setup(", "func Setup("],
+            Language::Rust => vec!["fn setup(", "fn before_each("],
+            _ => vec![],
+        }
+    }
+
+    /// Extract method name from a line
+    fn extract_method_name(line: &str, language: Language) -> Option<String> {
+        match language {
+            Language::Java => {
+                // Look for "void methodName(" or "public void methodName("
+                if let Some(idx) = line.find('(') {
+                    let before_paren = &line[..idx];
+                    let words: Vec<&str> = before_paren.split_whitespace().collect();
+                    if let Some(name) = words.last() {
+                        return Some(name.to_string());
+                    }
+                }
+                None
+            }
+            Language::JavaScript | Language::TypeScript => {
+                // beforeEach(async () => {}) or beforeEach(function() {})
+                if line.contains("beforeEach") {
+                    return Some("beforeEach".to_string());
+                }
+                if line.contains("beforeAll") {
+                    return Some("beforeAll".to_string());
+                }
+                None
+            }
+            Language::Python => {
+                // def setUp(self): or def setup_method(self):
+                if let Some(start) = line.find("def ")
+                    && let Some(end) = line[start..].find('(')
+                {
+                    let name = &line[start + 4..start + end];
+                    return Some(name.trim().to_string());
+                }
+                None
+            }
+            Language::Go => {
+                // func TestMain(m *testing.M) or func setup()
+                if let Some(start) = line.find("func ")
+                    && let Some(end) = line[start..].find('(')
+                {
+                    let name = &line[start + 5..start + end];
+                    return Some(name.trim().to_string());
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Find variables initialized in setup methods
+    fn find_setup_initialized_vars(&mut self, content: &str, language: Language) {
+        if self.setup_method_lines.is_empty() {
+            return;
+        }
+
+        let lines: Vec<&str> = content.lines().collect();
+        let mut in_setup_block = false;
+        let mut brace_depth = 0;
+
+        for (line_num, line) in lines.iter().enumerate() {
+            let line_num = line_num + 1;
+
+            // Check if we're entering a setup method
+            if self.setup_method_lines.contains(&line_num) {
+                in_setup_block = true;
+                brace_depth = 0;
+            }
+
+            if in_setup_block {
+                // Track brace depth to know when we exit the method
+                for ch in line.chars() {
+                    match ch {
+                        '{' => brace_depth += 1,
+                        '}' => {
+                            brace_depth -= 1;
+                            if brace_depth == 0 {
+                                in_setup_block = false;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Extract variable assignments in setup block
+                if (in_setup_block || brace_depth > 0)
+                    && let Some(var) = Self::extract_assigned_var(line, language)
+                {
+                    self.setup_initialized_vars.insert(var);
+                }
+            }
+        }
+    }
+
+    /// Extract the variable name from an assignment
+    fn extract_assigned_var(line: &str, language: Language) -> Option<String> {
+        let trimmed = line.trim();
+
+        match language {
+            Language::Java => {
+                // this.conn = dataSource.getConnection();
+                // conn = dataSource.getConnection();
+                if let Some(eq_pos) = trimmed.find('=')
+                    && eq_pos > 0
+                    && !trimmed[..eq_pos].ends_with(['!', '<', '>', '='])
+                {
+                    let lhs = trimmed[..eq_pos].trim();
+                    // Handle "this.field" pattern
+                    if let Some(dot_pos) = lhs.find("this.") {
+                        return Some(lhs[dot_pos + 5..].trim().to_string());
+                    }
+                    // Handle simple variable
+                    let words: Vec<&str> = lhs.split_whitespace().collect();
+                    if let Some(name) = words.last() {
+                        return Some(name.to_string());
+                    }
+                }
+                None
+            }
+            Language::JavaScript | Language::TypeScript => {
+                // this.conn = await pool.getConnection();
+                // const conn = await pool.getConnection();
+                // let conn = pool.getConnection();
+                if let Some(eq_pos) = trimmed.find('=')
+                    && eq_pos > 0
+                    && !trimmed[..eq_pos].ends_with(['!', '<', '>', '='])
+                {
+                    let lhs = trimmed[..eq_pos].trim();
+                    // Handle "this.field" pattern
+                    if let Some(dot_pos) = lhs.find("this.") {
+                        return Some(lhs[dot_pos + 5..].trim().to_string());
+                    }
+                    // Handle const/let/var declarations
+                    let lhs = lhs
+                        .trim_start_matches("const ")
+                        .trim_start_matches("let ")
+                        .trim_start_matches("var ")
+                        .trim();
+                    if !lhs.is_empty() && !lhs.contains(' ') {
+                        return Some(lhs.to_string());
+                    }
+                }
+                None
+            }
+            Language::Python => {
+                // self.conn = pool.get_connection()
+                // conn = pool.get_connection()
+                if let Some(eq_pos) = trimmed.find('=')
+                    && eq_pos > 0
+                    && !trimmed[..eq_pos].ends_with(['!', '<', '>', '='])
+                {
+                    let lhs = trimmed[..eq_pos].trim();
+                    // Handle "self.field" pattern
+                    if let Some(dot_pos) = lhs.find("self.") {
+                        return Some(lhs[dot_pos + 5..].trim().to_string());
+                    }
+                    // Handle simple variable
+                    if !lhs.contains(' ') && !lhs.contains('[') {
+                        return Some(lhs.to_string());
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if a variable was initialized in a setup method
+    pub fn is_setup_initialized(&self, var_name: &str) -> bool {
+        self.setup_initialized_vars.contains(var_name)
+    }
+
+    /// Check if we're in a test file with setup methods
+    pub fn has_setup_context(&self) -> bool {
+        self.is_test_file && !self.setup_method_lines.is_empty()
+    }
+}
+
+/// DI (Dependency Injection) context for tracking injected fields
+#[derive(Debug, Clone, Default)]
+pub struct DIContext {
+    /// Fields annotated with DI annotations (field name -> annotation)
+    pub injected_fields: HashMap<String, String>,
+    /// Whether DI framework is detected
+    pub has_di_framework: bool,
+}
+
+impl DIContext {
+    /// Create a new empty DI context
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Build DI context from parsed file content
+    pub fn from_content(content: &str, language: Language) -> Self {
+        let mut ctx = Self::new();
+        ctx.detect_di_context(content, language);
+        ctx
+    }
+
+    /// DI annotation patterns by language
+    fn di_annotations(language: Language) -> Vec<&'static str> {
+        match language {
+            Language::Java => vec![
+                "@Autowired",
+                "@Inject",
+                "@Resource",
+                "@Value",
+                "@PersistenceContext",
+                "@EJB",
+            ],
+            Language::TypeScript | Language::JavaScript => vec![
+                "@Inject",
+                "@Injectable",
+                // NestJS patterns
+                "@InjectRepository",
+                "@InjectConnection",
+            ],
+            Language::Python => vec![
+                "@inject", "@Inject", // FastAPI patterns
+                "Depends(",
+            ],
+            _ => vec![],
+        }
+    }
+
+    /// Detect DI context from file content
+    fn detect_di_context(&mut self, content: &str, language: Language) {
+        let annotations = Self::di_annotations(language);
+        if annotations.is_empty() {
+            return;
+        }
+
+        let lines: Vec<&str> = content.lines().collect();
+        let mut pending_annotation: Option<&str> = None;
+
+        for line in lines.iter() {
+            for annotation in &annotations {
+                if line.contains(annotation) {
+                    self.has_di_framework = true;
+
+                    // Try to extract the field name from current line
+                    if let Some(field_name) = Self::extract_di_field(line, language) {
+                        self.injected_fields
+                            .insert(field_name, annotation.to_string());
+                    } else if language == Language::Java {
+                        // In Java, annotation might be on a separate line
+                        // Look at the next line for the field declaration
+                        pending_annotation = Some(annotation);
+                    }
+                }
+            }
+
+            // Handle pending annotation (annotation was on previous line)
+            if let Some(annotation) = pending_annotation {
+                // Check if this line looks like a field declaration
+                let trimmed = line.trim();
+                if !trimmed.starts_with('@') && !trimmed.is_empty() && !trimmed.starts_with("//") {
+                    if let Some(field_name) =
+                        Self::extract_field_from_declaration(trimmed, language)
+                    {
+                        self.injected_fields
+                            .insert(field_name, annotation.to_string());
+                    }
+                    pending_annotation = None;
+                }
+            }
+        }
+    }
+
+    /// Extract field name from a field declaration (without annotation)
+    fn extract_field_from_declaration(line: &str, language: Language) -> Option<String> {
+        let trimmed = line.trim().trim_end_matches(';').trim();
+
+        match language {
+            Language::Java => {
+                // private DataSource dataSource
+                // private final UserRepository userRepo
+                let words: Vec<&str> = trimmed.split_whitespace().collect();
+                // Last word is the field name
+                words.last().map(|s| s.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract field name from a DI-annotated line
+    fn extract_di_field(line: &str, language: Language) -> Option<String> {
+        let trimmed = line.trim();
+
+        match language {
+            Language::Java => {
+                // @Autowired private DataSource dataSource;
+                // @Inject DataSource ds;
+                let after_annotation = if let Some(pos) = trimmed.rfind('@') {
+                    // Find end of annotation
+                    let rest = &trimmed[pos..];
+                    if let Some(space_pos) = rest.find(' ') {
+                        rest[space_pos..].trim()
+                    } else {
+                        return None;
+                    }
+                } else {
+                    trimmed
+                };
+
+                // Extract last word before semicolon
+                let field_part = after_annotation.trim_end_matches(';').trim();
+                let words: Vec<&str> = field_part.split_whitespace().collect();
+                words.last().map(|s| s.to_string())
+            }
+            Language::TypeScript | Language::JavaScript => {
+                // @Inject() private readonly dataSource: DataSource
+                // constructor(@Inject() private ds: DataSource)
+                if let Some(colon_pos) = trimmed.find(':') {
+                    let before_colon = &trimmed[..colon_pos];
+                    let words: Vec<&str> = before_colon.split_whitespace().collect();
+                    words.last().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if a field is DI-managed
+    pub fn is_injected(&self, field_name: &str) -> bool {
+        self.injected_fields.contains_key(field_name)
+    }
+
+    /// Check if DI framework is present
+    pub fn has_di(&self) -> bool {
+        self.has_di_framework
+    }
+}
 
 /// Combined flow analysis context passed to flow-aware rules
 ///
@@ -114,6 +640,18 @@ pub struct FlowContext {
 
     /// Typestate analysis results (lazily computed)
     typestate_results: Option<Vec<TypestateResult>>,
+
+    /// Test context for detecting setup methods and initialized variables
+    test_context: Option<TestContext>,
+
+    /// DI context for tracking dependency-injected fields
+    di_context: Option<DIContext>,
+
+    /// Callback registry for tracking higher-order function taint flows (lazily computed)
+    callback_registry: Option<CallbackRegistry>,
+
+    /// Cached language for context building
+    language: Language,
 }
 
 impl FlowContext {
@@ -163,6 +701,10 @@ impl FlowContext {
             file_path: Some(parsed.path.clone()),
             cross_file_summaries: None,
             typestate_results: None,
+            test_context: None,
+            di_context: None,
+            callback_registry: None,
+            language,
         }
     }
 
@@ -203,6 +745,10 @@ impl FlowContext {
             file_path: Some(parsed.path.clone()),
             cross_file_summaries: None,
             typestate_results: None,
+            test_context: None,
+            di_context: None,
+            callback_registry: None,
+            language,
         }
     }
 
@@ -240,6 +786,10 @@ impl FlowContext {
             file_path: Some(parsed.path.clone()),
             cross_file_summaries: None,
             typestate_results: None,
+            test_context: None,
+            di_context: None,
+            callback_registry: None,
+            language,
         }
     }
 
@@ -289,6 +839,10 @@ impl FlowContext {
             file_path: Some(parsed.path.clone()),
             cross_file_summaries,
             typestate_results: None,
+            test_context: None,
+            di_context: None,
+            callback_registry: None,
+            language,
         }
     }
 
@@ -493,10 +1047,10 @@ impl FlowContext {
     /// Get the nullability of a variable at a specific block (with refinements)
     pub fn nullability_at_block(&self, block_id: BlockId, var_name: &str) -> Nullability {
         // First check refinements (from null checks in conditions)
-        if let Some(refinements) = &self.nullability_refinements {
-            if let Some(refined) = refinements.get(block_id, var_name) {
-                return refined;
-            }
+        if let Some(refinements) = &self.nullability_refinements
+            && let Some(refined) = refinements.get(block_id, var_name)
+        {
+            return refined;
         }
         // Fall back to type result
         self.type_result
@@ -831,6 +1385,151 @@ impl FlowContext {
             .map(|results| results.iter().flat_map(|r| r.violations.iter()).collect())
             .unwrap_or_default()
     }
+
+    // =========================================================================
+    // Test Context queries
+    // =========================================================================
+
+    /// Get or compute the test context (lazily computed)
+    pub fn test_context(&mut self) -> &TestContext {
+        if self.test_context.is_none() {
+            if let Some(source) = &self.source {
+                let content = String::from_utf8_lossy(source);
+                self.test_context = Some(TestContext::from_content(&content, self.language));
+            } else {
+                self.test_context = Some(TestContext::new());
+            }
+        }
+        self.test_context.as_ref().unwrap()
+    }
+
+    /// Check if this is a test file with setup methods
+    pub fn has_test_setup_context(&mut self) -> bool {
+        self.test_context().has_setup_context()
+    }
+
+    /// Check if a variable was initialized in a setup method (@Before, setUp, etc.)
+    pub fn is_setup_initialized(&mut self, var_name: &str) -> bool {
+        self.test_context().is_setup_initialized(var_name)
+    }
+
+    /// Get variables initialized in setup methods
+    pub fn setup_initialized_vars(&mut self) -> &HashSet<String> {
+        &self.test_context().setup_initialized_vars
+    }
+
+    // =========================================================================
+    // DI Context queries
+    // =========================================================================
+
+    /// Get or compute the DI context (lazily computed)
+    pub fn di_context(&mut self) -> &DIContext {
+        if self.di_context.is_none() {
+            if let Some(source) = &self.source {
+                let content = String::from_utf8_lossy(source);
+                self.di_context = Some(DIContext::from_content(&content, self.language));
+            } else {
+                self.di_context = Some(DIContext::new());
+            }
+        }
+        self.di_context.as_ref().unwrap()
+    }
+
+    /// Check if a field is dependency-injected (@Autowired, @Inject, etc.)
+    pub fn is_injected_field(&mut self, field_name: &str) -> bool {
+        self.di_context().is_injected(field_name)
+    }
+
+    /// Check if DI framework is present in this file
+    pub fn has_di_framework(&mut self) -> bool {
+        self.di_context().has_di()
+    }
+
+    /// Get all injected fields
+    pub fn injected_fields(&mut self) -> &HashMap<String, String> {
+        &self.di_context().injected_fields
+    }
+
+    /// Get the language of this file
+    pub fn language(&self) -> Language {
+        self.language
+    }
+
+    // =========================================================================
+    // Callback Analysis queries
+    // =========================================================================
+
+    /// Compute callback taint flows (lazily computed)
+    ///
+    /// This analyzes the AST for callback patterns like:
+    /// - Array methods: map, filter, forEach
+    /// - Promise chains: .then(), .catch()
+    /// - Event handlers: on('event', handler)
+    ///
+    /// Returns the callback registry which can be queried for tainted callback parameters.
+    pub fn compute_callbacks(&mut self) -> &CallbackRegistry {
+        if let Some(ref registry) = self.callback_registry {
+            return registry;
+        }
+
+        if let (Some(tree), Some(source)) = (&self.tree, &self.source) {
+            let file_path = self.file_path.clone().unwrap_or_default();
+            let analyzer = CallbackAnalyzer::with_tainted_vars(
+                self.semantics,
+                source,
+                file_path,
+                self.taint.tainted_vars.clone(),
+            );
+            self.callback_registry = Some(analyzer.analyze(tree));
+        } else {
+            self.callback_registry = Some(CallbackRegistry::new());
+        }
+
+        self.callback_registry.as_ref().unwrap()
+    }
+
+    /// Get the callback registry (if already computed)
+    pub fn callback_registry(&self) -> Option<&CallbackRegistry> {
+        self.callback_registry.as_ref()
+    }
+
+    /// Check if a variable is tainted through a callback parameter
+    ///
+    /// This catches cases like:
+    /// ```javascript
+    /// taintedArray.forEach(item => {
+    ///     // 'item' is tainted through callback propagation
+    /// });
+    /// ```
+    pub fn is_tainted_via_callback(&mut self, var_name: &str) -> bool {
+        let registry = self.compute_callbacks();
+        registry.tainted_callback_params().contains(var_name)
+    }
+
+    /// Get all callback sites in the file
+    pub fn callback_sites(&mut self) -> &[CallbackSite] {
+        self.compute_callbacks().all_callbacks()
+    }
+
+    /// Get callback taint flows (source -> callback param)
+    pub fn callback_taint_flows(&mut self) -> &[CallbackTaintFlow] {
+        self.compute_callbacks().taint_flows()
+    }
+
+    /// Get all variables that are tainted (including through callbacks)
+    ///
+    /// This combines the results of basic taint analysis with callback taint propagation.
+    pub fn all_tainted_vars(&mut self) -> HashSet<String> {
+        let mut tainted = self.taint.tainted_vars.clone();
+        let callback_tainted = self.compute_callbacks().tainted_callback_params();
+        tainted.extend(callback_tainted);
+        tainted
+    }
+
+    /// Check if a variable is tainted (including callback propagation)
+    pub fn is_tainted_including_callbacks(&mut self, var_name: &str) -> bool {
+        self.taint.is_tainted(var_name) || self.is_tainted_via_callback(var_name)
+    }
 }
 
 #[cfg(test)]
@@ -896,5 +1595,94 @@ function handler(userInput) {
         assert!(ctx.is_function_def("function_declaration"));
         assert!(ctx.is_call("call_expression"));
         assert!(ctx.is_loop("for_statement"));
+    }
+
+    #[test]
+    fn test_test_context_js_detection() {
+        let code = r#"
+describe('User tests', () => {
+    let conn;
+
+    beforeEach(async () => {
+        conn = await pool.getConnection();
+    });
+
+    it('should query users', async () => {
+        const result = await conn.query('SELECT * FROM users');
+    });
+});
+"#;
+        let ctx = TestContext::from_content(code, Language::JavaScript);
+        assert!(ctx.is_test_file);
+        assert!(ctx.has_setup_context());
+        assert!(ctx.is_setup_initialized("conn"));
+    }
+
+    #[test]
+    fn test_test_context_java_detection() {
+        let code = r#"
+import org.junit.Before;
+import org.junit.Test;
+
+public class UserServiceTest {
+    private Connection conn;
+
+    @Before
+    public void setUp() {
+        this.conn = dataSource.getConnection();
+    }
+
+    @Test
+    public void testQuery() {
+        conn.query("SELECT * FROM users");
+    }
+}
+"#;
+        let ctx = TestContext::from_content(code, Language::Java);
+        assert!(ctx.is_test_file);
+        assert!(ctx.has_setup_context());
+        assert!(ctx.is_setup_initialized("conn"));
+    }
+
+    #[test]
+    fn test_di_context_java_detection() {
+        let code = r#"
+import org.springframework.beans.factory.annotation.Autowired;
+
+@Service
+public class UserService {
+    @Autowired
+    private DataSource dataSource;
+
+    @Inject
+    private UserRepository userRepo;
+
+    public void query() {
+        dataSource.getConnection().query("SELECT * FROM users");
+    }
+}
+"#;
+        let ctx = DIContext::from_content(code, Language::Java);
+        assert!(ctx.has_di());
+        assert!(ctx.is_injected("dataSource"));
+        assert!(ctx.is_injected("userRepo"));
+    }
+
+    #[test]
+    fn test_test_context_python_detection() {
+        let code = r#"
+import unittest
+
+class TestUserService(unittest.TestCase):
+    def setUp(self):
+        self.conn = get_connection()
+
+    def test_query(self):
+        result = self.conn.execute("SELECT * FROM users")
+"#;
+        let ctx = TestContext::from_content(code, Language::Python);
+        assert!(ctx.is_test_file);
+        assert!(ctx.has_setup_context());
+        assert!(ctx.is_setup_initialized("conn"));
     }
 }

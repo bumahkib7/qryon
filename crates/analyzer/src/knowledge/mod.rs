@@ -60,7 +60,8 @@ pub fn profiles_for_language(language: Language) -> Vec<&'static FrameworkProfil
         Language::JavaScript | Language::TypeScript => javascript::all_profiles(),
         Language::Python => python::all_profiles(),
         Language::Java => java::all_profiles(),
-        Language::Unknown => vec![],
+        // Other languages don't have framework profiles yet
+        _ => vec![],
     }
 }
 

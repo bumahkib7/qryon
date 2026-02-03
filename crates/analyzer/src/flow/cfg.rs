@@ -401,15 +401,15 @@ impl CFGBuilder {
                 if *try_block < self.blocks.len() {
                     self.blocks[*try_block].predecessors.push(block);
                 }
-                if let Some(cb) = catch_block {
-                    if *cb < self.blocks.len() {
-                        self.blocks[*cb].predecessors.push(block);
-                    }
+                if let Some(cb) = catch_block
+                    && *cb < self.blocks.len()
+                {
+                    self.blocks[*cb].predecessors.push(block);
                 }
-                if let Some(fb) = finally_block {
-                    if *fb < self.blocks.len() {
-                        self.blocks[*fb].predecessors.push(block);
-                    }
+                if let Some(fb) = finally_block
+                    && *fb < self.blocks.len()
+                {
+                    self.blocks[*fb].predecessors.push(block);
                 }
             }
             Terminator::Return | Terminator::Unreachable | Terminator::Incomplete => {}
@@ -600,10 +600,10 @@ impl CFGBuilder {
 
         // Header block
         self.current_block = loop_header;
-        if let Some(cond) = condition {
-            if !is_do_while {
-                self.add_statement(cond.id());
-            }
+        if let Some(cond) = condition
+            && !is_do_while
+        {
+            self.add_statement(cond.id());
         }
 
         self.set_terminator(
@@ -630,10 +630,8 @@ impl CFGBuilder {
         }
 
         // For do-while, add condition at end of body
-        if is_do_while {
-            if let Some(cond) = condition {
-                self.add_statement(cond.id());
-            }
+        if is_do_while && let Some(cond) = condition {
+            self.add_statement(cond.id());
         }
 
         // Loop back to header (unless we returned/broke)
@@ -779,7 +777,7 @@ impl CFGBuilder {
     }
 
     /// Look for control flow in nested expressions (e.g., ternary operators)
-    fn process_nested_control_flow(&mut self, node: Node, source: &[u8], language: Language) {
+    fn process_nested_control_flow(&mut self, node: Node, _source: &[u8], _language: Language) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.is_named() {
@@ -796,7 +794,7 @@ impl CFGBuilder {
                     | "function_definition" => {}
                     // Recurse into other expressions
                     _ => {
-                        self.process_nested_control_flow(child, source, language);
+                        self.process_nested_control_flow(child, _source, _language);
                     }
                 }
             }

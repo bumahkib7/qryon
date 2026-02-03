@@ -210,7 +210,21 @@ impl LanguageSemantics {
             Language::Go => &go::GO_SEMANTICS,
             Language::Python => &python::PYTHON_SEMANTICS,
             Language::Java => &java::JAVA_SEMANTICS,
-            Language::Unknown => &javascript::JAVASCRIPT_SEMANTICS, // fallback
+            // Fallback to JavaScript semantics for other languages
+            _ => &javascript::JAVASCRIPT_SEMANTICS,
+        }
+    }
+
+    /// Convert the language string to a Language enum
+    pub fn language_enum(&self) -> Language {
+        match self.language {
+            "javascript" => Language::JavaScript,
+            "typescript" => Language::TypeScript,
+            "rust" => Language::Rust,
+            "go" => Language::Go,
+            "python" => Language::Python,
+            "java" => Language::Java,
+            _ => Language::Unknown,
         }
     }
 

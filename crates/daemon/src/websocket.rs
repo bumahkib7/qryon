@@ -338,6 +338,8 @@ mod tests {
             category: rma_common::FindingCategory::Security,
             fingerprint: None,
             properties: None,
+            occurrence_count: None,
+            additional_locations: None,
         };
 
         let dto = FindingDto::from(&finding);

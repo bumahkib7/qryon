@@ -131,15 +131,14 @@ pub fn parse_unified_diff(diff_text: &str, project_root: Option<&PathBuf>) -> Re
             current_file = Some(file_path);
         }
         // Handle hunk header: @@ -old_start,old_count +new_start,new_count @@
-        else if line.starts_with("@@ ") {
-            if let Some(ref file) = current_file {
-                if let Some((new_start, new_count)) = parse_hunk_header(line) {
-                    let lines = changed_lines.entry(file.clone()).or_default();
-                    // Add all lines in the new range
-                    for line_num in new_start..new_start + new_count {
-                        lines.insert(line_num);
-                    }
-                }
+        else if line.starts_with("@@ ")
+            && let Some(ref file) = current_file
+            && let Some((new_start, new_count)) = parse_hunk_header(line)
+        {
+            let lines = changed_lines.entry(file.clone()).or_default();
+            // Add all lines in the new range
+            for line_num in new_start..new_start + new_count {
+                lines.insert(line_num);
             }
         }
     }
@@ -521,6 +520,8 @@ index abc123..def456 100644
             category: rma_common::FindingCategory::Security,
             fingerprint: None,
             properties: None,
+            occurrence_count: None,
+            additional_locations: None,
         }
     }
 }

@@ -24,6 +24,7 @@
 
 pub mod gosec;
 pub mod osv;
+pub mod osv_db;
 #[cfg(feature = "oxc")]
 pub mod oxc_native;
 pub mod oxlint;
@@ -33,6 +34,7 @@ pub mod rustsec;
 
 pub use gosec::GosecProvider;
 pub use osv::OsvProvider;
+pub use osv_db::{OsvDatabase, OsvVulnerability, VulnMatch};
 #[cfg(feature = "oxc")]
 pub use oxc_native::OxcNativeProvider;
 pub use oxlint::OxlintProvider;

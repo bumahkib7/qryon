@@ -9,13 +9,13 @@ pub mod suppression;
 pub use config::{
     AllowConfig, AllowType, Baseline, BaselineConfig, BaselineEntry, BaselineMode,
     CURRENT_CONFIG_VERSION, ConfigLoadResult, ConfigSource, ConfigWarning,
-    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS, EffectiveConfig, Fingerprint,
-    GosecProviderConfig, InlineSuppression, OsvEcosystem, OsvProviderConfig, OxcProviderConfig,
-    OxlintProviderConfig, PmdProviderConfig, Profile, ProfileThresholds, ProfilesConfig,
-    ProviderType, ProvidersConfig, RULES_ALWAYS_ENABLED, RmaTomlConfig, RulesConfig,
-    RulesetsConfig, ScanConfig, SuppressionConfig, SuppressionEngine, SuppressionResult,
-    SuppressionSource, SuppressionType, ThresholdOverride, WarningLevel, parse_expiration_days,
-    parse_inline_suppressions,
+    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS, DEFAULT_VENDOR_IGNORE_PATHS,
+    EffectiveConfig, Fingerprint, GosecProviderConfig, InlineSuppression, OsvEcosystem,
+    OsvProviderConfig, OxcProviderConfig, OxlintProviderConfig, PmdProviderConfig, Profile,
+    ProfileThresholds, ProfilesConfig, ProviderType, ProvidersConfig, RULES_ALWAYS_ENABLED,
+    RmaTomlConfig, RulesConfig, RulesetsConfig, ScanConfig, SuppressionConfig, SuppressionEngine,
+    SuppressionResult, SuppressionSource, SuppressionType, ThresholdOverride, WarningLevel,
+    parse_expiration_days, parse_inline_suppressions,
 };
 
 use serde::{Deserialize, Serialize};
@@ -44,44 +44,248 @@ pub enum RmaError {
     Config(String),
 }
 
-/// Supported programming languages
+/// Supported programming languages (30+ tree-sitter grammars)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
+    // Systems languages
     Rust,
+    C,
+    Cpp,
+    Zig,
+
+    // JVM languages
+    Java,
+    Kotlin,
+    Scala,
+
+    // Web languages
     JavaScript,
     TypeScript,
+    Html,
+    Css,
+    Scss,
+    Vue,
+    Svelte,
+
+    // Scripting languages
     Python,
+    Ruby,
+    Php,
+    Lua,
+    Perl,
+
+    // Functional languages
+    Haskell,
+    OCaml,
+    Elixir,
+    Erlang,
+
+    // Other compiled languages
     Go,
-    Java,
+    Swift,
+    CSharp,
+    Dart,
+
+    // Data/Config languages
+    Json,
+    Yaml,
+    Toml,
+    Sql,
+    GraphQL,
+
+    // Infrastructure
+    Bash,
+    Dockerfile,
+    Hcl, // Terraform
+    Nix,
+
+    // Markup
+    Markdown,
+    Latex,
+
+    // Other
+    Solidity, // Smart contracts
+    Wasm,     // WebAssembly text format
+    Protobuf,
+
     Unknown,
 }
 
 impl Language {
     /// Detect language from file extension
+    #[inline]
     pub fn from_extension(ext: &str) -> Self {
         match ext.to_lowercase().as_str() {
+            // Systems
             "rs" => Language::Rust,
-            "js" | "mjs" | "cjs" => Language::JavaScript,
-            "ts" | "tsx" => Language::TypeScript,
-            "py" | "pyi" => Language::Python,
-            "go" => Language::Go,
+            "c" | "h" => Language::C,
+            "cc" | "cpp" | "cxx" | "hpp" | "hxx" | "hh" => Language::Cpp,
+            "zig" => Language::Zig,
+
+            // JVM
             "java" => Language::Java,
+            "kt" | "kts" => Language::Kotlin,
+            "scala" | "sc" => Language::Scala,
+
+            // Web
+            "js" | "mjs" | "cjs" | "jsx" => Language::JavaScript,
+            "ts" | "tsx" | "mts" | "cts" => Language::TypeScript,
+            "html" | "htm" => Language::Html,
+            "css" => Language::Css,
+            "scss" | "sass" => Language::Scss,
+            "vue" => Language::Vue,
+            "svelte" => Language::Svelte,
+
+            // Scripting
+            "py" | "pyi" | "pyw" => Language::Python,
+            "rb" | "erb" | "rake" | "gemspec" => Language::Ruby,
+            "php" | "phtml" | "php3" | "php4" | "php5" | "phps" => Language::Php,
+            "lua" => Language::Lua,
+            "pl" | "pm" | "t" => Language::Perl,
+
+            // Functional
+            "hs" | "lhs" => Language::Haskell,
+            "ml" | "mli" => Language::OCaml,
+            "ex" | "exs" => Language::Elixir,
+            "erl" | "hrl" => Language::Erlang,
+
+            // Other compiled
+            "go" => Language::Go,
+            "swift" => Language::Swift,
+            "cs" | "csx" => Language::CSharp,
+            "dart" => Language::Dart,
+
+            // Data/Config
+            "json" | "jsonc" | "json5" => Language::Json,
+            "yaml" | "yml" => Language::Yaml,
+            "toml" => Language::Toml,
+            "sql" | "mysql" | "pgsql" | "plsql" => Language::Sql,
+            "graphql" | "gql" => Language::GraphQL,
+
+            // Infrastructure
+            "sh" | "bash" | "zsh" | "fish" => Language::Bash,
+            "dockerfile" => Language::Dockerfile,
+            "tf" | "tfvars" | "hcl" => Language::Hcl,
+            "nix" => Language::Nix,
+
+            // Markup
+            "md" | "markdown" | "mdx" => Language::Markdown,
+            "tex" | "latex" | "sty" | "cls" => Language::Latex,
+
+            // Other
+            "sol" => Language::Solidity,
+            "wat" | "wast" => Language::Wasm,
+            "proto" | "proto3" => Language::Protobuf,
+
             _ => Language::Unknown,
         }
     }
 
     /// Get file extensions for this language
+    #[inline]
     pub fn extensions(&self) -> &'static [&'static str] {
         match self {
             Language::Rust => &["rs"],
-            Language::JavaScript => &["js", "mjs", "cjs"],
-            Language::TypeScript => &["ts", "tsx"],
-            Language::Python => &["py", "pyi"],
-            Language::Go => &["go"],
+            Language::C => &["c", "h"],
+            Language::Cpp => &["cc", "cpp", "cxx", "hpp", "hxx", "hh"],
+            Language::Zig => &["zig"],
             Language::Java => &["java"],
+            Language::Kotlin => &["kt", "kts"],
+            Language::Scala => &["scala", "sc"],
+            Language::JavaScript => &["js", "mjs", "cjs", "jsx"],
+            Language::TypeScript => &["ts", "tsx", "mts", "cts"],
+            Language::Html => &["html", "htm"],
+            Language::Css => &["css"],
+            Language::Scss => &["scss", "sass"],
+            Language::Vue => &["vue"],
+            Language::Svelte => &["svelte"],
+            Language::Python => &["py", "pyi", "pyw"],
+            Language::Ruby => &["rb", "erb", "rake", "gemspec"],
+            Language::Php => &["php", "phtml"],
+            Language::Lua => &["lua"],
+            Language::Perl => &["pl", "pm", "t"],
+            Language::Haskell => &["hs", "lhs"],
+            Language::OCaml => &["ml", "mli"],
+            Language::Elixir => &["ex", "exs"],
+            Language::Erlang => &["erl", "hrl"],
+            Language::Go => &["go"],
+            Language::Swift => &["swift"],
+            Language::CSharp => &["cs", "csx"],
+            Language::Dart => &["dart"],
+            Language::Json => &["json", "jsonc", "json5"],
+            Language::Yaml => &["yaml", "yml"],
+            Language::Toml => &["toml"],
+            Language::Sql => &["sql", "mysql", "pgsql"],
+            Language::GraphQL => &["graphql", "gql"],
+            Language::Bash => &["sh", "bash", "zsh", "fish"],
+            Language::Dockerfile => &["dockerfile"],
+            Language::Hcl => &["tf", "tfvars", "hcl"],
+            Language::Nix => &["nix"],
+            Language::Markdown => &["md", "markdown", "mdx"],
+            Language::Latex => &["tex", "latex", "sty", "cls"],
+            Language::Solidity => &["sol"],
+            Language::Wasm => &["wat", "wast"],
+            Language::Protobuf => &["proto", "proto3"],
             Language::Unknown => &[],
         }
+    }
+
+    /// Check if this language is a systems language (for memory safety analysis)
+    #[inline]
+    pub fn is_systems_language(&self) -> bool {
+        matches!(
+            self,
+            Language::Rust | Language::C | Language::Cpp | Language::Zig
+        )
+    }
+
+    /// Check if this language is a scripting language
+    #[inline]
+    pub fn is_scripting_language(&self) -> bool {
+        matches!(
+            self,
+            Language::JavaScript
+                | Language::TypeScript
+                | Language::Python
+                | Language::Ruby
+                | Language::Php
+                | Language::Lua
+                | Language::Perl
+        )
+    }
+
+    /// Check if this language is a JVM language
+    #[inline]
+    pub fn is_jvm_language(&self) -> bool {
+        matches!(self, Language::Java | Language::Kotlin | Language::Scala)
+    }
+
+    /// Check if this language is a functional language
+    #[inline]
+    pub fn is_functional_language(&self) -> bool {
+        matches!(
+            self,
+            Language::Haskell | Language::OCaml | Language::Elixir | Language::Erlang
+        )
+    }
+
+    /// Check if this language is a data/config language
+    #[inline]
+    pub fn is_data_language(&self) -> bool {
+        matches!(
+            self,
+            Language::Json | Language::Yaml | Language::Toml | Language::Sql | Language::GraphQL
+        )
+    }
+
+    /// Check if this language supports security scanning (has security-relevant constructs)
+    #[inline]
+    pub fn supports_security_scanning(&self) -> bool {
+        !matches!(
+            self,
+            Language::Unknown | Language::Markdown | Language::Latex | Language::Wasm
+        )
     }
 }
 
@@ -89,11 +293,46 @@ impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Language::Rust => write!(f, "rust"),
+            Language::C => write!(f, "c"),
+            Language::Cpp => write!(f, "cpp"),
+            Language::Zig => write!(f, "zig"),
+            Language::Java => write!(f, "java"),
+            Language::Kotlin => write!(f, "kotlin"),
+            Language::Scala => write!(f, "scala"),
             Language::JavaScript => write!(f, "javascript"),
             Language::TypeScript => write!(f, "typescript"),
+            Language::Html => write!(f, "html"),
+            Language::Css => write!(f, "css"),
+            Language::Scss => write!(f, "scss"),
+            Language::Vue => write!(f, "vue"),
+            Language::Svelte => write!(f, "svelte"),
             Language::Python => write!(f, "python"),
+            Language::Ruby => write!(f, "ruby"),
+            Language::Php => write!(f, "php"),
+            Language::Lua => write!(f, "lua"),
+            Language::Perl => write!(f, "perl"),
+            Language::Haskell => write!(f, "haskell"),
+            Language::OCaml => write!(f, "ocaml"),
+            Language::Elixir => write!(f, "elixir"),
+            Language::Erlang => write!(f, "erlang"),
             Language::Go => write!(f, "go"),
-            Language::Java => write!(f, "java"),
+            Language::Swift => write!(f, "swift"),
+            Language::CSharp => write!(f, "csharp"),
+            Language::Dart => write!(f, "dart"),
+            Language::Json => write!(f, "json"),
+            Language::Yaml => write!(f, "yaml"),
+            Language::Toml => write!(f, "toml"),
+            Language::Sql => write!(f, "sql"),
+            Language::GraphQL => write!(f, "graphql"),
+            Language::Bash => write!(f, "bash"),
+            Language::Dockerfile => write!(f, "dockerfile"),
+            Language::Hcl => write!(f, "hcl"),
+            Language::Nix => write!(f, "nix"),
+            Language::Markdown => write!(f, "markdown"),
+            Language::Latex => write!(f, "latex"),
+            Language::Solidity => write!(f, "solidity"),
+            Language::Wasm => write!(f, "wasm"),
+            Language::Protobuf => write!(f, "protobuf"),
             Language::Unknown => write!(f, "unknown"),
         }
     }
@@ -272,6 +511,13 @@ pub struct Finding {
     /// Additional properties (e.g., import_hits, import_files_sample for OSV findings)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub properties: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Number of occurrences when deduplicated (same rule in same file)
+    /// None or 1 means single occurrence, >1 means multiple occurrences consolidated
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub occurrence_count: Option<usize>,
+    /// Additional line numbers when occurrence_count > 1
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub additional_locations: Option<Vec<usize>>,
 }
 
 impl Finding {
@@ -293,6 +539,78 @@ impl Finding {
         let hash = hasher.finalize();
         self.fingerprint = Some(format!("sha256:{:x}", hash)[..23].to_string());
     }
+}
+
+/// Deduplicate findings by grouping same rule in same file
+///
+/// When the same rule fires multiple times in the same file, consolidates them
+/// into a single finding with `occurrence_count` set to the total count.
+/// The first occurrence is kept as the representative, with additional line
+/// numbers stored in `additional_locations`.
+///
+/// # Arguments
+/// * `findings` - Vector of findings to deduplicate
+///
+/// # Returns
+/// * Deduplicated vector of findings with occurrence counts
+pub fn deduplicate_findings(findings: Vec<Finding>) -> Vec<Finding> {
+    use std::collections::HashMap;
+
+    // Group by (file, rule_id)
+    let mut grouped: HashMap<(String, String), Vec<Finding>> = HashMap::new();
+
+    for finding in findings {
+        let key = (
+            finding.location.file.to_string_lossy().to_string(),
+            finding.rule_id.clone(),
+        );
+        grouped.entry(key).or_default().push(finding);
+    }
+
+    // Consolidate each group
+    let mut result = Vec::new();
+    for ((_file, _rule_id), mut group) in grouped {
+        if group.len() == 1 {
+            // Single occurrence - no deduplication needed
+            result.push(group.remove(0));
+        } else {
+            // Multiple occurrences - consolidate
+            let count = group.len();
+
+            // Sort by line number to get the first occurrence
+            group.sort_by_key(|f| f.location.start_line);
+
+            // Take the first as representative
+            let mut representative = group.remove(0);
+
+            // Collect additional line numbers
+            let additional_lines: Vec<usize> =
+                group.iter().map(|f| f.location.start_line).collect();
+
+            representative.occurrence_count = Some(count);
+            representative.additional_locations = Some(additional_lines);
+
+            // Update message to indicate deduplication
+            representative.message = format!(
+                "{} ({} occurrences in this file)",
+                representative.message, count
+            );
+
+            result.push(representative);
+        }
+    }
+
+    // Sort by file and line for consistent output
+    result.sort_by(|a, b| {
+        let file_cmp = a.location.file.cmp(&b.location.file);
+        if file_cmp == std::cmp::Ordering::Equal {
+            a.location.start_line.cmp(&b.location.start_line)
+        } else {
+            file_cmp
+        }
+    });
+
+    result
 }
 
 /// Code metrics for a file or function

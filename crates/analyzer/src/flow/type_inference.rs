@@ -544,30 +544,27 @@ impl TypeInferrer {
         }
 
         // Parenthesized expression - unwrap
-        if kind == "parenthesized_expression" {
-            if let Some(inner) = node.named_child(0) {
-                return self.infer_type(inner, source);
-            }
+        if kind == "parenthesized_expression"
+            && let Some(inner) = node.named_child(0)
+        {
+            return self.infer_type(inner, source);
         }
 
         // Await expression - unwrap
-        if kind == "await_expression" {
-            if let Some(inner) = node.named_child(0) {
-                return self.infer_type(inner, source);
-            }
+        if kind == "await_expression"
+            && let Some(inner) = node.named_child(0)
+        {
+            return self.infer_type(inner, source);
         }
 
         // Ternary/conditional expression
         if kind == "ternary_expression" || kind == "conditional_expression" {
             let consequence = node.child_by_field_name("consequence");
             let alternative = node.child_by_field_name("alternative");
-            match (consequence, alternative) {
-                (Some(c), Some(a)) => {
-                    let c_type = self.infer_type(c, source);
-                    let a_type = self.infer_type(a, source);
-                    return c_type.merge(a_type);
-                }
-                _ => {}
+            if let (Some(c), Some(a)) = (consequence, alternative) {
+                let c_type = self.infer_type(c, source);
+                let a_type = self.infer_type(a, source);
+                return c_type.merge(a_type);
             }
         }
 
@@ -596,7 +593,7 @@ impl TypeInferrer {
 
             // Special cases for constructors/factories
             if func_text.starts_with("new ")
-                || func_text.chars().next().map_or(false, |c| c.is_uppercase())
+                || func_text.chars().next().is_some_and(|c| c.is_uppercase())
             {
                 return TypeInfo::new(InferredType::Object);
             }
@@ -834,21 +831,21 @@ impl TypeInferenceTransfer {
         let sem = self.semantics;
 
         // Variable declaration with initializer
-        if sem.is_variable_declaration(kind) {
-            if let Some((var_name, type_info)) = self.extract_declaration_type(node, source) {
-                // Remove any existing facts for this variable
-                state.retain(|fact| fact.var_name != var_name);
-                // Add new fact
-                state.insert(TypeFact::new(var_name, type_info));
-            }
+        if sem.is_variable_declaration(kind)
+            && let Some((var_name, type_info)) = self.extract_declaration_type(node, source)
+        {
+            // Remove any existing facts for this variable
+            state.retain(|fact| fact.var_name != var_name);
+            // Add new fact
+            state.insert(TypeFact::new(var_name, type_info));
         }
 
         // Assignment expression
-        if sem.is_assignment(kind) {
-            if let Some((var_name, type_info)) = self.extract_assignment_type(node, source) {
-                state.retain(|fact| fact.var_name != var_name);
-                state.insert(TypeFact::new(var_name, type_info));
-            }
+        if sem.is_assignment(kind)
+            && let Some((var_name, type_info)) = self.extract_assignment_type(node, source)
+        {
+            state.retain(|fact| fact.var_name != var_name);
+            state.insert(TypeFact::new(var_name, type_info));
         }
 
         // Process children for nested statements
@@ -1019,11 +1016,11 @@ impl TypeInferenceTransfer {
                 (None, None)
             };
 
-            if let (Some(var), Some(_)) = (var_node, null_node) {
-                if self.semantics.is_identifier(var.kind()) || var.kind() == "identifier" {
-                    let var_name = var.utf8_text(source).ok()?.to_string();
-                    return Some((var_name, true, is_equality));
-                }
+            if let (Some(var), Some(_)) = (var_node, null_node)
+                && (self.semantics.is_identifier(var.kind()) || var.kind() == "identifier")
+            {
+                let var_name = var.utf8_text(source).ok()?.to_string();
+                return Some((var_name, true, is_equality));
             }
         }
 
@@ -1039,10 +1036,10 @@ impl TypeInferenceTransfer {
         if kind == "undefined" {
             return true;
         }
-        if kind == "identifier" {
-            if let Ok(text) = node.utf8_text(source) {
-                return text == "null" || text == "undefined" || text == "nil" || text == "None";
-            }
+        if kind == "identifier"
+            && let Ok(text) = node.utf8_text(source)
+        {
+            return text == "null" || text == "undefined" || text == "nil" || text == "None";
         }
         false
     }
@@ -1142,32 +1139,29 @@ pub fn compute_nullability_refinements(
             true_block,
             false_block,
         } = &block.terminator
+            && let Some(cond) = find_node_by_id(tree, *condition_node)
+            && let Some((var_name, _is_null_check, is_equality)) =
+                transfer.extract_null_check(cond, source)
         {
-            if let Some(cond) = find_node_by_id(tree, *condition_node) {
-                if let Some((var_name, _is_null_check, is_equality)) =
-                    transfer.extract_null_check(cond, source)
-                {
-                    // After `if (x == null)`:
-                    //   - true branch: x is DefinitelyNull
-                    //   - false branch: x is DefinitelyNonNull
-                    // After `if (x != null)`:
-                    //   - true branch: x is DefinitelyNonNull
-                    //   - false branch: x is DefinitelyNull
+            // After `if (x == null)`:
+            //   - true branch: x is DefinitelyNull
+            //   - false branch: x is DefinitelyNonNull
+            // After `if (x != null)`:
+            //   - true branch: x is DefinitelyNonNull
+            //   - false branch: x is DefinitelyNull
 
-                    if is_equality {
-                        // x == null
-                        refinements.set(*true_block, var_name.clone(), Nullability::DefinitelyNull);
-                        refinements.set(*false_block, var_name, Nullability::DefinitelyNonNull);
-                    } else {
-                        // x != null
-                        refinements.set(
-                            *true_block,
-                            var_name.clone(),
-                            Nullability::DefinitelyNonNull,
-                        );
-                        refinements.set(*false_block, var_name, Nullability::DefinitelyNull);
-                    }
-                }
+            if is_equality {
+                // x == null
+                refinements.set(*true_block, var_name.clone(), Nullability::DefinitelyNull);
+                refinements.set(*false_block, var_name, Nullability::DefinitelyNonNull);
+            } else {
+                // x != null
+                refinements.set(
+                    *true_block,
+                    var_name.clone(),
+                    Nullability::DefinitelyNonNull,
+                );
+                refinements.set(*false_block, var_name, Nullability::DefinitelyNull);
             }
         }
     }

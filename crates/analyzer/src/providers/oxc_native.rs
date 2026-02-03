@@ -211,6 +211,8 @@ impl OxcNativeProvider {
                 category,
                 fingerprint: None,
                 properties: None,
+                occurrence_count: None,
+                additional_locations: None,
             };
             finding.compute_fingerprint();
             findings.push(finding);

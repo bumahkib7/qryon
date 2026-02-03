@@ -6,6 +6,184 @@
 use rma_common::Severity;
 use std::borrow::Cow;
 
+// ============================================================================
+// Context-Aware Sink Analysis Types
+// ============================================================================
+
+/// The security context where a sink is used.
+///
+/// Different contexts require different sanitization strategies:
+/// - HTML contexts need HTML encoding
+/// - URL contexts need URL encoding
+/// - SQL contexts need parameterization or escaping
+/// - Command contexts need shell escaping or argument separation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SinkContext {
+    /// Plain text content in HTML (between tags) - needs HTML entity encoding
+    HtmlText,
+
+    /// HTML attribute value - needs attribute encoding (quotes, entities)
+    HtmlAttribute,
+
+    /// Raw/unescaped HTML injection - extremely dangerous, no safe sanitization
+    HtmlRaw,
+
+    /// JavaScript code context - needs JS string escaping or CSP
+    JavaScript,
+
+    /// URL context (redirects, hrefs, fetch URLs) - needs URL validation/encoding
+    Url,
+
+    /// SQL query context - needs parameterization (escaping is risky)
+    Sql,
+
+    /// OS command execution - base context for all command sinks
+    Command,
+
+    /// Shell string execution - sh -c, cmd /c, system(), backticks
+    /// Most dangerous - shell interprets the string
+    CommandShell,
+
+    /// Exec with args list - Command::new().args(), spawn with array
+    /// Safe if binary is constant; validate args for flags/options
+    CommandExecArgs,
+
+    /// Binary path from tainted input - Command::new(user_input)
+    /// Very dangerous - attacker chooses what to execute
+    CommandBinaryTaint,
+
+    /// Template engine context - depends on engine's auto-escaping
+    Template,
+
+    /// File path context - path traversal, file operations
+    /// Needs path canonicalization, base directory restriction
+    FilePath,
+
+    /// Context couldn't be determined
+    Unknown,
+}
+
+impl SinkContext {
+    /// Returns true if this context has any known safe sanitization
+    pub fn has_safe_sanitization(&self) -> bool {
+        match self {
+            SinkContext::HtmlText | SinkContext::HtmlAttribute => true,
+            SinkContext::Url => true,
+            SinkContext::Sql => true,
+            SinkContext::Command | SinkContext::CommandExecArgs => true,
+            SinkContext::Template => true,
+            SinkContext::FilePath => true, // Can be sanitized with canonicalization + base dir check
+            SinkContext::HtmlRaw => false,
+            SinkContext::JavaScript => false,
+            SinkContext::CommandShell => false, // Shell strings are inherently risky
+            SinkContext::CommandBinaryTaint => false, // Can't sanitize binary path choice
+            SinkContext::Unknown => false,
+        }
+    }
+
+    /// Returns the CWE ID most associated with this context
+    pub fn primary_cwe(&self) -> &'static str {
+        match self {
+            SinkContext::HtmlText | SinkContext::HtmlAttribute | SinkContext::HtmlRaw => "CWE-79",
+            SinkContext::JavaScript => "CWE-79",
+            SinkContext::Url => "CWE-601",
+            SinkContext::Sql => "CWE-89",
+            SinkContext::Command
+            | SinkContext::CommandShell
+            | SinkContext::CommandExecArgs
+            | SinkContext::CommandBinaryTaint => "CWE-78",
+            SinkContext::Template => "CWE-1336", // SSTI - more precise than CWE-94
+            SinkContext::FilePath => "CWE-22",   // Path Traversal
+            SinkContext::Unknown => "CWE-74",
+        }
+    }
+
+    /// Returns a human-readable description for findings
+    pub fn description(&self) -> &'static str {
+        match self {
+            SinkContext::HtmlText => "HTML text content",
+            SinkContext::HtmlAttribute => "HTML attribute value",
+            SinkContext::HtmlRaw => "raw/unescaped HTML",
+            SinkContext::JavaScript => "JavaScript code",
+            SinkContext::Url => "URL/redirect target",
+            SinkContext::Sql => "SQL query",
+            SinkContext::Command => "OS command",
+            SinkContext::CommandShell => "shell string execution",
+            SinkContext::CommandExecArgs => "command with args array",
+            SinkContext::CommandBinaryTaint => "tainted binary path",
+            SinkContext::Template => "server-side template",
+            SinkContext::FilePath => "file path operation",
+            SinkContext::Unknown => "unknown context",
+        }
+    }
+
+    /// Returns true if this is a command-related context
+    pub fn is_command(&self) -> bool {
+        matches!(
+            self,
+            SinkContext::Command
+                | SinkContext::CommandShell
+                | SinkContext::CommandExecArgs
+                | SinkContext::CommandBinaryTaint
+        )
+    }
+}
+
+/// A context-aware sink definition that links sinks to specific contexts
+#[derive(Debug, Clone)]
+pub struct ContextualSinkDef {
+    /// The base sink definition
+    pub base: SinkDef,
+
+    /// The security context this sink operates in
+    pub context: SinkContext,
+
+    /// Sanitizers that are effective for this specific context
+    /// e.g., ["html_escape", "encode_entities"] for HtmlText
+    pub effective_sanitizers: &'static [&'static str],
+
+    /// Taint kinds that are dangerous in this context (empty = all dangerous)
+    /// Uses string labels matching flow::TaintKind variant names
+    pub dangerous_taint_labels: &'static [&'static str],
+}
+
+/// Effect of a sanitizer - what it cleans and in what contexts
+#[derive(Debug, Clone)]
+pub struct SanitizerEffect {
+    /// The base sanitizer definition
+    pub base: SanitizerDef,
+
+    /// Contexts where this sanitizer is effective
+    pub effective_contexts: &'static [SinkContext],
+
+    /// Taint labels this sanitizer clears (empty = all)
+    pub clears_taint_labels: &'static [&'static str],
+
+    /// Whether this sanitizer is considered complete (vs partial mitigation)
+    pub is_complete: bool,
+}
+
+impl ContextualSinkDef {
+    /// Check if a taint label is dangerous for this sink
+    pub fn is_dangerous_taint_label(&self, label: &str) -> bool {
+        if self.dangerous_taint_labels.is_empty() {
+            return true; // All taint is dangerous if not specified
+        }
+        self.dangerous_taint_labels
+            .iter()
+            .any(|l| label.eq_ignore_ascii_case(l) || label.contains(l))
+    }
+
+    /// Check if a sanitizer name is effective for this sink
+    pub fn is_sanitizer_effective(&self, sanitizer_name: &str) -> bool {
+        self.effective_sanitizers.iter().any(|s| {
+            let s_lower = s.to_lowercase();
+            let name_lower = sanitizer_name.to_lowercase();
+            name_lower.contains(&s_lower) || s_lower.contains(&name_lower)
+        })
+    }
+}
+
 /// A framework profile containing security-relevant knowledge
 #[derive(Debug, Clone)]
 pub struct FrameworkProfile {

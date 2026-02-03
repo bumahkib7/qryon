@@ -130,6 +130,8 @@ impl From<PluginFinding> for Finding {
             category: rma_common::FindingCategory::Quality,
             fingerprint: None,
             properties: None,
+            occurrence_count: None,
+            additional_locations: None,
         };
         finding.compute_fingerprint();
         finding

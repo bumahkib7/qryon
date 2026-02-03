@@ -1,0 +1,21 @@
+@@ -520,12 +520,17 @@
+     #[test]
+     fn test_command_subtype_detection() {
+         // Shell invocation
+         assert_eq!(
+-            detect_command_subtype("os.system", Language::Python),
++            detect_command_subtype("os\x2esystem", Language::Python),
+             Some(SinkContext::CommandShell)
+         );
+-        // Args-based
++        // Args-based with string literal binary (safe pattern)
+         assert_eq!(
+-            detect_command_subtype("spawn", Language::JavaScript),
++            detect_command_subtype("spawn(\"node\")", Language::JavaScript),
+             Some(SinkContext::CommandExecArgs)
+         );
++        // Binary taint pattern (binary is a variable)
++        assert_eq!(
++            detect_command_subtype("spawn(binary)", Language::JavaScript),
++            Some(SinkContext::CommandBinaryTaint)
++        );

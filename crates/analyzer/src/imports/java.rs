@@ -213,10 +213,10 @@ fn is_external_java_package(import_path: &str) -> bool {
 fn is_public(node: tree_sitter::Node, source: &[u8]) -> bool {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "modifiers" {
-            if let Ok(text) = child.utf8_text(source) {
-                return text.contains("public");
-            }
+        if child.kind() == "modifiers"
+            && let Ok(text) = child.utf8_text(source)
+        {
+            return text.contains("public");
         }
     }
     false
@@ -229,16 +229,16 @@ fn extract_class_export(node: tree_sitter::Node, source: &[u8], file_imports: &m
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: is_default_class(node),
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Class,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: is_default_class(node),
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Class,
+        });
     }
 }
 
@@ -252,16 +252,16 @@ fn extract_interface_export(
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -271,16 +271,16 @@ fn extract_enum_export(node: tree_sitter::Node, source: &[u8], file_imports: &mu
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -290,16 +290,16 @@ fn extract_record_export(node: tree_sitter::Node, source: &[u8], file_imports: &
         return;
     }
 
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if let Ok(name) = name_node.utf8_text(source) {
-            file_imports.exports.push(Export {
-                name: name.to_string(),
-                is_default: false,
-                node_id: node.id(),
-                line: node.start_position().row + 1,
-                kind: ExportKind::Type,
-            });
-        }
+    if let Some(name_node) = node.child_by_field_name("name")
+        && let Ok(name) = name_node.utf8_text(source)
+    {
+        file_imports.exports.push(Export {
+            name: name.to_string(),
+            is_default: false,
+            node_id: node.id(),
+            line: node.start_position().row + 1,
+            kind: ExportKind::Type,
+        });
     }
 }
 
@@ -326,7 +326,7 @@ fn is_default_class(node: tree_sitter::Node) -> bool {
     // In Java, the public class name should match the filename
     // We can't easily check this without the filename, so return false
     // The caller can check this if needed
-    node.parent().map_or(false, |p| p.kind() == "program")
+    node.parent().is_some_and(|p| p.kind() == "program")
 }
 
 #[cfg(test)]
