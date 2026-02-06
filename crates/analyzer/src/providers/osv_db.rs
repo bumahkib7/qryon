@@ -60,6 +60,12 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
+/// Batch query result: (ecosystem, package name, version, vulnerability matches)
+type VulnBatchResult = Vec<(OsvEcosystem, String, String, Vec<VulnMatch>)>;
+
+/// Progress callback for ecosystem updates
+type ProgressFn = dyn Fn(&str, usize, usize) + Sync;
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -530,10 +536,10 @@ impl EcosystemDb {
     ) -> Option<Option<String>> {
         for affected in &vuln.affected {
             // Check package name matches
-            if let Some(pkg) = &affected.package {
-                if !self.package_names_match(&pkg.name, package_name) {
-                    continue;
-                }
+            if let Some(pkg) = &affected.package
+                && !self.package_names_match(&pkg.name, package_name)
+            {
+                continue;
             }
 
             // Check explicit version list first (faster)
@@ -570,18 +576,18 @@ impl EcosystemDb {
                 }
             }
 
-            if let Some(fixed) = &event.fixed {
-                if self.version_gte(version, fixed) {
-                    // Version is >= fixed, so not vulnerable
-                    fixed_or_limited = true;
-                }
+            if let Some(fixed) = &event.fixed
+                && self.version_gte(version, fixed)
+            {
+                // Version is >= fixed, so not vulnerable
+                fixed_or_limited = true;
             }
 
-            if let Some(last_affected) = &event.last_affected {
-                if self.version_gt(version, last_affected) {
-                    // Version is > last_affected, so not vulnerable
-                    fixed_or_limited = true;
-                }
+            if let Some(last_affected) = &event.last_affected
+                && self.version_gt(version, last_affected)
+            {
+                // Version is > last_affected, so not vulnerable
+                fixed_or_limited = true;
             }
         }
 
@@ -923,7 +929,7 @@ impl OsvDatabase {
     pub fn query_batch(
         &self,
         queries: &[(OsvEcosystem, String, String)],
-    ) -> Result<Vec<(OsvEcosystem, String, String, Vec<VulnMatch>)>> {
+    ) -> Result<VulnBatchResult> {
         queries
             .par_iter()
             .map(|(ecosystem, package, version)| {
@@ -937,7 +943,7 @@ impl OsvDatabase {
     pub fn update_ecosystem(
         &self,
         ecosystem: OsvEcosystem,
-        progress: Option<&(dyn Fn(&str, usize, usize) + Sync)>,
+        progress: Option<&ProgressFn>,
     ) -> Result<UpdateStats> {
         let url = ecosystem_url(&ecosystem);
         let zip_path = self.base_path.join(format!("{}.zip", ecosystem));
@@ -968,11 +974,8 @@ impl OsvDatabase {
         info!("Indexing {} vulnerabilities...", ecosystem);
         let mut db = EcosystemDb::open(ecosystem, &self.base_path)?;
 
-        let progress_wrapper: Option<&dyn Fn(usize, usize)> = if progress.is_some() {
-            None // TODO: wire up progress
-        } else {
-            None
-        };
+        // TODO: wire up progress callback to db.update_from_zip
+        let progress_wrapper: Option<&dyn Fn(usize, usize)> = None;
 
         let stats = db.update_from_zip(&zip_path, progress_wrapper)?;
 
@@ -997,7 +1000,7 @@ impl OsvDatabase {
     pub fn update_all(
         &self,
         ecosystems: &[OsvEcosystem],
-        progress: Option<&(dyn Fn(&str, usize, usize) + Sync)>,
+        progress: Option<&ProgressFn>,
     ) -> Result<Vec<UpdateStats>> {
         // Note: Running sequentially to avoid overwhelming network/disk
         // Could be parallelized with proper resource management

@@ -70,6 +70,7 @@ pub fn generate_html(
 
             all_findings.push(FindingRow {
                 severity: finding.severity,
+                source: finding.source.to_string(),
                 rule_id: finding.rule_id.clone(),
                 file: file_path,
                 line: finding.location.start_line,
@@ -173,6 +174,7 @@ pub fn generate_html(
 
 struct FindingRow {
     severity: Severity,
+    source: String,
     rule_id: String,
     file: String,
     line: usize,
@@ -262,6 +264,7 @@ fn generate_findings_table(findings: &[FindingRow]) -> String {
         rows.push_str(&format!(
             r#"<tr class="finding-row" data-severity="{severity_class}">
                 <td><span class="badge badge-{severity_class}">{severity_label}</span></td>
+                <td class="rule-id">{source}</td>
                 <td class="rule-id">{rule_id}</td>
                 <td class="file-path">{file}</td>
                 <td class="line-number">{line}</td>
@@ -269,6 +272,7 @@ fn generate_findings_table(findings: &[FindingRow]) -> String {
             </tr>"#,
             severity_class = severity_class,
             severity_label = severity_label,
+            source = html_escape(&finding.source),
             rule_id = html_escape(&finding.rule_id),
             file = html_escape(&finding.file),
             line = finding.line,
@@ -283,6 +287,7 @@ fn generate_findings_table(findings: &[FindingRow]) -> String {
                 <thead>
                     <tr>
                         <th>Severity</th>
+                        <th>Engine</th>
                         <th>Rule ID</th>
                         <th>File</th>
                         <th>Line</th>
@@ -845,6 +850,7 @@ mod tests {
             fix: None,
             confidence: rma_common::Confidence::High,
             category: rma_common::FindingCategory::Security,
+            source: Default::default(),
             fingerprint: None,
             properties: None,
             occurrence_count: None,

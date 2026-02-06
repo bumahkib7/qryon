@@ -18,9 +18,9 @@ oxc = [
 ]
 
 [dependencies]
-rma-common = { version = "0.17.0", path = "../common" }
-rma-parser = { version = "0.17.0", path = "../parser" }
-rma-rules = { version = "0.17.0", path = "../rules" }
+rma-common = { version = "0.18.0", path = "../common" }
+rma-parser = { version = "0.18.0", path = "../parser" }
+rma-rules = { version = "0.18.0", path = "../rules" }
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

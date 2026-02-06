@@ -367,9 +367,9 @@ fn filter_safe_command_sinks(
         .into_iter()
         .filter(|flow| {
             // Only filter command injection sinks
-            let is_command_sink = flow.sink_type().map_or(false, |st| {
-                matches!(st, SinkClassification::CommandInjection)
-            });
+            let is_command_sink = flow
+                .sink_type()
+                .is_some_and(|st| matches!(st, SinkClassification::CommandInjection));
 
             if !is_command_sink {
                 return true; // Keep non-command flows
@@ -436,7 +436,7 @@ fn filter_flows(flows: &[TaintFlow], args: &FlowsArgs) -> Vec<TaintFlow> {
 
             // Filter by sink type
             if let Some(ref sink_filter) = args.sink_type {
-                let sink_match = flow.sink_type().map_or(false, |st| {
+                let sink_match = flow.sink_type().is_some_and(|st| {
                     format!("{:?}", st)
                         .to_lowercase()
                         .contains(&sink_filter.to_lowercase())
@@ -448,7 +448,7 @@ fn filter_flows(flows: &[TaintFlow], args: &FlowsArgs) -> Vec<TaintFlow> {
 
             // Filter by source type
             if let Some(ref source_filter) = args.source_type {
-                let source_match = flow.source_type().map_or(false, |st| {
+                let source_match = flow.source_type().is_some_and(|st| {
                     format!("{:?}", st)
                         .to_lowercase()
                         .contains(&source_filter.to_lowercase())

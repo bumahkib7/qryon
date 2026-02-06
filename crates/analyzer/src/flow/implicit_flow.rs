@@ -378,19 +378,17 @@ impl ControlDependenceGraph {
 
                 Terminator::TryCatch {
                     try_block,
-                    catch_block,
+                    catch_block: Some(catch),
                     ..
                 } => {
                     // Catch block is control-dependent on the try block
-                    if let Some(catch) = catch_block {
-                        self.add_branch_dependency(
-                            cfg,
-                            *try_block,
-                            *catch,
-                            None,
-                            ImplicitFlowType::ExceptionHandler,
-                        );
-                    }
+                    self.add_branch_dependency(
+                        cfg,
+                        *try_block,
+                        *catch,
+                        None,
+                        ImplicitFlowType::ExceptionHandler,
+                    );
                 }
 
                 _ => {}

@@ -1,0 +1,6 @@
+[submodule "external/codeql"]
+	path = external/codeql
+	url = https://github.com/github/codeql.git
+[submodule "external/pysa-models"]
+	path = external/pysa-models
+	url = https://github.com/facebook/pyre-check.git

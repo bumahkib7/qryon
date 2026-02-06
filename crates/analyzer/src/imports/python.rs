@@ -242,6 +242,7 @@ fn extract_from_import(
 }
 
 /// Add a Python import, resolving it if possible
+#[allow(clippy::too_many_arguments)]
 fn add_python_import(
     file_imports: &mut FileImports,
     local_name: &str,

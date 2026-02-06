@@ -214,6 +214,63 @@ impl TestContext {
                     || content.contains("#[cfg(test)]")
                     || content.contains("mod tests")
             }
+            Language::Php => {
+                content.contains("PHPUnit")
+                    || content.contains("@test")
+                    || content.contains("function test")
+                    || content.contains("setUp(")
+                    || content.contains("TestCase")
+            }
+            Language::CSharp => {
+                content.contains("[Test]")
+                    || content.contains("[Fact]")
+                    || content.contains("[Theory]")
+                    || content.contains("NUnit")
+                    || content.contains("xUnit")
+                    || content.contains("MSTest")
+                    || content.contains("[TestMethod]")
+            }
+            Language::Kotlin => {
+                content.contains("@Test")
+                    || content.contains("@Before")
+                    || content.contains("@BeforeEach")
+                    || content.contains("org.junit")
+                    || content.contains("fun test")
+            }
+            Language::Scala => {
+                content.contains("\"should\"")
+                    || content.contains("ScalaTest")
+                    || content.contains("Specs2")
+                    || content.contains("FunSuite")
+                    || content.contains("FlatSpec")
+                    || content.contains("WordSpec")
+            }
+            Language::Swift => {
+                content.contains("XCTestCase")
+                    || content.contains("func test")
+                    || content.contains("XCTAssert")
+                    || content.contains("XCTExpect")
+            }
+            Language::Elixir => {
+                content.contains("ExUnit")
+                    || content.contains("test \"")
+                    || content.contains("setup do")
+                    || content.contains("describe \"")
+            }
+            Language::Bash => {
+                content.contains("@test") || content.contains("assert_") || content.contains("bats")
+            }
+            Language::Solidity => {
+                content.contains("function test")
+                    || content.contains("function setUp")
+                    || content.contains("ds-test")
+                    || content.contains("forge-std")
+            }
+            Language::OCaml => {
+                content.contains("let%test")
+                    || content.contains("OUnit")
+                    || content.contains("Alcotest")
+            }
             _ => false,
         }
     }
@@ -241,6 +298,33 @@ impl TestContext {
             ],
             Language::Go => vec!["func TestMain(", "func setup(", "func Setup("],
             Language::Rust => vec!["fn setup(", "fn before_each("],
+            Language::Php => vec![
+                "function setUp(",
+                "protected function setUp(",
+                "public function setUp(",
+                "@before",
+            ],
+            Language::CSharp => vec![
+                "[SetUp]",
+                "[TestInitialize]",
+                "[OneTimeSetUp]",
+                "[ClassInitialize]",
+            ],
+            Language::Kotlin => vec!["@Before", "@BeforeEach", "@BeforeAll", "fun setUp("],
+            Language::Scala => vec![
+                "override def beforeEach(",
+                "override def beforeAll(",
+                "before {",
+            ],
+            Language::Swift => vec![
+                "override func setUp(",
+                "override func setUpWithError(",
+                "override class func setUp(",
+            ],
+            Language::Elixir => vec!["setup do", "setup_all do", "setup %{"],
+            Language::Bash => vec!["setup()", "setup() {"],
+            Language::Solidity => vec!["function setUp("],
+            Language::OCaml => vec!["let setup", "let before_each"],
             _ => vec![],
         }
     }

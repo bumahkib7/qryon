@@ -305,16 +305,16 @@ impl ScanProgress {
         );
 
         // Language breakdown
-        if let Ok(langs) = self.languages.lock() {
-            if !langs.is_empty() {
-                let lang_count = langs.len();
-                println!(
-                    "  {} Analyzed {} files across {} languages",
-                    Theme::bullet(),
-                    format_number(self.total_files as usize).bright_white(),
-                    lang_count.to_string().cyan()
-                );
-            }
+        if let Ok(langs) = self.languages.lock()
+            && !langs.is_empty()
+        {
+            let lang_count = langs.len();
+            println!(
+                "  {} Analyzed {} files across {} languages",
+                Theme::bullet(),
+                format_number(self.total_files as usize).bright_white(),
+                lang_count.to_string().cyan()
+            );
         }
 
         // Findings summary
@@ -515,10 +515,10 @@ impl MultiPhaseProgress {
 
     /// Fail a phase
     pub fn fail_phase(&mut self, index: usize, message: &str) {
-        if let Some(phase) = self.phases.get_mut(index) {
-            if let Some(ref bar) = phase.bar {
-                bar.finish_with_message(format!("{} {}", Theme::error_mark(), message));
-            }
+        if let Some(phase) = self.phases.get_mut(index)
+            && let Some(ref bar) = phase.bar
+        {
+            bar.finish_with_message(format!("{} {}", Theme::error_mark(), message));
         }
     }
 }
@@ -636,6 +636,7 @@ mod tests {
             fix: None,
             confidence: Confidence::High,
             category: FindingCategory::Security,
+            source: Default::default(),
             fingerprint: None,
             properties: None,
             occurrence_count: None,

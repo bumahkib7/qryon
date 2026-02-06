@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-02-06
+
+### Added
+- Deep analysis (semantics, callgraph, taint tracking, callbacks, test detection) for PHP, C#, Kotlin, Scala, Swift, Bash, Elixir, Solidity, OCaml
+- 858 semgrep rules for 16 new languages
+- CodeQL Models-as-Data knowledge for Ruby and Swift
+- CLI `--languages` flag support for all 20 languages
+
+### Fixed
+- CLI `parse_language()` silently dropping unknown language names
+
 ## [0.17.0] - 2026-02-03
 
 ### Added

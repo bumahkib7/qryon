@@ -1093,6 +1093,7 @@ impl TypestateAnalyzer {
     }
 
     /// Apply a method call transition
+    #[allow(clippy::too_many_arguments)]
     fn apply_method_transition(
         &self,
         current_state: &TrackedState,

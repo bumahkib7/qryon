@@ -1,0 +1,36 @@
+//! Auto-generated from CodeQL Models-as-Data + Pysa taint stubs
+//! Do not edit manually — regenerate with `cargo run -p knowledge-gen`
+
+use crate::knowledge::types::{
+    FrameworkProfile, SanitizerDef, SanitizerKind, SinkDef, SinkKind, SourceDef, SourceKind,
+};
+use rma_common::Severity;
+
+static AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_SOURCES: &[SourceDef] = &[];
+
+static AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_SINKS: &[SinkDef] = &[SinkDef {
+    name: "<awc::frozen::FrozenClientRequest>::send_body.Argument[self]",
+    pattern: SinkKind::FunctionCall("Argument[self]"),
+    rule_id: "rust/gen-alloc-layout",
+    severity: Severity::Error,
+    description: "CodeQL sink: Argument[self] (kind: alloc-layout)",
+    cwe: Some("CWE-74"),
+}];
+
+static AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_SANITIZERS: &[SanitizerDef] = &[];
+
+static AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_IMPORTS: &[&str] =
+    &["<awc::frozen::FrozenClientRequest>::send_body"];
+
+pub static AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_PROFILE: FrameworkProfile =
+    FrameworkProfile {
+        name: "<awc::frozen::frozenclientrequest>::send_body_generated",
+        description: "Generated profile for <awc::frozen::FrozenClientRequest>::send_body from CodeQL/Pysa",
+        detect_imports: AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_IMPORTS,
+        sources: AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_SOURCES,
+        sinks: AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_SINKS,
+        sanitizers: AWC_FROZEN_FROZENCLIENTREQUEST_SEND_BODY_GEN_SANITIZERS,
+        safe_patterns: &[],
+        dangerous_patterns: &[],
+        resource_types: &[],
+    };

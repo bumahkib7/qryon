@@ -435,6 +435,40 @@ pub mod queries {
                 (call_expression (simple_identifier) @callee) @call
                 "#,
             ),
+            Language::Scala => Some(
+                r#"
+                (call_expression function: (identifier) @callee) @call
+                (call_expression function: (field_expression field: (identifier) @callee)) @call
+                "#,
+            ),
+            Language::CSharp => Some(
+                r#"
+                (invocation_expression function: (identifier) @callee) @call
+                (invocation_expression function: (member_access_expression name: (identifier) @callee)) @call
+                "#,
+            ),
+            Language::Elixir => Some(
+                r#"
+                (call target: (identifier) @callee) @call
+                (call target: (dot left: (_) right: (identifier) @callee)) @call
+                "#,
+            ),
+            Language::Bash => Some(
+                r#"
+                (command name: (command_name) @callee) @call
+                "#,
+            ),
+            Language::Solidity => Some(
+                r#"
+                (call_expression function: (identifier) @callee) @call
+                (call_expression function: (member_expression property: (identifier) @callee)) @call
+                "#,
+            ),
+            Language::OCaml => Some(
+                r#"
+                (application_expression function: (value_path) @callee) @call
+                "#,
+            ),
             _ => None,
         }
     }
@@ -485,6 +519,45 @@ pub mod queries {
             Language::Php => Some(
                 r#"
                 (assignment_expression left: (variable_name) @lhs) @assignment
+                "#,
+            ),
+            Language::Swift => Some(
+                r#"
+                (assignment (directly_assignable_expression (simple_identifier) @lhs)) @assignment
+                "#,
+            ),
+            Language::Scala => Some(
+                r#"
+                (assignment (identifier) @lhs) @assignment
+                (val_definition (identifier) @lhs) @declaration
+                (var_definition (identifier) @lhs) @declaration
+                "#,
+            ),
+            Language::CSharp => Some(
+                r#"
+                (assignment_expression left: (identifier) @lhs) @assignment
+                (variable_declarator (identifier) @lhs) @declaration
+                "#,
+            ),
+            Language::Elixir => Some(
+                r#"
+                (binary_operator operator: "=" left: (identifier) @lhs) @assignment
+                "#,
+            ),
+            Language::Bash => Some(
+                r#"
+                (variable_assignment name: (variable_name) @lhs) @assignment
+                "#,
+            ),
+            Language::Solidity => Some(
+                r#"
+                (assignment_expression left: (identifier) @lhs) @assignment
+                (variable_declaration_statement (variable_declaration name: (identifier) @lhs)) @declaration
+                "#,
+            ),
+            Language::OCaml => Some(
+                r#"
+                (let_binding pattern: (value_name) @lhs) @declaration
                 "#,
             ),
             _ => None,

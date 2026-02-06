@@ -5,7 +5,9 @@
 
 use super::AnalysisProvider;
 use anyhow::{Context, Result};
-use rma_common::{Confidence, Finding, FindingCategory, Language, Severity, SourceLocation};
+use rma_common::{
+    Confidence, Finding, FindingCategory, FindingSource, Language, Severity, SourceLocation,
+};
 use rustsec::{Database, Lockfile, Vulnerability};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -137,6 +139,7 @@ impl RustSecProvider {
             fix: None,
             confidence: Confidence::High,
             category: FindingCategory::Security,
+            source: FindingSource::Rustsec,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

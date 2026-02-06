@@ -113,58 +113,55 @@ fn extract_import_names(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        match child.kind() {
-            // import foo from './bar' (default import)
-            "import_clause" => {
-                let mut clause_cursor = child.walk();
-                for clause_child in child.children(&mut clause_cursor) {
-                    match clause_child.kind() {
-                        "identifier" => {
-                            // Default import
-                            if let Ok(name) = clause_child.utf8_text(source) {
-                                add_import_or_unresolved(
-                                    file_imports,
-                                    name,
-                                    "default",
-                                    specifier,
-                                    line,
-                                    ImportKind::Default,
-                                    &resolved_path,
-                                );
-                            }
-                        }
-                        "named_imports" => {
-                            // import { foo, bar as baz } from './bar'
-                            extract_named_imports(
-                                clause_child,
-                                source,
+        // import foo from './bar' (default import)
+        if child.kind() == "import_clause" {
+            let mut clause_cursor = child.walk();
+            for clause_child in child.children(&mut clause_cursor) {
+                match clause_child.kind() {
+                    "identifier" => {
+                        // Default import
+                        if let Ok(name) = clause_child.utf8_text(source) {
+                            add_import_or_unresolved(
+                                file_imports,
+                                name,
+                                "default",
                                 specifier,
                                 line,
-                                file_imports,
+                                ImportKind::Default,
                                 &resolved_path,
                             );
                         }
-                        "namespace_import" => {
-                            // import * as foo from './bar'
-                            if let Some(name_node) = clause_child.child_by_field_name("name")
-                                && let Ok(name) = name_node.utf8_text(source)
-                            {
-                                add_import_or_unresolved(
-                                    file_imports,
-                                    name,
-                                    "*",
-                                    specifier,
-                                    line,
-                                    ImportKind::Namespace,
-                                    &resolved_path,
-                                );
-                            }
-                        }
-                        _ => {}
                     }
+                    "named_imports" => {
+                        // import { foo, bar as baz } from './bar'
+                        extract_named_imports(
+                            clause_child,
+                            source,
+                            specifier,
+                            line,
+                            file_imports,
+                            &resolved_path,
+                        );
+                    }
+                    "namespace_import" => {
+                        // import * as foo from './bar'
+                        if let Some(name_node) = clause_child.child_by_field_name("name")
+                            && let Ok(name) = name_node.utf8_text(source)
+                        {
+                            add_import_or_unresolved(
+                                file_imports,
+                                name,
+                                "*",
+                                specifier,
+                                line,
+                                ImportKind::Namespace,
+                                &resolved_path,
+                            );
+                        }
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
         }
     }
 }

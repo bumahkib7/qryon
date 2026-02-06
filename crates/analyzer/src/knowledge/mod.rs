@@ -36,6 +36,7 @@
 //! }
 //! ```
 
+pub mod generated;
 pub mod go;
 pub mod java;
 pub mod javascript;
@@ -54,7 +55,7 @@ use rma_common::Language;
 /// Returns all known framework profiles regardless of whether they're
 /// actually used in the codebase.
 pub fn profiles_for_language(language: Language) -> Vec<&'static FrameworkProfile> {
-    match language {
+    let mut profiles = match language {
         Language::Rust => rust_lang::all_profiles(),
         Language::Go => go::all_profiles(),
         Language::JavaScript | Language::TypeScript => javascript::all_profiles(),
@@ -62,7 +63,10 @@ pub fn profiles_for_language(language: Language) -> Vec<&'static FrameworkProfil
         Language::Java => java::all_profiles(),
         // Other languages don't have framework profiles yet
         _ => vec![],
-    }
+    };
+    // Append generated profiles (complementary, not replacing hand-coded ones)
+    profiles.extend(generated::profiles_for_language(language));
+    profiles
 }
 
 /// Get active framework profiles for a given source file

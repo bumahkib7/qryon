@@ -284,18 +284,21 @@ impl PrettyRenderer {
             format!("{} ", severity_icon_ascii(finding.severity))
         };
 
+        let source_label = format!("[{}]", finding.source);
+
         if self.config.use_colors {
             format!(
-                "{}{}[{}]: {}",
+                "{}{} {}[{}]: {}",
                 icon_str,
                 severity.color(color).bold(),
+                source_label.dimmed(),
                 finding.rule_id.color(color).bold(),
                 finding.message
             )
         } else {
             format!(
-                "{}{}[{}]: {}",
-                icon_str, severity, finding.rule_id, finding.message
+                "{}{} {}[{}]: {}",
+                icon_str, severity, source_label, finding.rule_id, finding.message
             )
         }
     }
@@ -541,35 +544,36 @@ impl PrettyRenderer {
         ));
 
         // Try to show diff
-        if let Some(source) = cache.get(&finding.location.file) {
-            if fix.start_byte < source.content.len() && fix.end_byte <= source.content.len() {
-                let original = &source.content[fix.start_byte..fix.end_byte];
+        if let Some(source) = cache.get(&finding.location.file)
+            && fix.start_byte < source.content.len()
+            && fix.end_byte <= source.content.len()
+        {
+            let original = &source.content[fix.start_byte..fix.end_byte];
 
-                // Format as diff
-                let minus = if self.config.use_colors {
-                    "-".red().to_string()
-                } else {
-                    "-".to_string()
-                };
-                let plus = if self.config.use_colors {
-                    "+".green().to_string()
-                } else {
-                    "+".to_string()
-                };
+            // Format as diff
+            let minus = if self.config.use_colors {
+                "-".red().to_string()
+            } else {
+                "-".to_string()
+            };
+            let plus = if self.config.use_colors {
+                "+".green().to_string()
+            } else {
+                "+".to_string()
+            };
 
-                for line in original.lines() {
-                    if self.config.use_colors {
-                        output.push_str(&format!("     {} {}\n", minus, line.red()));
-                    } else {
-                        output.push_str(&format!("     {} {}\n", minus, line));
-                    }
+            for line in original.lines() {
+                if self.config.use_colors {
+                    output.push_str(&format!("     {} {}\n", minus, line.red()));
+                } else {
+                    output.push_str(&format!("     {} {}\n", minus, line));
                 }
-                for line in fix.replacement.lines() {
-                    if self.config.use_colors {
-                        output.push_str(&format!("     {} {}\n", plus, line.green()));
-                    } else {
-                        output.push_str(&format!("     {} {}\n", plus, line));
-                    }
+            }
+            for line in fix.replacement.lines() {
+                if self.config.use_colors {
+                    output.push_str(&format!("     {} {}\n", plus, line.green()));
+                } else {
+                    output.push_str(&format!("     {} {}\n", plus, line));
                 }
             }
         }
@@ -615,12 +619,11 @@ impl PrettyRenderer {
         parts.push(format!("Confidence: {}", finding.confidence));
 
         // Check for CWE in properties
-        if let Some(props) = &finding.properties {
-            if let Some(cwe) = props.get("cwe") {
-                if let Some(cwe_str) = cwe.as_str() {
-                    parts.push(cwe_str.to_string());
-                }
-            }
+        if let Some(props) = &finding.properties
+            && let Some(cwe) = props.get("cwe")
+            && let Some(cwe_str) = cwe.as_str()
+        {
+            parts.push(cwe_str.to_string());
         }
 
         if self.config.use_colors {
@@ -649,11 +652,12 @@ impl PrettyRenderer {
         };
 
         format!(
-            "{}:{}:{}: {}[{}] {}",
+            "{}:{}:{}: {}[{}][{}] {}",
             finding.location.file.display(),
             finding.location.start_line,
             finding.location.start_column,
             severity_char,
+            finding.source,
             finding.rule_id,
             finding.message
         )
@@ -722,13 +726,14 @@ impl PrettyRenderer {
             .replace('\n', "%0A");
 
         format!(
-            "::{} file={},line={},col={},endLine={},endColumn={},title={}::{}",
+            "::{} file={},line={},col={},endLine={},endColumn={},title={}/{}::{}",
             level,
             file,
             finding.location.start_line,
             finding.location.start_column,
             finding.location.end_line,
             finding.location.end_column,
+            finding.source,
             finding.rule_id,
             message
         )
@@ -1055,6 +1060,7 @@ mod tests {
             fix: None,
             confidence: Confidence::High,
             category: FindingCategory::Security,
+            source: Default::default(),
             fingerprint: None,
             properties: None,
             occurrence_count: None,
@@ -1102,7 +1108,7 @@ mod tests {
         assert!(output.starts_with("::error"));
         assert!(output.contains("file="));
         assert!(output.contains("line=42"));
-        assert!(output.contains("title=js/sql-injection"));
+        assert!(output.contains("title=builtin/js/sql-injection"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Rule matcher - applies rules to source code and generates findings
 
 use crate::{pattern::PatternMatcher, PatternClause, PatternOperator, Result, Rule};
-use rma_common::{Finding, FindingCategory, Language, SourceLocation};
+use rma_common::{Finding, FindingCategory, FindingSource, Language, SourceLocation};
 use std::path::Path;
 
 /// A compiled rule ready for matching
@@ -188,6 +188,7 @@ impl CompiledRule {
             fix: None,
             confidence: self.rule.confidence(),
             category: infer_category(&self.rule),
+            source: FindingSource::Builtin,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

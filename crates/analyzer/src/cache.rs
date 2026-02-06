@@ -428,6 +428,7 @@ mod tests {
                 fix: None,
                 confidence: rma_common::Confidence::default(),
                 category: rma_common::FindingCategory::default(),
+                source: Default::default(),
                 fingerprint: None,
                 properties: None,
                 occurrence_count: None,

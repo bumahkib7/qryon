@@ -1059,8 +1059,10 @@ impl<'a> InterproceduralAnalyzer<'a> {
 
     /// Run the inter-procedural analysis
     pub fn analyze(&self, symbols: &SymbolTable, cfg: &CFG) -> InterproceduralResult {
-        let mut result = InterproceduralResult::default();
-        result.file = self.file_path.clone();
+        let mut result = InterproceduralResult {
+            file: self.file_path.clone(),
+            ..Default::default()
+        };
 
         // Phase 1: Build initial function summaries from knowledge base
         self.build_known_summaries(&mut result);
@@ -1101,8 +1103,10 @@ impl<'a> InterproceduralAnalyzer<'a> {
         call_graph: &CallGraph,
         file_path: &Path,
     ) -> InterproceduralResult {
-        let mut result = InterproceduralResult::default();
-        result.file = Some(file_path.to_path_buf());
+        let mut result = InterproceduralResult {
+            file: Some(file_path.to_path_buf()),
+            ..Default::default()
+        };
 
         // Phase 1: Build initial function summaries from knowledge base
         self.build_known_summaries(&mut result);
@@ -1194,7 +1198,7 @@ impl<'a> InterproceduralAnalyzer<'a> {
         let discovered_funcs: Vec<(String, usize)> = result
             .summaries
             .iter()
-            .filter_map(|(name, summary)| {
+            .map(|(name, summary)| {
                 // Estimate param count from effects or default to 2
                 let param_count = summary
                     .param_effects
@@ -1203,7 +1207,7 @@ impl<'a> InterproceduralAnalyzer<'a> {
                     .max()
                     .map(|m| m + 1)
                     .unwrap_or(2);
-                Some((name.clone(), param_count))
+                (name.clone(), param_count)
             })
             .collect();
 
@@ -2101,6 +2105,7 @@ pub fn analyze_interprocedural(
 }
 
 /// Run inter-procedural taint analysis with call graph for cross-file tracking
+#[allow(clippy::too_many_arguments)]
 pub fn analyze_interprocedural_with_call_graph(
     symbols: &SymbolTable,
     cfg: &CFG,

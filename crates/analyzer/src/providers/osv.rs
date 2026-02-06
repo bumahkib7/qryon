@@ -36,8 +36,8 @@ use super::AnalysisProvider;
 use super::osv_db::{OsvDatabase, VulnMatch};
 use anyhow::{Context, Result};
 use rma_common::{
-    Confidence, Finding, FindingCategory, Language, OsvEcosystem, OsvProviderConfig, Severity,
-    SourceLocation,
+    Confidence, Finding, FindingCategory, FindingSource, Language, OsvEcosystem, OsvProviderConfig,
+    Severity, SourceLocation,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -730,7 +730,7 @@ impl OsvProvider {
                     Ok(matches) => {
                         // Convert VulnMatch to OsvVulnerability
                         let vulns: Vec<OsvVulnerability> =
-                            matches.into_iter().map(|m| convert_vuln_match(m)).collect();
+                            matches.into_iter().map(convert_vuln_match).collect();
                         results.insert(cache_key, vulns);
                     }
                     Err(e) => {
@@ -1058,6 +1058,7 @@ impl OsvProvider {
                         fix: None,
                         confidence,
                         category: FindingCategory::Security,
+                        source: FindingSource::Osv,
                         fingerprint: None,
                         properties: Some(properties),
                         occurrence_count: None,

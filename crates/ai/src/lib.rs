@@ -149,6 +149,7 @@ impl AiFinding {
             fix: None,
             confidence,
             category,
+            source: rma_common::FindingSource::Ai,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

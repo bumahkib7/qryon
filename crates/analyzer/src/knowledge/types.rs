@@ -440,11 +440,11 @@ impl FrameworkProfile {
     pub fn sanitizer_patterns(&self) -> Vec<Cow<'static, str>> {
         self.sanitizers
             .iter()
-            .filter_map(|s| match &s.pattern {
-                SanitizerKind::Function(p) => Some(Cow::Borrowed(*p)),
-                SanitizerKind::MethodCall(p) => Some(Cow::Borrowed(*p)),
-                SanitizerKind::Macro(p) => Some(Cow::Borrowed(*p)),
-                SanitizerKind::TemplateEngine(p) => Some(Cow::Borrowed(*p)),
+            .map(|s| match &s.pattern {
+                SanitizerKind::Function(p) => Cow::Borrowed(*p),
+                SanitizerKind::MethodCall(p) => Cow::Borrowed(*p),
+                SanitizerKind::Macro(p) => Cow::Borrowed(*p),
+                SanitizerKind::TemplateEngine(p) => Cow::Borrowed(*p),
             })
             .collect()
     }

@@ -104,16 +104,16 @@ pub fn is_ignored_path(path: &Path) -> bool {
 
     // Check if any component of the path is an ignored directory
     for component in path.components() {
-        if let std::path::Component::Normal(name) = component {
-            if let Some(name_str) = name.to_str() {
-                // Check exact matches with ignored directories
-                if IGNORED_DIRECTORIES.contains(&name_str) {
-                    return true;
-                }
-                // Also ignore hidden directories (starting with .)
-                if name_str.starts_with('.') && name_str.len() > 1 {
-                    return true;
-                }
+        if let std::path::Component::Normal(name) = component
+            && let Some(name_str) = name.to_str()
+        {
+            // Check exact matches with ignored directories
+            if IGNORED_DIRECTORIES.contains(&name_str) {
+                return true;
+            }
+            // Also ignore hidden directories (starting with .)
+            if name_str.starts_with('.') && name_str.len() > 1 {
+                return true;
             }
         }
     }

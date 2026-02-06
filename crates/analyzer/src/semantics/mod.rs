@@ -10,11 +10,20 @@
 
 use rma_common::Language;
 
+pub mod bash;
+pub mod csharp;
+pub mod elixir;
 pub mod go;
 pub mod java;
 pub mod javascript;
+pub mod kotlin;
+pub mod ocaml;
+pub mod php;
 pub mod python;
 pub mod rust_lang;
+pub mod scala;
+pub mod solidity;
+pub mod swift;
 
 /// Generic semantic concepts mapped from tree-sitter node kinds.
 ///
@@ -210,6 +219,15 @@ impl LanguageSemantics {
             Language::Go => &go::GO_SEMANTICS,
             Language::Python => &python::PYTHON_SEMANTICS,
             Language::Java => &java::JAVA_SEMANTICS,
+            Language::Php => &php::PHP_SEMANTICS,
+            Language::CSharp => &csharp::CSHARP_SEMANTICS,
+            Language::Kotlin => &kotlin::KOTLIN_SEMANTICS,
+            Language::Scala => &scala::SCALA_SEMANTICS,
+            Language::Swift => &swift::SWIFT_SEMANTICS,
+            Language::Bash => &bash::BASH_SEMANTICS,
+            Language::Elixir => &elixir::ELIXIR_SEMANTICS,
+            Language::Solidity => &solidity::SOLIDITY_SEMANTICS,
+            Language::OCaml => &ocaml::OCAML_SEMANTICS,
             // Fallback to JavaScript semantics for other languages
             _ => &javascript::JAVASCRIPT_SEMANTICS,
         }
@@ -224,6 +242,15 @@ impl LanguageSemantics {
             "go" => Language::Go,
             "python" => Language::Python,
             "java" => Language::Java,
+            "php" => Language::Php,
+            "csharp" => Language::CSharp,
+            "kotlin" => Language::Kotlin,
+            "scala" => Language::Scala,
+            "swift" => Language::Swift,
+            "bash" => Language::Bash,
+            "elixir" => Language::Elixir,
+            "solidity" => Language::Solidity,
+            "ocaml" => Language::OCaml,
             _ => Language::Unknown,
         }
     }

@@ -483,6 +483,57 @@ impl Fix {
     }
 }
 
+/// Source engine that produced a finding
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FindingSource {
+    /// Built-in Semgrep-style pattern rules (compiled into binary)
+    #[default]
+    Builtin,
+    /// CodeQL Models-as-Data generated profiles
+    Codeql,
+    /// Pysa taint stub generated profiles
+    Pysa,
+    /// OSV open-source vulnerability database
+    Osv,
+    /// RustSec advisory database
+    Rustsec,
+    /// Oxc native JS/TS linter
+    Oxc,
+    /// Oxlint CLI JS/TS linter
+    Oxlint,
+    /// PMD Java static analysis
+    Pmd,
+    /// Gosec Go security checker
+    Gosec,
+    /// Cross-file taint flow analysis
+    #[serde(rename = "taint-flow")]
+    TaintFlow,
+    /// WASM plugin system
+    Plugin,
+    /// AI-powered analysis
+    Ai,
+}
+
+impl std::fmt::Display for FindingSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FindingSource::Builtin => write!(f, "builtin"),
+            FindingSource::Codeql => write!(f, "codeql"),
+            FindingSource::Pysa => write!(f, "pysa"),
+            FindingSource::Osv => write!(f, "osv"),
+            FindingSource::Rustsec => write!(f, "rustsec"),
+            FindingSource::Oxc => write!(f, "oxc"),
+            FindingSource::Oxlint => write!(f, "oxlint"),
+            FindingSource::Pmd => write!(f, "pmd"),
+            FindingSource::Gosec => write!(f, "gosec"),
+            FindingSource::TaintFlow => write!(f, "taint-flow"),
+            FindingSource::Plugin => write!(f, "plugin"),
+            FindingSource::Ai => write!(f, "ai"),
+        }
+    }
+}
+
 /// A security or code quality finding
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
@@ -505,6 +556,9 @@ pub struct Finding {
     /// Category of finding (security, quality, performance, style)
     #[serde(default)]
     pub category: FindingCategory,
+    /// Source engine that produced this finding
+    #[serde(default)]
+    pub source: FindingSource,
     /// Stable fingerprint for baseline comparison (sha256 hash)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,

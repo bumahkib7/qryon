@@ -8,7 +8,9 @@
 
 use super::AnalysisProvider;
 use anyhow::{Context, Result};
-use rma_common::{Confidence, Finding, FindingCategory, Language, Severity, SourceLocation};
+use rma_common::{
+    Confidence, Finding, FindingCategory, FindingSource, Language, Severity, SourceLocation,
+};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -255,6 +257,7 @@ impl OxlintProvider {
             fix: None,
             confidence,
             category,
+            source: FindingSource::Oxlint,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

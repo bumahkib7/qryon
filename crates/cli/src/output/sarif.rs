@@ -231,6 +231,7 @@ pub fn output(
 
                     // Add properties with additional metadata
                     let mut properties = serde_json::json!({
+                        "source": format!("{}", f.source),
                         "confidence": match f.confidence {
                             Confidence::High => "high",
                             Confidence::Medium => "medium",

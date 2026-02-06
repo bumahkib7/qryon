@@ -388,7 +388,7 @@ impl ComparisonOp {
     }
 
     /// Parse from operator string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "<" => Some(ComparisonOp::Lt),
             "<=" => Some(ComparisonOp::Le),
@@ -418,7 +418,7 @@ pub enum GuardedType {
 
 impl GuardedType {
     /// Parse from a type string (e.g., from typeof result)
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.trim_matches(|c| c == '"' || c == '\'') {
             "string" => Some(GuardedType::String),
             "number" => Some(GuardedType::Number),
@@ -868,7 +868,7 @@ impl<'a> ConditionExtractor<'a> {
 
         // Get the type string
         let type_str = type_literal.utf8_text(self.source).ok()?;
-        let guarded_type = GuardedType::from_str(type_str)?;
+        let guarded_type = GuardedType::parse(type_str)?;
 
         let is_positive = matches!(op, "==" | "===");
 
@@ -929,7 +929,7 @@ impl<'a> ConditionExtractor<'a> {
         let value_text = value_node.utf8_text(self.source).ok()?;
         let value: i64 = value_text.parse().ok()?;
 
-        let comparison_op = ComparisonOp::from_str(op)?;
+        let comparison_op = ComparisonOp::parse(op)?;
 
         Some(PathCondition::LengthConstraint {
             variable: var_name,
@@ -945,7 +945,7 @@ impl<'a> ConditionExtractor<'a> {
         right: tree_sitter::Node<'a>,
         op: &str,
     ) -> Option<PathCondition> {
-        let comparison_op = ComparisonOp::from_str(op)?;
+        let comparison_op = ComparisonOp::parse(op)?;
 
         // Try left as variable, right as number
         if (self.semantics.is_identifier(left.kind()) || left.kind() == "identifier")
@@ -1675,25 +1675,19 @@ mod tests {
 
     #[test]
     fn test_guarded_type_from_str() {
-        assert_eq!(GuardedType::from_str("string"), Some(GuardedType::String));
-        assert_eq!(GuardedType::from_str("number"), Some(GuardedType::Number));
-        assert_eq!(GuardedType::from_str("boolean"), Some(GuardedType::Boolean));
-        assert_eq!(GuardedType::from_str("object"), Some(GuardedType::Object));
+        assert_eq!(GuardedType::parse("string"), Some(GuardedType::String));
+        assert_eq!(GuardedType::parse("number"), Some(GuardedType::Number));
+        assert_eq!(GuardedType::parse("boolean"), Some(GuardedType::Boolean));
+        assert_eq!(GuardedType::parse("object"), Some(GuardedType::Object));
+        assert_eq!(GuardedType::parse("function"), Some(GuardedType::Function));
         assert_eq!(
-            GuardedType::from_str("function"),
-            Some(GuardedType::Function)
-        );
-        assert_eq!(
-            GuardedType::from_str("undefined"),
+            GuardedType::parse("undefined"),
             Some(GuardedType::Undefined)
         );
-        assert_eq!(GuardedType::from_str("symbol"), Some(GuardedType::Symbol));
-        assert_eq!(GuardedType::from_str("bigint"), Some(GuardedType::BigInt));
-        assert_eq!(GuardedType::from_str("'string'"), Some(GuardedType::String));
-        assert_eq!(
-            GuardedType::from_str("\"number\""),
-            Some(GuardedType::Number)
-        );
+        assert_eq!(GuardedType::parse("symbol"), Some(GuardedType::Symbol));
+        assert_eq!(GuardedType::parse("bigint"), Some(GuardedType::BigInt));
+        assert_eq!(GuardedType::parse("'string'"), Some(GuardedType::String));
+        assert_eq!(GuardedType::parse("\"number\""), Some(GuardedType::Number));
     }
 
     #[test]

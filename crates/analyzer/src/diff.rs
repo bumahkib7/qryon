@@ -518,6 +518,7 @@ index abc123..def456 100644
             fix: None,
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Security,
+            source: Default::default(),
             fingerprint: None,
             properties: None,
             occurrence_count: None,

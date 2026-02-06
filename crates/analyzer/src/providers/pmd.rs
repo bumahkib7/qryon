@@ -19,7 +19,7 @@ use super::AnalysisProvider;
 use anyhow::{Context, Result};
 use quick_xml::de::from_str;
 use rma_common::{
-    Confidence, Finding, FindingCategory, Language, Severity, SourceLocation,
+    Confidence, Finding, FindingCategory, FindingSource, Language, Severity, SourceLocation,
     config::PmdProviderConfig,
 };
 use serde::Deserialize;
@@ -291,6 +291,7 @@ impl PmdProvider {
             fix: None,
             confidence,
             category,
+            source: FindingSource::Pmd,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

@@ -1,0 +1,34 @@
+//! Auto-generated from CodeQL Models-as-Data + Pysa taint stubs
+//! Do not edit manually — regenerate with `cargo run -p knowledge-gen`
+
+use crate::knowledge::types::{
+    FrameworkProfile, SanitizerDef, SanitizerKind, SinkDef, SinkKind, SourceDef, SourceKind,
+};
+use rma_common::Severity;
+
+static STD_PATH_PATH_METADATA_GEN_SOURCES: &[SourceDef] = &[];
+
+static STD_PATH_PATH_METADATA_GEN_SINKS: &[SinkDef] = &[SinkDef {
+    name: "<std::path::Path>::metadata.Argument[self]",
+    pattern: SinkKind::FunctionCall("Argument[self]"),
+    rule_id: "rust/gen-path-injection",
+    severity: Severity::Critical,
+    description: "CodeQL sink: Argument[self] (kind: path-injection)",
+    cwe: Some("CWE-22"),
+}];
+
+static STD_PATH_PATH_METADATA_GEN_SANITIZERS: &[SanitizerDef] = &[];
+
+static STD_PATH_PATH_METADATA_GEN_IMPORTS: &[&str] = &["<std::path::Path>::metadata"];
+
+pub static STD_PATH_PATH_METADATA_GEN_PROFILE: FrameworkProfile = FrameworkProfile {
+    name: "<std::path::path>::metadata_generated",
+    description: "Generated profile for <std::path::Path>::metadata from CodeQL/Pysa",
+    detect_imports: STD_PATH_PATH_METADATA_GEN_IMPORTS,
+    sources: STD_PATH_PATH_METADATA_GEN_SOURCES,
+    sinks: STD_PATH_PATH_METADATA_GEN_SINKS,
+    sanitizers: STD_PATH_PATH_METADATA_GEN_SANITIZERS,
+    safe_patterns: &[],
+    dangerous_patterns: &[],
+    resource_types: &[],
+};

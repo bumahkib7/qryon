@@ -341,10 +341,10 @@ impl FindingFilter {
     #[allow(dead_code)] // Public API for filtering findings
     pub fn matches(&self, finding: &Finding) -> bool {
         // Severity check
-        if let Some(min_sev) = self.min_severity {
-            if finding.severity < min_sev {
-                return false;
-            }
+        if let Some(min_sev) = self.min_severity
+            && finding.severity < min_sev
+        {
+            return false;
         }
 
         // Rule inclusion check
@@ -386,10 +386,10 @@ impl FindingFilter {
         }
 
         // Category check
-        if let Some(cat) = self.category {
-            if finding.category != cat {
-                return false;
-            }
+        if let Some(cat) = self.category
+            && finding.category != cat
+        {
+            return false;
         }
 
         // Fixable check
@@ -421,10 +421,10 @@ impl FindingFilter {
     /// Check if a finding matches and track stats (for explain mode)
     fn matches_with_tracking(&mut self, finding: &Finding) -> (bool, Option<FilterReason>) {
         // Severity check
-        if let Some(min_sev) = self.min_severity {
-            if finding.severity < min_sev {
-                return (false, Some(FilterReason::Severity(finding.severity)));
-            }
+        if let Some(min_sev) = self.min_severity
+            && finding.severity < min_sev
+        {
+            return (false, Some(FilterReason::Severity(finding.severity)));
         }
 
         // Rule inclusion check
@@ -477,10 +477,10 @@ impl FindingFilter {
         }
 
         // Category check
-        if let Some(cat) = self.category {
-            if finding.category != cat {
-                return (false, Some(FilterReason::Category(finding.category)));
-            }
+        if let Some(cat) = self.category
+            && finding.category != cat
+        {
+            return (false, Some(FilterReason::Category(finding.category)));
         }
 
         // Fixable check
@@ -534,39 +534,37 @@ impl FindingFilter {
             .into_iter()
             .filter(|f| {
                 let (matched, reason) = self.matches_with_tracking(f);
-                if !matched {
-                    if let Some(r) = reason {
-                        match r {
-                            FilterReason::Severity(sev) => {
-                                stats.by_severity += 1;
-                                *severity_counts.entry(sev).or_insert(0) += 1;
-                            }
-                            FilterReason::RuleNotIncluded(_) => {
-                                stats.by_rules_include += 1;
-                            }
-                            FilterReason::RuleExcluded(rule) => {
-                                stats.by_rules_exclude += 1;
-                                *excluded_rules.entry(rule).or_insert(0) += 1;
-                            }
-                            FilterReason::FileNotIncluded(_) => {
-                                stats.by_files_include += 1;
-                            }
-                            FilterReason::FileExcluded(pattern) => {
-                                stats.by_files_exclude += 1;
-                                *excluded_files.entry(pattern).or_insert(0) += 1;
-                            }
-                            FilterReason::Category(_) => {
-                                stats.by_category += 1;
-                            }
-                            FilterReason::NotFixable => {
-                                stats.by_fixable += 1;
-                            }
-                            FilterReason::LowConfidence(_) => {
-                                stats.by_confidence += 1;
-                            }
-                            FilterReason::SearchNoMatch => {
-                                stats.by_search += 1;
-                            }
+                if !matched && let Some(r) = reason {
+                    match r {
+                        FilterReason::Severity(sev) => {
+                            stats.by_severity += 1;
+                            *severity_counts.entry(sev).or_insert(0) += 1;
+                        }
+                        FilterReason::RuleNotIncluded(_) => {
+                            stats.by_rules_include += 1;
+                        }
+                        FilterReason::RuleExcluded(rule) => {
+                            stats.by_rules_exclude += 1;
+                            *excluded_rules.entry(rule).or_insert(0) += 1;
+                        }
+                        FilterReason::FileNotIncluded(_) => {
+                            stats.by_files_include += 1;
+                        }
+                        FilterReason::FileExcluded(pattern) => {
+                            stats.by_files_exclude += 1;
+                            *excluded_files.entry(pattern).or_insert(0) += 1;
+                        }
+                        FilterReason::Category(_) => {
+                            stats.by_category += 1;
+                        }
+                        FilterReason::NotFixable => {
+                            stats.by_fixable += 1;
+                        }
+                        FilterReason::LowConfidence(_) => {
+                            stats.by_confidence += 1;
+                        }
+                        FilterReason::SearchNoMatch => {
+                            stats.by_search += 1;
                         }
                     }
                 }
@@ -738,6 +736,7 @@ mod tests {
             fix: None,
             confidence: Confidence::High,
             category,
+            source: Default::default(),
             fingerprint: None,
             properties: None,
             occurrence_count: None,

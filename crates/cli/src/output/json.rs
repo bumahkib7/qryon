@@ -80,6 +80,7 @@ pub fn output_with_path(
                         },
 
                         // Enterprise fields
+                        "source": format!("{}", f.source),
                         "confidence": format!("{}", f.confidence),
                         "category": format!("{}", f.category),
                         "fingerprint": f.fingerprint,
