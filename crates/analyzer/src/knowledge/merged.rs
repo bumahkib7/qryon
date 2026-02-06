@@ -481,6 +481,20 @@ impl MergedKnowledge {
         !self.active_frameworks.is_empty()
     }
 
+    /// Get sanitizer definitions that match a given sanitize type (e.g., "html", "sql", "shell")
+    pub fn sanitizers_for_type(&self, sanitize_type: &str) -> Vec<&'static SanitizerDef> {
+        self.all_sanitizers
+            .iter()
+            .filter(|s| s.sanitizes == sanitize_type || s.sanitizes == "*")
+            .copied()
+            .collect()
+    }
+
+    /// Get all sanitizer definitions
+    pub fn all_sanitizer_defs(&self) -> &[&'static SanitizerDef] {
+        &self.all_sanitizers
+    }
+
     /// Get all source patterns as strings (for debugging/testing)
     pub fn all_source_patterns(&self) -> Vec<Cow<'static, str>> {
         let mut patterns = Vec::new();

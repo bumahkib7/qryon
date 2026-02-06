@@ -1,6 +1,6 @@
 [package]
 name = "rma-rules"
-version = "0.18.1"
+version = "0.18.2"
 edition = "2021"
 description = "Rule engine for RMA - loads and executes security rules from YAML (Semgrep-compatible)"
 license = "MIT"
