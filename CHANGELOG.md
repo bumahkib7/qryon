@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-02-06
+
+### Fixed
+- `--exclude` patterns with `**` (e.g. `external/**`) now correctly match recursive directories
+- SARIF output capped at 5000 results to stay within GitHub Code Scanning limits
+- Bumped `github/codeql-action/upload-sarif` from v3 to v4
+
 ## [0.18.0] - 2026-02-06
 
 ### Added
