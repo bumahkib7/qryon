@@ -277,6 +277,24 @@ jobs:
             ghcr.io/bumahkib7/rma:${{ steps.version.outputs.version }}
             ghcr.io/bumahkib7/rma:latest
 
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract tag
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Homebrew tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh workflow run update-homebrew-tap.yml \
+            --repo "${{ github.repository }}" \
+            --field "tag=${RELEASE_TAG}" || echo "::warning::Homebrew tap update failed — check HOMEBREW_TAP_TOKEN secret"
+
   publish-npm:
     name: Publish to npm
     needs: release
