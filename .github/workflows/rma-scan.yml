@@ -59,18 +59,29 @@ jobs:
         id: scan
         run: |
           # Note: Excluding crypto/secret rules because rule definition files
-          # intentionally contain vulnerable patterns as examples
+          # intentionally contain vulnerable patterns as examples.
+          # Excluding external/ and rules/ dirs which contain third-party code
+          # and intentional vulnerable-pattern examples.
+          # Severity warning+ to stay under GitHub's 5000 alert SARIF limit.
           ./rma scan . \
             --format sarif \
             --output rma-results.sarif \
-            --severity info \
+            --severity warning \
             --skip-tests-all \
             --exclude-rules "generic/hardcoded-secret,generic/insecure-crypto,generic/crypto-typestate" \
+            --exclude "external/**,crates/rules/rules/**,target/**" \
             2>&1 || true
 
           echo "Scan complete."
 
           if [ -f rma-results.sarif ]; then
+            RESULT_COUNT=$(jq '[.runs[].results[]] | length' rma-results.sarif 2>/dev/null || echo "unknown")
+            echo "SARIF results: ${RESULT_COUNT}"
+            if [ "${RESULT_COUNT}" != "unknown" ] && [ "${RESULT_COUNT}" -gt 5000 ]; then
+              echo "::warning::SARIF has ${RESULT_COUNT} results (GitHub limit is 5000). Truncating."
+              jq '.runs[0].results = (.runs[0].results[:5000])' rma-results.sarif > rma-results-truncated.sarif
+              mv rma-results-truncated.sarif rma-results.sarif
+            fi
             echo "sarif-file=rma-results.sarif" >> "$GITHUB_OUTPUT"
             jq -r '.runs[0].invocations[0].properties.metrics // "No metrics"' rma-results.sarif || true
           fi
