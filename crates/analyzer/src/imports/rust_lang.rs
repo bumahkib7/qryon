@@ -105,6 +105,7 @@ fn extract_use_declaration(
 }
 
 /// Extract imports from a use tree (handles nesting like `use foo::{bar, baz}`)
+#[allow(clippy::too_many_arguments)]
 fn extract_use_tree(
     node: tree_sitter::Node,
     source: &[u8],

@@ -1153,6 +1153,15 @@ fn extract_functions_recursive(
             matches!(node.kind(), "function_declaration" | "method_declaration")
         }
         Language::Java => node.kind() == "method_declaration",
+        Language::Php => matches!(node.kind(), "function_definition" | "method_declaration"),
+        Language::CSharp => node.kind() == "method_declaration",
+        Language::Kotlin => matches!(node.kind(), "function_declaration" | "anonymous_function"),
+        Language::Scala => matches!(node.kind(), "function_definition" | "function_declaration"),
+        Language::Swift => node.kind() == "function_declaration",
+        Language::Bash => node.kind() == "function_definition",
+        Language::Elixir => node.kind() == "call",
+        Language::Solidity => node.kind() == "function_definition",
+        Language::OCaml => node.kind() == "let_binding",
         _ => false,
     };
 
@@ -1190,10 +1199,30 @@ fn extract_function_name(
             }
             None
         }
-        Language::Python | Language::Rust | Language::Go | Language::Java => node
+        Language::Python
+        | Language::Rust
+        | Language::Go
+        | Language::Java
+        | Language::Php
+        | Language::CSharp
+        | Language::Kotlin
+        | Language::Scala
+        | Language::Swift
+        | Language::Bash
+        | Language::Solidity
+        | Language::OCaml => node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string()),
+        Language::Elixir => {
+            // In Elixir, def/defp are calls — get the function name from arguments
+            if let Some(args) = node.child_by_field_name("arguments")
+                && let Some(first) = args.named_child(0)
+            {
+                return first.utf8_text(source).ok().map(|s| s.to_string());
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -1239,7 +1268,7 @@ fn is_function_exported(node: tree_sitter::Node, source: &[u8], language: Langua
             }
             false
         }
-        Language::Java => {
+        Language::Java | Language::CSharp => {
             // Check for public modifier
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -1251,6 +1280,56 @@ fn is_function_exported(node: tree_sitter::Node, source: &[u8], language: Langua
             }
             false
         }
+        Language::Php => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "visibility_modifier"
+                    && let Ok(text) = child.utf8_text(source)
+                {
+                    return text == "public";
+                }
+            }
+            // Top-level functions are exported by default
+            node.kind() == "function_definition"
+        }
+        Language::Kotlin => {
+            // Kotlin: no private/internal = exported
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "modifiers"
+                    && let Ok(text) = child.utf8_text(source)
+                    && (text.contains("private") || text.contains("internal"))
+                {
+                    return false;
+                }
+            }
+            true
+        }
+        Language::Scala => true, // Scala defaults to public
+        Language::Swift => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "modifiers"
+                    && let Ok(text) = child.utf8_text(source)
+                {
+                    return text.contains("public") || text.contains("open");
+                }
+            }
+            // Swift default access is internal
+            false
+        }
+        Language::Solidity => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "visibility"
+                    && let Ok(text) = child.utf8_text(source)
+                {
+                    return text == "public" || text == "external";
+                }
+            }
+            false
+        }
+        Language::Bash | Language::Elixir | Language::OCaml => true,
         _ => false,
     }
 }
@@ -1309,8 +1388,50 @@ fn extract_calls_recursive(
                 None
             }
         }
-        Language::Java => {
+        Language::Java | Language::CSharp => {
             if node.kind() == "method_declaration" {
+                extract_function_name(node, source, language)
+            } else {
+                None
+            }
+        }
+        Language::Php => {
+            if matches!(node.kind(), "function_definition" | "method_declaration") {
+                extract_function_name(node, source, language)
+            } else {
+                None
+            }
+        }
+        Language::Kotlin | Language::Scala | Language::Swift => {
+            if matches!(node.kind(), "function_declaration" | "function_definition") {
+                extract_function_name(node, source, language)
+            } else {
+                None
+            }
+        }
+        Language::Bash => {
+            if node.kind() == "function_definition" {
+                extract_function_name(node, source, language)
+            } else {
+                None
+            }
+        }
+        Language::Solidity => {
+            if node.kind() == "function_definition" {
+                extract_function_name(node, source, language)
+            } else {
+                None
+            }
+        }
+        Language::Elixir => {
+            if node.kind() == "call" {
+                extract_function_name(node, source, language)
+            } else {
+                None
+            }
+        }
+        Language::OCaml => {
+            if node.kind() == "let_binding" {
                 extract_function_name(node, source, language)
             } else {
                 None
@@ -1407,6 +1528,90 @@ fn extract_callee_name(
             if let Some(func_node) = node.child_by_field_name("function")
                 && func_node.kind() == "identifier"
             {
+                return func_node.utf8_text(source).ok().map(|s| s.to_string());
+            }
+            None
+        }
+        Language::Php => {
+            if let Some(func_node) = node.child_by_field_name("function") {
+                match func_node.kind() {
+                    "name" => return func_node.utf8_text(source).ok().map(|s| s.to_string()),
+                    "member_access_expression" => {
+                        if let Some(name) = func_node.child_by_field_name("name") {
+                            return name.utf8_text(source).ok().map(|s| s.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(name_node) = node.child_by_field_name("name") {
+                return name_node.utf8_text(source).ok().map(|s| s.to_string());
+            }
+            None
+        }
+        Language::CSharp => {
+            if let Some(func_node) = node.child_by_field_name("expression") {
+                match func_node.kind() {
+                    "identifier" => return func_node.utf8_text(source).ok().map(|s| s.to_string()),
+                    "member_access_expression" => {
+                        if let Some(name) = func_node.child_by_field_name("name") {
+                            return name.utf8_text(source).ok().map(|s| s.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        Language::Kotlin | Language::Scala | Language::Swift => {
+            if let Some(func_node) = node.child_by_field_name("function") {
+                match func_node.kind() {
+                    "simple_identifier" | "identifier" => {
+                        return func_node.utf8_text(source).ok().map(|s| s.to_string());
+                    }
+                    "navigation_expression" | "field_expression" => {
+                        if let Some(name) = func_node.child_by_field_name("name").or_else(|| {
+                            func_node.named_child(func_node.named_child_count().saturating_sub(1))
+                        }) {
+                            return name.utf8_text(source).ok().map(|s| s.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        Language::Bash => {
+            // Commands: first word is the command name
+            if let Some(name_node) = node.child_by_field_name("name") {
+                return name_node.utf8_text(source).ok().map(|s| s.to_string());
+            }
+            node.named_child(0)
+                .and_then(|n| n.utf8_text(source).ok())
+                .map(|s| s.to_string())
+        }
+        Language::Elixir => {
+            if let Some(target) = node.child_by_field_name("target") {
+                return target.utf8_text(source).ok().map(|s| s.to_string());
+            }
+            None
+        }
+        Language::Solidity => {
+            if let Some(func_node) = node.child_by_field_name("function") {
+                match func_node.kind() {
+                    "identifier" => return func_node.utf8_text(source).ok().map(|s| s.to_string()),
+                    "member_expression" => {
+                        if let Some(prop) = func_node.child_by_field_name("property") {
+                            return prop.utf8_text(source).ok().map(|s| s.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        Language::OCaml => {
+            if let Some(func_node) = node.child_by_field_name("function") {
                 return func_node.utf8_text(source).ok().map(|s| s.to_string());
             }
             None

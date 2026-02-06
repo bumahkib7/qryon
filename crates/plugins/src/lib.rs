@@ -128,6 +128,7 @@ impl From<PluginFinding> for Finding {
             fix: None,
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Quality,
+            source: rma_common::FindingSource::Plugin,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

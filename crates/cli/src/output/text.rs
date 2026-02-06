@@ -88,6 +88,19 @@ fn print_summary_box(summary: &AnalysisSummary, duration: Duration, results: &[F
     );
     println!("{}", format_box_line(&severity_line, width).cyan());
 
+    // Engine breakdown
+    let engine_counts = get_engine_counts(results);
+    if !engine_counts.is_empty() {
+        println!("{}", format_box_separator(width).cyan());
+        let engines_str = engine_counts
+            .iter()
+            .map(|(src, cnt)| format!("{}: {}", src, cnt))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let engine_line = format!("  Engines: {}", engines_str);
+        println!("{}", format_box_line(&engine_line, width).cyan());
+    }
+
     // Top issues section
     let top_issues = get_top_issues(results, 3);
     if !top_issues.is_empty() {
@@ -100,6 +113,21 @@ fn print_summary_box(summary: &AnalysisSummary, duration: Duration, results: &[F
     }
 
     println!("{}", format_box_bottom(width).cyan());
+}
+
+/// Get finding counts by source engine
+fn get_engine_counts(results: &[FileAnalysis]) -> Vec<(String, usize)> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+
+    for result in results {
+        for finding in &result.findings {
+            *counts.entry(finding.source.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    let mut sorted: Vec<_> = counts.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted
 }
 
 /// Get top N rule IDs by finding count
@@ -409,9 +437,10 @@ fn print_finding_line(finding: &Finding) {
     );
 
     println!(
-        "  {:>5}  {}  {}  {}",
+        "  {:>5}  {}  {}  {}  {}",
         location.dimmed(),
         severity,
+        finding.source.to_string().dimmed(),
         finding.rule_id.dimmed(),
         truncate(&finding.message, 50)
     );
@@ -426,9 +455,10 @@ fn print_finding_with_file(result: &FileAnalysis, finding: &Finding) {
     );
 
     println!(
-        "  {}  {}  {}  {}",
+        "  {}  {}  {}  {}  {}",
         location.dimmed(),
         severity,
+        finding.source.to_string().dimmed(),
         finding.rule_id.cyan(),
         truncate(&finding.message, 40)
     );
@@ -494,11 +524,12 @@ pub fn output_compact(
                 Severity::Info => "I",
             };
             println!(
-                "{}:{}:{}:{}: [{}] {}",
+                "{}:{}:{}:{}:{}:[{}] {}",
                 finding.location.file.display(),
                 finding.location.start_line,
                 finding.location.start_column,
                 severity_char,
+                finding.source,
                 finding.rule_id,
                 finding.message
             );
@@ -533,11 +564,7 @@ fn format_box_separator(width: usize) -> String {
 
 fn format_box_line(content: &str, width: usize) -> String {
     let visible_len = strip_ansi_codes(content).len();
-    let padding = if visible_len < width - 2 {
-        width - 2 - visible_len
-    } else {
-        0
-    };
+    let padding = (width - 2).saturating_sub(visible_len);
     format!("{}{}{}{}", BOX_V, content, " ".repeat(padding), BOX_V)
 }
 

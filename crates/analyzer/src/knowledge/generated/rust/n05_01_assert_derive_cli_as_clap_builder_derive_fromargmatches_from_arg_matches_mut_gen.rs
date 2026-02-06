@@ -1,0 +1,40 @@
+//! Auto-generated from CodeQL Models-as-Data + Pysa taint stubs
+//! Do not edit manually — regenerate with `cargo run -p knowledge-gen`
+
+use crate::knowledge::types::{
+    FrameworkProfile, SanitizerDef, SanitizerKind, SinkDef, SinkKind, SourceDef, SourceKind,
+};
+use rma_common::Severity;
+
+static N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_SOURCES: &[SourceDef] = &[
+];
+
+static N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_SINKS: &[SinkDef] = &[
+    SinkDef {
+        name: "<05_01_assert_derive::Cli as clap_builder::derive::FromArgMatches>::from_arg_matches_mut.Argument[0]",
+        pattern: SinkKind::FunctionCall(""),
+        rule_id: "rust/gen-log-injection",
+        severity: Severity::Warning,
+        description: "CodeQL sink: Argument[0] (kind: log-injection)",
+        cwe: Some("CWE-117"),
+    },
+];
+
+static N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_SANITIZERS: &[SanitizerDef] = &[
+];
+
+static N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_IMPORTS: &[&str] = &[
+    "<05_01_assert_derive::Cli as clap_builder::derive::FromArgMatches>::from_arg_matches_mut",
+];
+
+pub static N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_PROFILE: FrameworkProfile = FrameworkProfile {
+    name: "<05_01_assert_derive::cli as clap_builder::derive::fromargmatches>::from_arg_matches_mut_generated",
+    description: "Generated profile for <05_01_assert_derive::Cli as clap_builder::derive::FromArgMatches>::from_arg_matches_mut from CodeQL/Pysa",
+    detect_imports: N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_IMPORTS,
+    sources: N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_SOURCES,
+    sinks: N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_SINKS,
+    sanitizers: N05_01_ASSERT_DERIVE_CLI_AS_CLAP_BUILDER_DERIVE_FROMARGMATCHES_FROM_ARG_MATCHES_MUT_GEN_SANITIZERS,
+    safe_patterns: &[],
+    dangerous_patterns: &[],
+    resource_types: &[],
+};

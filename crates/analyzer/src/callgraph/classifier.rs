@@ -654,6 +654,22 @@ fn is_http_handler_name(name: &str, language: Language) -> bool {
                 || lower == "destroy"
         }
         Language::Php => lower.ends_with("action") || lower.ends_with("controller"),
+        Language::CSharp => {
+            lower.ends_with("action") || lower.ends_with("controller") || lower.starts_with("on")
+        }
+        Language::Kotlin => lower.ends_with("handler") || lower.starts_with("handle"),
+        Language::Scala => lower.ends_with("action") || lower.ends_with("handler"),
+        Language::Swift => lower.ends_with("handler") || lower.starts_with("handle"),
+        Language::Elixir => {
+            lower == "index"
+                || lower == "show"
+                || lower == "create"
+                || lower == "update"
+                || lower == "delete"
+                || lower == "new"
+                || lower == "edit"
+        }
+        Language::Solidity | Language::Bash => false,
         _ => lower.ends_with("handler") || (lower.contains("handle") && lower.contains("request")),
     }
 }

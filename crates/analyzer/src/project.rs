@@ -36,6 +36,13 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
+/// Result type for cross-file analysis: (call graph, dependency map, cross-file taints)
+type CrossFileAnalysisResult = (
+    Option<CallGraph>,
+    HashMap<PathBuf, Vec<PathBuf>>,
+    Vec<CrossFileTaint>,
+);
+
 /// Results from project-wide analysis
 #[derive(Debug, Default)]
 pub struct ProjectAnalysisResult {
@@ -572,11 +579,7 @@ impl ProjectAnalyzer {
         &self,
         parsed_files: &[ParsedFile],
         project_root: &Path,
-    ) -> Result<(
-        Option<CallGraph>,
-        HashMap<PathBuf, Vec<PathBuf>>,
-        Vec<CrossFileTaint>,
-    )> {
+    ) -> Result<CrossFileAnalysisResult> {
         info!("Running cross-file analysis...");
 
         // Step 1: Extract imports from all files
@@ -764,7 +767,9 @@ fn should_include_file(path: &Path, _config: &RmaConfig) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     let supported_extensions = [
-        "rs", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "go", "java",
+        "rs", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "go", "java", "kt", "kts", "scala",
+        "sc", "rb", "php", "cs", "swift", "sh", "bash", "ex", "exs", "ml", "mli", "sol", "tf",
+        "hcl", "yaml", "yml", "json",
     ];
 
     supported_extensions.contains(&ext)
@@ -995,7 +1000,16 @@ fn language_from_path(path: &Path) -> Option<rma_common::Language> {
             "rb" => rma_common::Language::Ruby,
             "php" => rma_common::Language::Php,
             "cs" => rma_common::Language::CSharp,
-            "scala" => rma_common::Language::Scala,
+            "scala" | "sc" => rma_common::Language::Scala,
+            "swift" => rma_common::Language::Swift,
+            "sh" | "bash" | "zsh" => rma_common::Language::Bash,
+            "ex" | "exs" => rma_common::Language::Elixir,
+            "ml" | "mli" => rma_common::Language::OCaml,
+            "sol" => rma_common::Language::Solidity,
+            "tf" | "hcl" => rma_common::Language::Hcl,
+            "yaml" | "yml" => rma_common::Language::Yaml,
+            "json" => rma_common::Language::Json,
+            "html" | "htm" => rma_common::Language::Html,
             _ => rma_common::Language::Unknown,
         })
 }
@@ -1074,6 +1088,33 @@ pub fn is_test_file(path: &Path) -> bool {
         }
         // Rust test files (usually inline, but check for test modules)
         if name_lower == "tests.rs" || name_lower.ends_with("_test.rs") {
+            return true;
+        }
+        // PHP test files
+        if name_lower.ends_with("test.php") || name_lower.ends_with("tests.php") {
+            return true;
+        }
+        // C# test files
+        if name_lower.ends_with("tests.cs") || name_lower.ends_with("test.cs") {
+            return true;
+        }
+        // Elixir test files
+        if name_lower.ends_with("_test.exs") {
+            return true;
+        }
+        // Swift test files
+        if name_lower.ends_with("tests.swift") || name_lower.ends_with("test.swift") {
+            return true;
+        }
+        // Scala test files
+        if name_lower.ends_with("test.scala")
+            || name_lower.ends_with("spec.scala")
+            || name_lower.ends_with("suite.scala")
+        {
+            return true;
+        }
+        // Solidity test files
+        if name_lower.ends_with(".t.sol") {
             return true;
         }
     }

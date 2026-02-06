@@ -42,7 +42,7 @@ pub fn output(
             let col = finding.location.start_column;
             let end_line = finding.location.end_line;
             let end_col = finding.location.end_column;
-            let title = &finding.rule_id;
+            let title = format!("{}/{}", finding.source, finding.rule_id);
 
             // Escape message for workflow command
             let message = escape_workflow_message(&finding.message);

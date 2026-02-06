@@ -11,10 +11,11 @@ members = [
     "crates/plugins",
     "crates/lsp",
     "crates/ai",
+    "crates/knowledge-gen",
 ]
 
 [workspace.package]
-version = "0.17.0"
+version = "0.18.0"
 edition = "2024"
 authors = ["Rust Monorepo Analyzer Team"]
 license = "MIT OR Apache-2.0"

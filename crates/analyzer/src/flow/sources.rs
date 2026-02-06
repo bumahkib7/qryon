@@ -108,6 +108,13 @@ impl TaintConfig {
             Language::Rust => Self::rust(),
             Language::Go => Self::go(),
             Language::Python => Self::python(),
+            Language::Php => Self::php(),
+            Language::CSharp => Self::csharp(),
+            Language::Kotlin | Language::Scala => Self::java_family(),
+            Language::Swift => Self::swift(),
+            Language::Bash => Self::bash(),
+            Language::Elixir => Self::elixir(),
+            Language::Solidity => Self::solidity(),
             _ => Self::empty(),
         }
     }
@@ -740,6 +747,392 @@ impl TaintConfig {
                 TaintSink {
                     rule_id: "python/sql-injection".into(),
                     pattern: SinkPattern::FunctionCall("raw".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn php() -> Self {
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("$_GET".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("$_POST".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("$_REQUEST".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("$_COOKIE".into()),
+                    label: "cookie_data".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("$_SERVER".into()),
+                    label: "server_data".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("$_FILES".into()),
+                    label: "file_upload".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::FunctionCall("file_get_contents".into()),
+                    label: "file_read".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec![
+                "htmlspecialchars".into(),
+                "htmlentities".into(),
+                "strip_tags".into(),
+                "addslashes".into(),
+                "mysqli_real_escape_string".into(),
+                "intval".into(),
+                "floatval".into(),
+            ],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "php/code-injection".into(),
+                    pattern: SinkPattern::FunctionCall("eval".into()),
+                },
+                TaintSink {
+                    rule_id: "php/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("exec".into()),
+                },
+                TaintSink {
+                    rule_id: "php/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("system".into()),
+                },
+                TaintSink {
+                    rule_id: "php/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("shell_exec".into()),
+                },
+                TaintSink {
+                    rule_id: "php/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("passthru".into()),
+                },
+                TaintSink {
+                    rule_id: "php/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("popen".into()),
+                },
+                TaintSink {
+                    rule_id: "php/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("mysqli_query".into()),
+                },
+                TaintSink {
+                    rule_id: "php/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("pg_query".into()),
+                },
+                TaintSink {
+                    rule_id: "php/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("query".into()),
+                },
+                TaintSink {
+                    rule_id: "php/xss".into(),
+                    pattern: SinkPattern::FunctionCall("echo".into()),
+                },
+                TaintSink {
+                    rule_id: "php/file-inclusion".into(),
+                    pattern: SinkPattern::FunctionCall("include".into()),
+                },
+                TaintSink {
+                    rule_id: "php/file-inclusion".into(),
+                    pattern: SinkPattern::FunctionCall("require".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn csharp() -> Self {
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("Request.QueryString".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("Request.Form".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("Request.Cookies".into()),
+                    label: "cookie_data".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("Request.Body".into()),
+                    label: "request_body".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("HttpContext.Request".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec![
+                "HtmlEncoder.Encode".into(),
+                "HttpUtility.HtmlEncode".into(),
+                "AntiXssEncoder.HtmlEncode".into(),
+                "WebUtility.HtmlEncode".into(),
+            ],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "csharp/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("Process.Start".into()),
+                },
+                TaintSink {
+                    rule_id: "csharp/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("ExecuteReader".into()),
+                },
+                TaintSink {
+                    rule_id: "csharp/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("ExecuteNonQuery".into()),
+                },
+                TaintSink {
+                    rule_id: "csharp/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("ExecuteScalar".into()),
+                },
+                TaintSink {
+                    rule_id: "csharp/xss".into(),
+                    pattern: SinkPattern::FunctionCall("Response.Write".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn java_family() -> Self {
+        // Shared config for Kotlin and Scala (JVM languages close to Java)
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::FunctionCall("getParameter".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::FunctionCall("getHeader".into()),
+                    label: "header_data".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("request.body".into()),
+                    label: "request_body".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::FunctionCall("readLine".into()),
+                    label: "stdin".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec!["escapeHtml".into(), "encode".into(), "sanitize".into()],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "jvm/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("executeQuery".into()),
+                },
+                TaintSink {
+                    rule_id: "jvm/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("executeUpdate".into()),
+                },
+                TaintSink {
+                    rule_id: "jvm/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("exec".into()),
+                },
+                TaintSink {
+                    rule_id: "jvm/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("ProcessBuilder".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn swift() -> Self {
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::FunctionCall("URLRequest".into()),
+                    label: "url_data".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("UserDefaults".into()),
+                    label: "storage".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("UIPasteboard".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec!["addingPercentEncoding".into(), "htmlEscape".into()],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "swift/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("Process".into()),
+                },
+                TaintSink {
+                    rule_id: "swift/code-injection".into(),
+                    pattern: SinkPattern::FunctionCall("evaluateJavaScript".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn bash() -> Self {
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::FunctionCall("read".into()),
+                    label: "stdin".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("QUERY_STRING".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec![],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "bash/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("eval".into()),
+                },
+                TaintSink {
+                    rule_id: "bash/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("exec".into()),
+                },
+                TaintSink {
+                    rule_id: "bash/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("source".into()),
+                },
+                TaintSink {
+                    rule_id: "bash/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("curl".into()),
+                },
+                TaintSink {
+                    rule_id: "bash/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("wget".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn elixir() -> Self {
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("conn.params".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("conn.query_params".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("conn.body_params".into()),
+                    label: "user_input".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec!["html_escape".into(), "safe_to_string".into()],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "elixir/sql-injection".into(),
+                    pattern: SinkPattern::FunctionCall("query".into()),
+                },
+                TaintSink {
+                    rule_id: "elixir/command-injection".into(),
+                    pattern: SinkPattern::FunctionCall("cmd".into()),
+                },
+                TaintSink {
+                    rule_id: "elixir/code-injection".into(),
+                    pattern: SinkPattern::FunctionCall("eval_string".into()),
+                },
+            ],
+            source_function_cache: Vec::new(),
+            source_member_cache: Vec::new(),
+        }
+    }
+
+    fn solidity() -> Self {
+        Self {
+            sources: vec![
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("msg.sender".into()),
+                    label: "caller".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("msg.value".into()),
+                    label: "value".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("msg.data".into()),
+                    label: "calldata".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("tx.origin".into()),
+                    label: "origin".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::MemberAccess("block.timestamp".into()),
+                    label: "block_data".into(),
+                },
+                TaintSource {
+                    pattern: SourcePattern::Parameter,
+                    label: "parameter".into(),
+                },
+            ],
+            sanitizers: vec![],
+            sinks: vec![
+                TaintSink {
+                    rule_id: "solidity/reentrancy".into(),
+                    pattern: SinkPattern::FunctionCall("call".into()),
+                },
+                TaintSink {
+                    rule_id: "solidity/delegatecall".into(),
+                    pattern: SinkPattern::FunctionCall("delegatecall".into()),
+                },
+                TaintSink {
+                    rule_id: "solidity/selfdestruct".into(),
+                    pattern: SinkPattern::FunctionCall("selfdestruct".into()),
+                },
+                TaintSink {
+                    rule_id: "solidity/transfer".into(),
+                    pattern: SinkPattern::FunctionCall("transfer".into()),
+                },
+                TaintSink {
+                    rule_id: "solidity/send".into(),
+                    pattern: SinkPattern::FunctionCall("send".into()),
                 },
             ],
             source_function_cache: Vec::new(),

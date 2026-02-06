@@ -209,6 +209,7 @@ impl OxcNativeProvider {
                 fix: None,
                 confidence,
                 category,
+                source: rma_common::FindingSource::Oxc,
                 fingerprint: None,
                 properties: None,
                 occurrence_count: None,

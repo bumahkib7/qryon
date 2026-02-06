@@ -824,8 +824,8 @@ impl TypeInferenceTransfer {
         node: tree_sitter::Node,
         source: &[u8],
         state: &mut HashSet<TypeFact>,
-        cfg: &CFG,
-        block_id: BlockId,
+        _cfg: &CFG,
+        _block_id: BlockId,
     ) {
         let kind = node.kind();
         let sem = self.semantics;
@@ -852,7 +852,7 @@ impl TypeInferenceTransfer {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             if !sem.is_function_def(child.kind()) {
-                self.process_statement(child, source, state, cfg, block_id);
+                self.process_statement(child, source, state, _cfg, _block_id);
             }
         }
     }

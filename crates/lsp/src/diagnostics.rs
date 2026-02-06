@@ -161,6 +161,7 @@ mod tests {
             fix: None,
             confidence: Confidence::Medium,
             category: FindingCategory::Security,
+            source: Default::default(),
             fingerprint: None,
             properties: None,
             occurrence_count: None,

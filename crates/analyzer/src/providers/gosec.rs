@@ -9,7 +9,8 @@
 use super::AnalysisProvider;
 use anyhow::{Context, Result};
 use rma_common::{
-    Confidence, Finding, FindingCategory, GosecProviderConfig, Language, Severity, SourceLocation,
+    Confidence, Finding, FindingCategory, FindingSource, GosecProviderConfig, Language, Severity,
+    SourceLocation,
 };
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -208,6 +209,7 @@ impl GosecProvider {
             fix: None,
             confidence,
             category,
+            source: FindingSource::Gosec,
             fingerprint: None,
             properties: None,
             occurrence_count: None,

@@ -255,6 +255,17 @@ fn load_semgrep_rules(base_dir: &Path, config: &RuleEngineConfig) -> anyhow::Res
         ("kotlin", vec!["kotlin", "kt"]),
         ("scala", vec!["scala"]),
         ("swift", vec!["swift"]),
+        ("bash", vec!["bash", "sh", "shell"]),
+        ("solidity", vec!["solidity", "sol"]),
+        ("dockerfile", vec!["dockerfile", "docker"]),
+        ("html", vec!["html"]),
+        ("elixir", vec!["elixir", "ex"]),
+        ("ocaml", vec!["ocaml", "ml"]),
+        ("yaml", vec!["yaml", "yml"]),
+        ("json", vec!["json"]),
+        ("clojure", vec!["clojure", "clj"]),
+        ("apex", vec!["apex"]),
+        ("terraform", vec!["terraform", "hcl", "tf"]),
         ("generic", vec!["generic"]),
     ];
 

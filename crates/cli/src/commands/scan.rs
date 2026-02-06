@@ -770,6 +770,20 @@ fn parse_language(s: &str) -> Option<Language> {
         "python" | "py" => Some(Language::Python),
         "go" | "golang" => Some(Language::Go),
         "java" => Some(Language::Java),
+        "kotlin" | "kt" => Some(Language::Kotlin),
+        "scala" => Some(Language::Scala),
+        "ruby" | "rb" => Some(Language::Ruby),
+        "php" => Some(Language::Php),
+        "csharp" | "c#" | "cs" => Some(Language::CSharp),
+        "swift" => Some(Language::Swift),
+        "bash" | "sh" | "shell" => Some(Language::Bash),
+        "elixir" | "ex" => Some(Language::Elixir),
+        "solidity" | "sol" => Some(Language::Solidity),
+        "ocaml" | "ml" => Some(Language::OCaml),
+        "hcl" | "terraform" | "tf" => Some(Language::Hcl),
+        "yaml" | "yml" => Some(Language::Yaml),
+        "json" => Some(Language::Json),
+        "html" => Some(Language::Html),
         _ => None,
     }
 }
@@ -1037,6 +1051,7 @@ fn run_cross_file_phase(
             fix: None,
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Security,
+            source: rma_common::FindingSource::TaintFlow,
             fingerprint: None,
             properties: None,
             occurrence_count: None,
@@ -1310,7 +1325,7 @@ fn filter_baseline_findings(
 fn apply_user_filters(
     args: &ScanArgs,
     _effective: &EffectiveScanSettings,
-    results: &mut Vec<rma_analyzer::FileAnalysis>,
+    results: &mut [rma_analyzer::FileAnalysis],
     summary: &mut rma_analyzer::AnalysisSummary,
     config_path: Option<&std::path::Path>,
 ) -> Result<FilterStats> {

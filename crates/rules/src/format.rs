@@ -132,7 +132,7 @@ pub enum PatternClause {
     Simple(String),
 
     /// Complex pattern with operators
-    Complex(PatternOperator),
+    Complex(Box<PatternOperator>),
 }
 
 /// Pattern operators for complex matching

@@ -708,13 +708,10 @@ impl<'a> AliasAnalyzer<'a> {
 
     /// Process a reassignment
     fn process_reassignment(&self, name: &str, origin: &ValueOrigin, graph: &mut PointsToGraph) {
-        match origin {
-            ValueOrigin::Variable(source_var) => {
-                graph.add_direct_alias(name, source_var);
-            }
-            // Other origins create new allocations that don't affect existing aliases
-            // (flow-insensitive: we merge all assignments)
-            _ => {}
+        // Other origins create new allocations that don't affect existing aliases
+        // (flow-insensitive: we merge all assignments)
+        if let ValueOrigin::Variable(source_var) = origin {
+            graph.add_direct_alias(name, source_var);
         }
     }
 

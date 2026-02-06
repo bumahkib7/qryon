@@ -1,6 +1,6 @@
 [package]
 name = "rma-rules"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2021"
 description = "Rule engine for RMA - loads and executes security rules from YAML (Semgrep-compatible)"
 license = "MIT"
@@ -9,7 +9,7 @@ build = "build.rs"
 include = ["src/**/*", "Cargo.toml", "build.rs", "rules/**/*"]
 
 [dependencies]
-rma-common = { version = "0.17.0", path = "../common" }
+rma-common = { version = "0.18.0", path = "../common" }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"

@@ -558,10 +558,9 @@ impl TuiApp {
             .enumerate()
             .filter(|(_, e)| {
                 // Source→Sink only filter
-                if self.filter_source_sink_only {
-                    if !e.caller_is_source || !e.callee_contains_sinks {
-                        return false;
-                    }
+                if self.filter_source_sink_only && (!e.caller_is_source || !e.callee_contains_sinks)
+                {
+                    return false;
                 }
                 // Search query filter
                 if !self.search_query.is_empty() {
@@ -2246,10 +2245,10 @@ fn run_app_loop<B: ratatui::backend::Backend>(
     loop {
         terminal.draw(|f| app.render(f))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                app.handle_key_event(key);
-            }
+        if event::poll(std::time::Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            app.handle_key_event(key);
         }
 
         if app.should_quit {
@@ -2310,9 +2309,7 @@ pub fn run_from_analysis_with_project(
         }
 
         // Language breakdown
-        let entry = language_breakdown
-            .entry(r.language)
-            .or_insert(LanguageStats::default());
+        let entry = language_breakdown.entry(r.language).or_default();
         entry.files += 1;
         entry.loc += r.metrics.lines_of_code;
         entry.findings += r.findings.len();

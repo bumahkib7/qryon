@@ -1,7 +1,7 @@
 //! Rule trait and base implementations for security vulnerability DETECTION
 
 use crate::flow::FlowContext;
-use rma_common::{Confidence, Finding, FindingCategory, Language};
+use rma_common::{Confidence, Finding, FindingCategory, FindingSource, Language};
 use rma_parser::ParsedFile;
 use tree_sitter::Node;
 
@@ -354,6 +354,7 @@ pub fn create_finding_at_line(
         fix: None,
         confidence: Confidence::Medium,
         category: infer_category(rule_id),
+        source: infer_source(rule_id),
         fingerprint: None,
         properties: None,
         occurrence_count: None,
@@ -397,6 +398,7 @@ pub fn create_finding(
         fix: None,
         confidence: Confidence::Medium,
         category: infer_category(rule_id),
+        source: infer_source(rule_id),
         fingerprint: None,
         properties: None,
         occurrence_count: None,
@@ -421,6 +423,25 @@ pub fn create_finding_with_confidence(
     let mut finding = create_finding(rule_id, node, path, content, severity, message, language);
     finding.confidence = confidence;
     finding
+}
+
+/// Infer the source engine from the rule ID pattern.
+///
+/// Generated knowledge rules follow naming conventions:
+/// - `*/gen-pysa-*` → Pysa taint stub generated profiles
+/// - `*/gen-*` (non-pysa) → CodeQL Models-as-Data generated profiles
+/// - Everything else → Built-in Semgrep-style rules
+fn infer_source(rule_id: &str) -> FindingSource {
+    // Check for generated rule patterns (language/gen-*)
+    if let Some(suffix) = rule_id.split('/').nth(1) {
+        if suffix.starts_with("gen-pysa-") {
+            return FindingSource::Pysa;
+        }
+        if suffix.starts_with("gen-") {
+            return FindingSource::Codeql;
+        }
+    }
+    FindingSource::Builtin
 }
 
 /// Infer category from rule ID prefix
@@ -469,5 +490,70 @@ fn infer_category(rule_id: &str) -> FindingCategory {
         FindingCategory::Style
     } else {
         FindingCategory::Quality // Default to quality
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_infer_source_builtin() {
+        assert_eq!(infer_source("js/sql-injection"), FindingSource::Builtin);
+        assert_eq!(infer_source("go/pg-orm-sqli"), FindingSource::Builtin);
+        assert_eq!(infer_source("java/ecb-cipher"), FindingSource::Builtin);
+        assert_eq!(
+            infer_source("python/eval-injection"),
+            FindingSource::Builtin
+        );
+        assert_eq!(infer_source("generic/todo-fixme"), FindingSource::Builtin);
+    }
+
+    #[test]
+    fn test_infer_source_codeql() {
+        assert_eq!(infer_source("go/gen-manual"), FindingSource::Codeql);
+        assert_eq!(infer_source("java/gen-manual"), FindingSource::Codeql);
+        assert_eq!(infer_source("java/gen-ai-manual"), FindingSource::Codeql);
+        assert_eq!(
+            infer_source("javascript/gen-sql-injection"),
+            FindingSource::Codeql
+        );
+        assert_eq!(
+            infer_source("javascript/gen-credentials-key"),
+            FindingSource::Codeql
+        );
+        assert_eq!(
+            infer_source("javascript/gen-path-injection"),
+            FindingSource::Codeql
+        );
+        assert_eq!(infer_source("cpp/gen-manual"), FindingSource::Codeql);
+    }
+
+    #[test]
+    fn test_infer_source_pysa() {
+        assert_eq!(infer_source("python/gen-pysa-xss"), FindingSource::Pysa);
+        assert_eq!(
+            infer_source("python/gen-pysa-authentication"),
+            FindingSource::Pysa
+        );
+        assert_eq!(
+            infer_source("python/gen-pysa-execargsink"),
+            FindingSource::Pysa
+        );
+        assert_eq!(
+            infer_source("python/gen-pysa-remotecodeexecution"),
+            FindingSource::Pysa
+        );
+        assert_eq!(
+            infer_source("python/gen-pysa-filesystem_readwrite"),
+            FindingSource::Pysa
+        );
+    }
+
+    #[test]
+    fn test_infer_source_no_slash() {
+        // Rule IDs without a slash should default to Builtin
+        assert_eq!(infer_source("some-rule"), FindingSource::Builtin);
+        assert_eq!(infer_source("gen-manual"), FindingSource::Builtin);
     }
 }

@@ -212,11 +212,11 @@ impl LanguageServer for RmaBackend {
 
         // Update document content but DO NOT analyze
         // Analysis is debounced to did_save for performance
-        if let Some(mut doc) = self.documents.get_mut(&uri) {
-            if let Some(change) = params.content_changes.into_iter().last() {
-                doc.content = change.text;
-                doc.version = params.text_document.version;
-            }
+        if let Some(mut doc) = self.documents.get_mut(&uri)
+            && let Some(change) = params.content_changes.into_iter().last()
+        {
+            doc.content = change.text;
+            doc.version = params.text_document.version;
         }
 
         // NOTE: We intentionally do NOT call analyze_document here.
@@ -229,10 +229,10 @@ impl LanguageServer for RmaBackend {
         info!("Document saved: {}", uri);
 
         // Update content if provided
-        if let Some(text) = params.text {
-            if let Some(mut doc) = self.documents.get_mut(&uri) {
-                doc.content = text;
-            }
+        if let Some(text) = params.text
+            && let Some(mut doc) = self.documents.get_mut(&uri)
+        {
+            doc.content = text;
         }
 
         // Analyze on save - this is where the work happens

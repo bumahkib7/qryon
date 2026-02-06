@@ -103,16 +103,30 @@ impl CompiledRuleSet {
             rules.extend(lang_rules.iter());
         }
 
-        // Handle language aliases
+        // Handle language aliases (maps display names ↔ semgrep language identifiers)
         let aliases: &[&str] = match lang_lower.as_str() {
             "javascript" => &["js"],
             "typescript" => &["ts"],
             "python" => &["py"],
             "ruby" => &["rb"],
+            "csharp" | "c#" => &["cs", "csharp", "c#"],
+            "cpp" | "c++" => &["cpp", "c++", "c"],
+            "hcl" | "terraform" => &["hcl", "terraform"],
+            "bash" | "shell" | "sh" => &["bash", "shell", "sh"],
+            "kotlin" | "kt" => &["kotlin", "kt"],
+            "ocaml" | "ml" => &["ocaml", "ml"],
+            "elixir" | "ex" => &["elixir", "ex"],
+            "clojure" | "clj" => &["clojure", "clj"],
+            "solidity" | "sol" => &["solidity", "sol"],
+            "yaml" | "yml" => &["yaml", "yml"],
+            "dockerfile" | "docker" => &["dockerfile", "docker"],
             _ => &[],
         };
 
         for alias in aliases {
+            if *alias == lang_lower.as_str() {
+                continue; // Already added above
+            }
             if let Some(alias_rules) = self.by_language.get(*alias) {
                 rules.extend(alias_rules.iter());
             }
