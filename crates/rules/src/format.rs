@@ -87,6 +87,10 @@ pub struct Rule {
     /// Rule options
     #[serde(default)]
     pub options: Option<RuleOptions>,
+
+    /// Build-time matching strategy (from embedded rules only)
+    #[serde(skip)]
+    pub match_strategy: Option<crate::embedded::MatchStrategy>,
 }
 
 /// Severity levels (Semgrep compatible)
@@ -368,7 +372,7 @@ impl Rule {
 
     /// Get the category from metadata
     pub fn category(&self) -> &str {
-        self.metadata.category.as_deref().unwrap_or("security")
+        self.metadata.category.as_deref().unwrap_or("quality")
     }
 
     /// Get confidence level
@@ -463,6 +467,7 @@ rules:
             fix_regex: None,
             min_version: None,
             options: None,
+            match_strategy: None,
         };
 
         assert!(rule.applies_to("python"));

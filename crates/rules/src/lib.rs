@@ -27,6 +27,7 @@ mod loader;
 mod matcher;
 mod pattern;
 mod registry;
+pub mod ts_matcher;
 mod translator;
 
 pub use embedded::{

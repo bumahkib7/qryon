@@ -19,12 +19,13 @@ use ratatui::{
 };
 use rma_analyzer::AnalysisSummary;
 use rma_analyzer::project::is_test_file;
-use rma_common::{CodeMetrics, Finding, Language, Severity};
-use std::collections::HashMap;
+use rma_common::{CodeMetrics, Confidence, Finding, Language, Severity};
+use std::collections::{BTreeSet, HashMap};
 use std::io;
 
 /// Cross-file taint flow information for display
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CrossFileFlow {
     pub source_file: String,
     pub source_function: String,
@@ -35,6 +36,19 @@ pub struct CrossFileFlow {
     pub variable: String,
     pub flow_kind: FlowKind,
     pub severity: Severity,
+    // --- Rich fields from CrossFileTaint ---
+    pub confidence: String,
+    pub source_type: String,
+    pub sink_type: String,
+    pub description: String,
+    pub bridge_type: String,
+    pub reachability: String,
+    pub sink_role: Option<String>,
+    pub sink_arg_index: Option<usize>,
+    pub sink_callsite_line: Option<usize>,
+    pub sink_evidence_detail: String,
+    pub sink_evidence_strong: bool,
+    pub flow_path: Vec<String>,
 }
 
 /// Kind of cross-file data flow
@@ -55,6 +69,24 @@ impl std::fmt::Display for FlowKind {
             FlowKind::Return => write!(f, "Return"),
         }
     }
+}
+
+/// Explore mode view in call graph
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExploreView {
+    Callers,
+    Callees,
+}
+
+/// Event binding display information
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct EventBindingDisplay {
+    pub event_name: String,
+    pub emit_count: usize,
+    pub listen_count: usize,
+    pub emit_files: Vec<String>,
+    pub listen_files: Vec<String>,
 }
 
 /// Aggregated metrics for display
@@ -105,6 +137,7 @@ pub struct CallEdgeDisplay {
     pub callee_language: String,
     pub callee_is_exported: bool,
     pub classification_confidence: f32,
+    pub source_sink_path: Vec<String>,
 }
 
 /// Call graph statistics for the summary panel
@@ -135,6 +168,7 @@ pub struct ScanStats {
     pub total_loc: usize,
     #[allow(dead_code)]
     pub total_complexity: usize,
+    pub suppressed_generated: usize,
 }
 
 impl From<&AnalysisSummary> for ScanStats {
@@ -148,6 +182,7 @@ impl From<&AnalysisSummary> for ScanStats {
             files_analyzed: summary.files_analyzed,
             total_loc: summary.total_loc,
             total_complexity: summary.total_complexity,
+            suppressed_generated: 0,
         }
     }
 }
@@ -234,6 +269,7 @@ pub struct TuiApp {
     selected_edge: usize,
     call_graph_stats: CallGraphStats,
     filter_source_sink_only: bool,
+    event_bindings: Vec<EventBindingDisplay>,
 
     // === UI State ===
     active_tab: ActiveTab,
@@ -242,12 +278,32 @@ pub struct TuiApp {
     should_quit: bool,
     show_detail: bool,
     show_edge_detail: bool,
+    show_flow_detail: bool,
+    show_event_bindings: bool,
 
     // === Filters ===
     filter_severity: Option<Severity>,
+    filter_subcategory: Option<String>,
+    filter_confidence: Option<Confidence>,
     filter_rule: Option<String>,
     filter_file: Option<String>,
     search_query: String,
+    // Flow-specific filters
+    filter_flow_kind: Option<FlowKind>,
+    filter_source_type: Option<String>,
+    filter_sink_type: Option<String>,
+    // Call graph filters
+    filter_cross_file_only: bool,
+
+    // === Explore Mode (Call Graph) ===
+    explore_mode: bool,
+    explore_function_name: String,
+    explore_function_file: String,
+    explore_callers: Vec<(String, String, usize)>,
+    explore_callees: Vec<(String, String, usize)>,
+    explore_selected: usize,
+    explore_list_state: ListState,
+    explore_view: ExploreView,
 
     // === Stats ===
     stats: ScanStats,
@@ -272,6 +328,7 @@ impl TuiApp {
         file_metrics: Vec<(String, CodeMetrics)>,
         call_edges: Vec<CallEdgeDisplay>,
         call_graph_stats: CallGraphStats,
+        event_bindings: Vec<EventBindingDisplay>,
         stats: ScanStats,
     ) -> Self {
         let findings_len = findings.len();
@@ -302,16 +359,33 @@ impl TuiApp {
             selected_edge: 0,
             call_graph_stats,
             filter_source_sink_only: false,
+            event_bindings,
             active_tab: ActiveTab::Findings,
             active_panel: ActivePanel::List,
             input_mode: InputMode::Normal,
             should_quit: false,
             show_detail: false,
             show_edge_detail: false,
+            show_flow_detail: false,
+            show_event_bindings: false,
             filter_severity: None,
+            filter_subcategory: None,
+            filter_confidence: None,
             filter_rule: None,
             filter_file: None,
             search_query: String::new(),
+            filter_flow_kind: None,
+            filter_source_type: None,
+            filter_sink_type: None,
+            filter_cross_file_only: false,
+            explore_mode: false,
+            explore_function_name: String::new(),
+            explore_function_file: String::new(),
+            explore_callers: Vec::new(),
+            explore_callees: Vec::new(),
+            explore_selected: 0,
+            explore_list_state: ListState::default(),
+            explore_view: ExploreView::Callers,
             stats,
             list_state,
             flow_list_state: ListState::default(),
@@ -331,6 +405,7 @@ impl TuiApp {
             Vec::new(),
             Vec::new(),
             CallGraphStats::default(),
+            Vec::new(),
             stats,
         )
     }
@@ -344,6 +419,25 @@ impl TuiApp {
             .filter(|(_, f)| {
                 // Severity filter
                 if self.filter_severity.is_some_and(|sev| f.severity != sev) {
+                    return false;
+                }
+
+                // Subcategory filter
+                if let Some(ref subcat) = self.filter_subcategory {
+                    let matches = f
+                        .subcategory
+                        .as_ref()
+                        .is_some_and(|sc| sc.iter().any(|s| s == subcat));
+                    if !matches {
+                        return false;
+                    }
+                }
+
+                // Confidence filter
+                if self
+                    .filter_confidence
+                    .is_some_and(|conf| f.confidence != conf)
+                {
                     return false;
                 }
 
@@ -405,13 +499,29 @@ impl TuiApp {
                 if self.filter_severity.is_some_and(|sev| f.severity != sev) {
                     return false;
                 }
+                if self.filter_flow_kind.is_some_and(|kind| f.flow_kind != kind) {
+                    return false;
+                }
+                if let Some(ref src) = self.filter_source_type {
+                    if &f.source_type != src {
+                        return false;
+                    }
+                }
+                if let Some(ref sink) = self.filter_sink_type {
+                    if &f.sink_type != sink {
+                        return false;
+                    }
+                }
                 if !self.search_query.is_empty() {
                     let query = self.search_query.to_lowercase();
                     let matches = f.source_file.to_lowercase().contains(&query)
                         || f.target_file.to_lowercase().contains(&query)
                         || f.variable.to_lowercase().contains(&query)
                         || f.source_function.to_lowercase().contains(&query)
-                        || f.target_function.to_lowercase().contains(&query);
+                        || f.target_function.to_lowercase().contains(&query)
+                        || f.description.to_lowercase().contains(&query)
+                        || f.sink_type.to_lowercase().contains(&query)
+                        || f.source_type.to_lowercase().contains(&query);
                     if !matches {
                         return false;
                     }
@@ -423,6 +533,11 @@ impl TuiApp {
 
         if self.selected_flow >= self.filtered_flows.len() {
             self.selected_flow = self.filtered_flows.len().saturating_sub(1);
+        }
+        if !self.filtered_flows.is_empty() {
+            self.flow_list_state.select(Some(self.selected_flow));
+        } else {
+            self.flow_list_state.select(None);
         }
     }
 
@@ -498,7 +613,15 @@ impl TuiApp {
             // View controls
             KeyCode::Enter => match self.active_tab {
                 ActiveTab::Findings => self.show_detail = !self.show_detail,
-                ActiveTab::CallGraph => self.show_edge_detail = !self.show_edge_detail,
+                ActiveTab::CrossFileFlows => self.show_flow_detail = !self.show_flow_detail,
+                ActiveTab::CallGraph => {
+                    if self.explore_mode {
+                        // Drill into selected function in explore mode
+                        self.explore_drill_into_selected();
+                    } else {
+                        self.show_edge_detail = !self.show_edge_detail;
+                    }
+                }
                 _ => {}
             },
 
@@ -514,6 +637,26 @@ impl TuiApp {
                 };
                 self.apply_all_filters();
             }
+            KeyCode::Char('f') => {
+                // Cycle subcategory: None → vuln → audit → style → None
+                self.filter_subcategory = match self.filter_subcategory.as_deref() {
+                    None => Some("vuln".to_string()),
+                    Some("vuln") => Some("audit".to_string()),
+                    Some("audit") => Some("style".to_string()),
+                    _ => None,
+                };
+                self.apply_all_filters();
+            }
+            KeyCode::Char('d') => {
+                // Cycle confidence: None → High → Medium → Low → None
+                self.filter_confidence = match self.filter_confidence {
+                    None => Some(Confidence::High),
+                    Some(Confidence::High) => Some(Confidence::Medium),
+                    Some(Confidence::Medium) => Some(Confidence::Low),
+                    Some(Confidence::Low) => None,
+                };
+                self.apply_all_filters();
+            }
             KeyCode::Char('x') => {
                 // Toggle source→sink filter (only on CallGraph tab)
                 if self.active_tab == ActiveTab::CallGraph {
@@ -521,13 +664,105 @@ impl TuiApp {
                     self.apply_edge_filters();
                 }
             }
+            // --- Cross-File Flows tab filters ---
+            KeyCode::Char('t') => {
+                if self.active_tab == ActiveTab::CrossFileFlows {
+                    self.filter_flow_kind = match self.filter_flow_kind {
+                        None => Some(FlowKind::DirectCall),
+                        Some(FlowKind::DirectCall) => Some(FlowKind::EventEmission),
+                        Some(FlowKind::EventEmission) => Some(FlowKind::SharedState),
+                        Some(FlowKind::SharedState) => Some(FlowKind::Return),
+                        Some(FlowKind::Return) => None,
+                    };
+                    self.apply_flow_filters();
+                }
+            }
+            KeyCode::Char('n') => {
+                if self.active_tab == ActiveTab::CrossFileFlows {
+                    let source_types: Vec<String> = self
+                        .cross_file_flows
+                        .iter()
+                        .map(|f| f.source_type.clone())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect();
+                    self.filter_source_type =
+                        cycle_filter(&self.filter_source_type, &source_types);
+                    self.apply_flow_filters();
+                }
+            }
+            KeyCode::Char('i') => {
+                if self.active_tab == ActiveTab::CrossFileFlows {
+                    let sink_types: Vec<String> = self
+                        .cross_file_flows
+                        .iter()
+                        .map(|f| f.sink_type.clone())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect();
+                    self.filter_sink_type = cycle_filter(&self.filter_sink_type, &sink_types);
+                    self.apply_flow_filters();
+                }
+            }
+            // --- Call Graph tab keys ---
+            KeyCode::Char('w') => {
+                if self.active_tab == ActiveTab::CallGraph {
+                    self.filter_cross_file_only = !self.filter_cross_file_only;
+                    self.apply_edge_filters();
+                }
+            }
+            KeyCode::Char('e') => {
+                if self.active_tab == ActiveTab::CallGraph {
+                    if self.explore_mode {
+                        // Already in explore mode - drill into selected
+                        self.explore_drill_into_selected();
+                    } else {
+                        self.enter_explore_mode();
+                    }
+                }
+            }
+            KeyCode::Char('l') => {
+                if self.active_tab == ActiveTab::CallGraph && self.explore_mode {
+                    self.explore_view = match self.explore_view {
+                        ExploreView::Callers => ExploreView::Callees,
+                        ExploreView::Callees => ExploreView::Callers,
+                    };
+                    self.explore_selected = 0;
+                    self.explore_list_state.select(Some(0));
+                }
+            }
+            KeyCode::Char('b') => {
+                if self.active_tab == ActiveTab::CallGraph {
+                    self.show_event_bindings = !self.show_event_bindings;
+                }
+            }
             KeyCode::Esc => {
-                if !self.search_query.is_empty() {
+                if self.explore_mode {
+                    self.explore_mode = false;
+                } else if !self.search_query.is_empty() {
                     self.search_query.clear();
                     self.apply_all_filters();
                 } else if self.filter_severity.is_some() {
                     self.filter_severity = None;
                     self.apply_all_filters();
+                } else if self.filter_subcategory.is_some() {
+                    self.filter_subcategory = None;
+                    self.apply_all_filters();
+                } else if self.filter_confidence.is_some() {
+                    self.filter_confidence = None;
+                    self.apply_all_filters();
+                } else if self.filter_flow_kind.is_some() {
+                    self.filter_flow_kind = None;
+                    self.apply_flow_filters();
+                } else if self.filter_source_type.is_some() {
+                    self.filter_source_type = None;
+                    self.apply_flow_filters();
+                } else if self.filter_sink_type.is_some() {
+                    self.filter_sink_type = None;
+                    self.apply_flow_filters();
+                } else if self.filter_cross_file_only {
+                    self.filter_cross_file_only = false;
+                    self.apply_edge_filters();
                 } else if self.active_panel == ActivePanel::Help {
                     self.active_panel = ActivePanel::List;
                 }
@@ -536,8 +771,15 @@ impl TuiApp {
                 // Clear all filters
                 self.search_query.clear();
                 self.filter_severity = None;
+                self.filter_subcategory = None;
+                self.filter_confidence = None;
                 self.filter_rule = None;
                 self.filter_file = None;
+                self.filter_flow_kind = None;
+                self.filter_source_type = None;
+                self.filter_sink_type = None;
+                self.filter_cross_file_only = false;
+                self.explore_mode = false;
                 self.apply_all_filters();
             }
             _ => {}
@@ -560,6 +802,10 @@ impl TuiApp {
                 // Source→Sink only filter
                 if self.filter_source_sink_only && (!e.caller_is_source || !e.callee_contains_sinks)
                 {
+                    return false;
+                }
+                // Cross-file only filter
+                if self.filter_cross_file_only && !e.is_cross_file {
                     return false;
                 }
                 // Search query filter
@@ -616,7 +862,13 @@ impl TuiApp {
                 }
             }
             ActiveTab::CallGraph => {
-                if self.selected_edge < self.filtered_edges.len().saturating_sub(1) {
+                if self.explore_mode {
+                    let max = self.explore_current_list_len().saturating_sub(1);
+                    if self.explore_selected < max {
+                        self.explore_selected += 1;
+                        self.explore_list_state.select(Some(self.explore_selected));
+                    }
+                } else if self.selected_edge < self.filtered_edges.len().saturating_sub(1) {
                     self.selected_edge += 1;
                     self.edge_list_state.select(Some(self.selected_edge));
                 }
@@ -646,7 +898,12 @@ impl TuiApp {
                 }
             }
             ActiveTab::CallGraph => {
-                if self.selected_edge > 0 {
+                if self.explore_mode {
+                    if self.explore_selected > 0 {
+                        self.explore_selected -= 1;
+                        self.explore_list_state.select(Some(self.explore_selected));
+                    }
+                } else if self.selected_edge > 0 {
                     self.selected_edge -= 1;
                     self.edge_list_state.select(Some(self.selected_edge));
                 }
@@ -694,6 +951,59 @@ impl TuiApp {
                 self.selected_edge = self.filtered_edges.len().saturating_sub(1);
                 self.edge_list_state.select(Some(self.selected_edge));
             }
+        }
+    }
+
+    // === Explore Mode Helpers ===
+
+    fn explore_current_list_len(&self) -> usize {
+        match self.explore_view {
+            ExploreView::Callers => self.explore_callers.len(),
+            ExploreView::Callees => self.explore_callees.len(),
+        }
+    }
+
+    fn enter_explore_mode(&mut self) {
+        if self.filtered_edges.is_empty() {
+            return;
+        }
+        let edge = &self.call_edges[self.filtered_edges[self.selected_edge]];
+        self.populate_explore_for(&edge.callee_func.clone(), &edge.callee_file.clone());
+        self.explore_mode = true;
+    }
+
+    fn populate_explore_for(&mut self, func_name: &str, func_file: &str) {
+        self.explore_function_name = func_name.to_string();
+        self.explore_function_file = func_file.to_string();
+        self.explore_callers = self
+            .call_edges
+            .iter()
+            .filter(|e| e.callee_func == func_name && e.callee_file == func_file)
+            .map(|e| (e.caller_func.clone(), e.caller_file.clone(), e.call_site_line))
+            .collect();
+        self.explore_callees = self
+            .call_edges
+            .iter()
+            .filter(|e| e.caller_func == func_name && e.caller_file == func_file)
+            .map(|e| (e.callee_func.clone(), e.callee_file.clone(), e.callee_line))
+            .collect();
+        self.explore_selected = 0;
+        self.explore_list_state.select(if self.explore_current_list_len() > 0 {
+            Some(0)
+        } else {
+            None
+        });
+    }
+
+    fn explore_drill_into_selected(&mut self) {
+        let list = match self.explore_view {
+            ExploreView::Callers => &self.explore_callers,
+            ExploreView::Callees => &self.explore_callees,
+        };
+        if let Some((name, file, _)) = list.get(self.explore_selected) {
+            let name = name.clone();
+            let file = file.clone();
+            self.populate_explore_for(&name, &file);
         }
     }
 
@@ -769,12 +1079,13 @@ impl TuiApp {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(15),
-                Constraint::Percentage(15),
-                Constraint::Percentage(15),
-                Constraint::Percentage(15),
-                Constraint::Percentage(20),
-                Constraint::Percentage(20),
+                Constraint::Percentage(13),
+                Constraint::Percentage(13),
+                Constraint::Percentage(13),
+                Constraint::Percentage(13),
+                Constraint::Percentage(16),
+                Constraint::Percentage(16),
+                Constraint::Percentage(16),
             ])
             .split(area);
 
@@ -849,6 +1160,18 @@ impl TuiApp {
                     .title(" Lines "),
             );
         frame.render_widget(loc, chunks[5]);
+
+        // Suppressed generated files count
+        let suppressed = Paragraph::new(format!("{} hidden", self.stats.suppressed_generated))
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .title(" Generated "),
+            );
+        frame.render_widget(suppressed, chunks[6]);
     }
 
     /// Render content based on active tab
@@ -910,7 +1233,7 @@ impl TuiApp {
         let filter_text = Line::from(vec![
             Span::raw(" ["),
             Span::styled("s", Style::default().fg(Color::Yellow)),
-            Span::raw("] Severity: "),
+            Span::raw("] Sev: "),
             Span::styled(
                 severity_text,
                 Style::default()
@@ -920,6 +1243,46 @@ impl TuiApp {
                         Some(Severity::Error) => Color::LightRed,
                         Some(Severity::Warning) => Color::Yellow,
                         Some(Severity::Info) => Color::Blue,
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  ["),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw("] Sub: "),
+            Span::styled(
+                match self.filter_subcategory.as_deref() {
+                    None => "All",
+                    Some("vuln") => "Vuln",
+                    Some("audit") => "Audit",
+                    Some("style") => "Style",
+                    _ => "?",
+                },
+                Style::default()
+                    .fg(match self.filter_subcategory.as_deref() {
+                        None => Color::Green,
+                        Some("vuln") => Color::Red,
+                        Some("audit") => Color::Yellow,
+                        Some("style") => Color::Cyan,
+                        _ => Color::Gray,
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  ["),
+            Span::styled("d", Style::default().fg(Color::Yellow)),
+            Span::raw("] Conf: "),
+            Span::styled(
+                match self.filter_confidence {
+                    None => "All",
+                    Some(Confidence::High) => "High",
+                    Some(Confidence::Medium) => "Med",
+                    Some(Confidence::Low) => "Low",
+                },
+                Style::default()
+                    .fg(match self.filter_confidence {
+                        None => Color::Green,
+                        Some(Confidence::High) => Color::Green,
+                        Some(Confidence::Medium) => Color::Yellow,
+                        Some(Confidence::Low) => Color::Red,
                     })
                     .add_modifier(Modifier::BOLD),
             ),
@@ -938,7 +1301,7 @@ impl TuiApp {
             Span::styled("c", Style::default().fg(Color::Yellow)),
             Span::raw("] Clear"),
             Span::raw(format!(
-                "  | Showing {} of {}",
+                "  | {} of {}",
                 self.filtered_findings.len(),
                 self.findings.len()
             )),
@@ -990,6 +1353,17 @@ impl TuiApp {
                     "   "
                 };
 
+                let subcat_chip = finding
+                    .subcategory
+                    .as_ref()
+                    .and_then(|sc| sc.first())
+                    .map(|s| match s.as_str() {
+                        "vuln" => ("[V]", Color::Red),
+                        "audit" => ("[A]", Color::Yellow),
+                        "style" => ("[S]", Color::Cyan),
+                        _ => ("[?]", Color::Gray),
+                    });
+
                 let line = Line::from(vec![
                     Span::styled(prefix, Style::default().fg(Color::Yellow)),
                     Span::styled(
@@ -1008,6 +1382,12 @@ impl TuiApp {
                     ),
                     Span::raw(" | "),
                     Span::styled(severity_str, severity_style),
+                    Span::raw(" "),
+                    Span::styled(
+                        subcat_chip.map(|(t, _)| t).unwrap_or("   "),
+                        Style::default()
+                            .fg(subcat_chip.map(|(_, c)| c).unwrap_or(Color::DarkGray)),
+                    ),
                 ]);
 
                 ListItem::new(line)
@@ -1121,7 +1501,7 @@ impl TuiApp {
             Line::from(vec![
                 Span::styled("Severity:    ", Style::default().fg(Color::Cyan)),
                 Span::styled(
-                    format!("{:?}", finding.severity),
+                    finding.severity.to_string(),
                     Style::default()
                         .fg(severity_color)
                         .add_modifier(Modifier::BOLD),
@@ -1130,7 +1510,7 @@ impl TuiApp {
             Line::from(vec![
                 Span::styled("Confidence:  ", Style::default().fg(Color::Cyan)),
                 Span::styled(
-                    format!("{:?}", finding.confidence),
+                    finding.confidence.to_string(),
                     Style::default().fg(confidence_color),
                 ),
             ]),
@@ -1138,6 +1518,75 @@ impl TuiApp {
                 Span::styled("Category:    ", Style::default().fg(Color::Cyan)),
                 Span::raw(format!("{:?}", finding.category)),
             ]),
+        ];
+
+        // Subcategory (if present)
+        if let Some(ref subcats) = finding.subcategory {
+            lines.push(Line::from(vec![
+                Span::styled("Subcategory: ", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    subcats.join(", "),
+                    Style::default()
+                        .fg(match subcats.first().map(|s| s.as_str()) {
+                            Some("vuln") => Color::Red,
+                            Some("audit") => Color::Yellow,
+                            Some("style") => Color::Cyan,
+                            _ => Color::White,
+                        })
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
+
+        // Technology (if present)
+        if let Some(ref tech) = finding.technology {
+            lines.push(Line::from(vec![
+                Span::styled("Technology:  ", Style::default().fg(Color::Cyan)),
+                Span::raw(tech.join(", ")),
+            ]));
+        }
+
+        // Impact + Likelihood on one line (if either present)
+        if finding.impact.is_some() || finding.likelihood.is_some() {
+            let mut spans = vec![];
+            if let Some(ref impact) = finding.impact {
+                spans.push(Span::styled("Impact: ", Style::default().fg(Color::Cyan)));
+                spans.push(Span::styled(
+                    impact.as_str(),
+                    Style::default().fg(match impact.to_uppercase().as_str() {
+                        "HIGH" => Color::Red,
+                        "MEDIUM" => Color::Yellow,
+                        _ => Color::Green,
+                    }),
+                ));
+            }
+            if let Some(ref likelihood) = finding.likelihood {
+                if !spans.is_empty() {
+                    spans.push(Span::raw("  "));
+                }
+                spans.push(Span::styled(
+                    "Likelihood: ",
+                    Style::default().fg(Color::Cyan),
+                ));
+                spans.push(Span::styled(
+                    likelihood.as_str(),
+                    Style::default().fg(match likelihood.to_uppercase().as_str() {
+                        "HIGH" => Color::Red,
+                        "MEDIUM" => Color::Yellow,
+                        _ => Color::Green,
+                    }),
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+
+        // Source engine
+        lines.push(Line::from(vec![
+            Span::styled("Source:      ", Style::default().fg(Color::Cyan)),
+            Span::raw(format!("{}", finding.source)),
+        ]));
+
+        lines.extend(vec![
             Line::from(""),
             // Location section
             Line::from(Span::styled(
@@ -1163,7 +1612,7 @@ impl TuiApp {
                     finding.location.end_column
                 )),
             ]),
-        ];
+        ]);
 
         // Fingerprint (if present)
         if let Some(ref fp) = finding.fingerprint {
@@ -1294,12 +1743,122 @@ impl TuiApp {
             return;
         }
 
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        // Layout: filter bar at top, then content
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(5)])
             .split(area);
 
-        // Flow list
+        self.render_flow_filter_bar(frame, outer[0]);
+
+        // Content: list only, or list + detail panel
+        if self.show_flow_detail {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+                .split(outer[1]);
+            self.render_flow_list(frame, chunks[0]);
+            self.render_flow_detail(frame, chunks[1]);
+        } else {
+            self.render_flow_list(frame, outer[1]);
+        }
+    }
+
+    /// Render the flow filter bar
+    fn render_flow_filter_bar(&self, frame: &mut Frame, area: Rect) {
+        let kind_text = match self.filter_flow_kind {
+            None => "All",
+            Some(FlowKind::DirectCall) => "Call",
+            Some(FlowKind::EventEmission) => "Event",
+            Some(FlowKind::SharedState) => "State",
+            Some(FlowKind::Return) => "Ret",
+        };
+
+        let src_text = self
+            .filter_source_type
+            .as_deref()
+            .unwrap_or("All");
+        let sink_text = self
+            .filter_sink_type
+            .as_deref()
+            .unwrap_or("All");
+
+        let search_display = if self.input_mode == InputMode::Search {
+            format!("{}|", self.search_query)
+        } else if self.search_query.is_empty() {
+            "_".to_string()
+        } else {
+            self.search_query.clone()
+        };
+
+        let filter_text = Line::from(vec![
+            Span::raw(" ["),
+            Span::styled("t", Style::default().fg(Color::Yellow)),
+            Span::raw("] Kind: "),
+            Span::styled(
+                kind_text,
+                Style::default()
+                    .fg(if self.filter_flow_kind.is_some() {
+                        Color::Cyan
+                    } else {
+                        Color::Green
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  ["),
+            Span::styled("n", Style::default().fg(Color::Yellow)),
+            Span::raw("] Src: "),
+            Span::styled(
+                truncate_str(src_text, 12),
+                Style::default()
+                    .fg(if self.filter_source_type.is_some() {
+                        Color::Red
+                    } else {
+                        Color::Green
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  ["),
+            Span::styled("i", Style::default().fg(Color::Yellow)),
+            Span::raw("] Sink: "),
+            Span::styled(
+                truncate_str(sink_text, 12),
+                Style::default()
+                    .fg(if self.filter_sink_type.is_some() {
+                        Color::Magenta
+                    } else {
+                        Color::Green
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  ["),
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw("] Search: "),
+            Span::styled(
+                search_display,
+                if self.input_mode == InputMode::Search {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ),
+            Span::raw(format!(
+                "  | {} of {}",
+                self.filtered_flows.len(),
+                self.cross_file_flows.len()
+            )),
+        ]);
+
+        let bar = Paragraph::new(filter_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        frame.render_widget(bar, area);
+    }
+
+    /// Render the flow list with rich items
+    fn render_flow_list(&mut self, frame: &mut Frame, area: Rect) {
         let items: Vec<ListItem> = self
             .filtered_flows
             .iter()
@@ -1319,23 +1878,64 @@ impl TuiApp {
                     "   "
                 };
 
-                let src_file = truncate_str(&flow.source_file, 20);
-                let tgt_file = truncate_str(&flow.target_file, 20);
+                let sev_badge = match flow.severity {
+                    Severity::Critical => "CRIT",
+                    Severity::Error => "ERR ",
+                    Severity::Warning => "WARN",
+                    Severity::Info => "INFO",
+                };
+
+                let conf_letter = match flow.confidence.as_str() {
+                    "High" => "H",
+                    "Medium" => "M",
+                    "Low" => "L",
+                    _ => "?",
+                };
+
+                let src_chip = truncate_str(&flow.source_type, 6);
+                let sink_chip = truncate_str(&flow.sink_type, 8);
 
                 let line = Line::from(vec![
                     Span::styled(prefix, Style::default().fg(Color::Magenta)),
-                    Span::styled(src_file, Style::default().fg(Color::White)),
+                    Span::styled(
+                        sev_badge,
+                        Style::default()
+                            .fg(severity_color)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("[{}]", src_chip),
+                        Style::default().fg(Color::Red),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        truncate_str(&flow.source_function, 14),
+                        Style::default().fg(Color::White),
+                    ),
                     Span::styled(
                         " -> ",
                         Style::default()
                             .fg(severity_color)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(tgt_file, Style::default().fg(Color::White)),
-                    Span::raw(" | "),
                     Span::styled(
-                        format!("{}", flow.flow_kind),
-                        Style::default().fg(Color::Cyan),
+                        truncate_str(&flow.target_function, 14),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("[{}]", sink_chip),
+                        Style::default().fg(Color::Magenta),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        conf_letter,
+                        Style::default().fg(match flow.confidence.as_str() {
+                            "High" => Color::Green,
+                            "Medium" => Color::Yellow,
+                            _ => Color::Red,
+                        }),
                     ),
                 ]);
 
@@ -1343,93 +1943,200 @@ impl TuiApp {
             })
             .collect();
 
+        let title = if self.show_flow_detail {
+            format!(" Data Flows ({}) ", self.filtered_flows.len())
+        } else {
+            format!(
+                " Data Flows ({}) [Enter: detail] ",
+                self.filtered_flows.len()
+            )
+        };
+
         let list = List::new(items)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Magenta))
-                    .title(format!(" Data Flows ({}) ", self.filtered_flows.len())),
+                    .title(title),
             )
             .highlight_style(Style::default().bg(Color::DarkGray));
 
-        frame.render_stateful_widget(list, chunks[0], &mut self.flow_list_state);
+        frame.render_stateful_widget(list, area, &mut self.flow_list_state);
+    }
 
-        // Flow detail
-        if !self.filtered_flows.is_empty() {
-            let flow = &self.cross_file_flows[self.filtered_flows[self.selected_flow]];
+    /// Render flow detail panel with taint metadata, path viz, evidence
+    fn render_flow_detail(&self, frame: &mut Frame, area: Rect) {
+        if self.filtered_flows.is_empty() {
+            let empty = Paragraph::new("No flow selected")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(Block::default().borders(Borders::ALL).title(" Flow Detail "));
+            frame.render_widget(empty, area);
+            return;
+        }
 
-            let severity_color = match flow.severity {
-                Severity::Critical => Color::Red,
-                Severity::Error => Color::LightRed,
-                Severity::Warning => Color::Yellow,
-                Severity::Info => Color::Blue,
-            };
+        let flow = &self.cross_file_flows[self.filtered_flows[self.selected_flow]];
+        let severity_color = match flow.severity {
+            Severity::Critical => Color::Red,
+            Severity::Error => Color::LightRed,
+            Severity::Warning => Color::Yellow,
+            Severity::Info => Color::Blue,
+        };
 
-            let lines = vec![
-                Line::from(Span::styled(
-                    "SOURCE",
+        let conf_color = match flow.confidence.as_str() {
+            "High" => Color::Green,
+            "Medium" => Color::Yellow,
+            _ => Color::Red,
+        };
+
+        let mut lines = vec![
+            // Taint metadata section
+            Line::from(Span::styled(
+                "═══ TAINT FLOW ═══",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(vec![
+                Span::styled("Severity:    ", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    flow.severity.to_string(),
                     Style::default()
-                        .fg(Color::Green)
+                        .fg(severity_color)
                         .add_modifier(Modifier::BOLD),
-                )),
-                Line::from(vec![
-                    Span::styled("  File: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(&flow.source_file),
-                ]),
-                Line::from(vec![
-                    Span::styled("  Function: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(&flow.source_function),
-                ]),
-                Line::from(vec![
-                    Span::styled("  Line: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(format!("{}", flow.source_line)),
-                ]),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("    ", Style::default()),
-                    Span::styled(
-                        format!("--- {} ({}) --->", flow.variable, flow.flow_kind),
-                        Style::default()
-                            .fg(severity_color)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "TARGET",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(vec![
-                    Span::styled("  File: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(&flow.target_file),
-                ]),
-                Line::from(vec![
-                    Span::styled("  Function: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(&flow.target_function),
-                ]),
-                Line::from(vec![
-                    Span::styled("  Line: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(format!("{}", flow.target_line)),
-                ]),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("  Severity: ", Style::default().fg(Color::Cyan)),
-                    Span::styled(
-                        format!("{:?}", flow.severity),
-                        Style::default().fg(severity_color),
-                    ),
-                ]),
-            ];
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Confidence:  ", Style::default().fg(Color::Cyan)),
+                Span::styled(&flow.confidence, Style::default().fg(conf_color)),
+            ]),
+            Line::from(vec![
+                Span::styled("Source Type: ", Style::default().fg(Color::Cyan)),
+                Span::styled(&flow.source_type, Style::default().fg(Color::Red)),
+            ]),
+            Line::from(vec![
+                Span::styled("Sink Type:   ", Style::default().fg(Color::Cyan)),
+                Span::styled(&flow.sink_type, Style::default().fg(Color::Magenta)),
+            ]),
+            Line::from(vec![
+                Span::styled("Reachability:", Style::default().fg(Color::Cyan)),
+                Span::raw(" "),
+                Span::styled(
+                    &flow.reachability,
+                    Style::default().fg(match flow.reachability.as_str() {
+                        "prod" => Color::Green,
+                        "test-only" => Color::Yellow,
+                        _ => Color::DarkGray,
+                    }),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Bridge:      ", Style::default().fg(Color::Cyan)),
+                Span::raw(&flow.bridge_type),
+            ]),
+        ];
 
-            let detail = Paragraph::new(lines).block(
+        // Flow path visualization
+        if !flow.flow_path.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "═══ FLOW PATH ═══",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            let path_len = flow.flow_path.len();
+            for (i, step) in flow.flow_path.iter().enumerate() {
+                let step_color = if i == 0 {
+                    Color::Red // source
+                } else if i == path_len - 1 {
+                    Color::Magenta // sink
+                } else {
+                    Color::White // intermediate
+                };
+                let prefix = if i == 0 {
+                    "  [SRC] "
+                } else if i == path_len - 1 {
+                    "  [SNK] "
+                } else {
+                    "        "
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}", prefix, step),
+                    Style::default().fg(step_color),
+                )));
+                if i < path_len - 1 {
+                    lines.push(Line::from(Span::styled(
+                        "        |",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                    lines.push(Line::from(Span::styled(
+                        "        v",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+            }
+        }
+
+        // Evidence section
+        if !flow.sink_evidence_detail.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "═══ EVIDENCE ═══",
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(vec![
+                Span::styled("  Evidence:  ", Style::default().fg(Color::Cyan)),
+                Span::raw(&flow.sink_evidence_detail),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  Strength:  ", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    if flow.sink_evidence_strong {
+                        "STRONG"
+                    } else {
+                        "WEAK"
+                    },
+                    Style::default().fg(if flow.sink_evidence_strong {
+                        Color::Green
+                    } else {
+                        Color::Yellow
+                    }),
+                ),
+            ]));
+            if let Some(ref role) = flow.sink_role {
+                lines.push(Line::from(vec![
+                    Span::styled("  Sink Role: ", Style::default().fg(Color::Cyan)),
+                    Span::raw(role),
+                ]));
+            }
+        }
+
+        // Description section
+        if !flow.description.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "═══ DESCRIPTION ═══",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for desc_line in flow.description.lines() {
+                lines.push(Line::from(format!("  {}", desc_line)));
+            }
+        }
+
+        let detail = Paragraph::new(lines)
+            .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Magenta))
-                    .title(" Flow Details "),
-            );
+                    .title(" Flow Detail (Enter to collapse) "),
+            )
+            .wrap(Wrap { trim: false });
 
-            frame.render_widget(detail, chunks[1]);
-        }
+        frame.render_widget(detail, area);
     }
 
     /// Render the Metrics tab
@@ -1617,14 +2324,23 @@ impl TuiApp {
             return;
         }
 
+        // Stats area height depends on event bindings toggle
+        let stats_height = if self.show_event_bindings { 8 } else { 5 };
+
         // Main layout: stats summary at top, then list/detail below
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(5), Constraint::Min(10)])
+            .constraints([Constraint::Length(stats_height), Constraint::Min(10)])
             .split(area);
 
-        // Render stats summary
+        // Render stats summary (includes event bindings if toggled)
         self.render_call_graph_stats(frame, main_chunks[0]);
+
+        // If explore mode is active, render explore panel instead
+        if self.explore_mode {
+            self.render_explore_mode(frame, main_chunks[1]);
+            return;
+        }
 
         // Split into list and detail if detail is shown
         let list_area = main_chunks[1];
@@ -1740,10 +2456,17 @@ impl TuiApp {
             })
             .collect();
 
-        let filter_indicator = if self.filter_source_sink_only {
-            " [x: SRC→SINK only] "
+        let mut filter_parts = Vec::new();
+        if self.filter_source_sink_only {
+            filter_parts.push("[x: SRC->SINK]");
+        }
+        if self.filter_cross_file_only {
+            filter_parts.push("[w: cross-file]");
+        }
+        let filter_indicator = if filter_parts.is_empty() {
+            String::new()
         } else {
-            ""
+            format!(" {}", filter_parts.join(" "))
         };
         let title = format!(
             " Edges ({}/{} shown){} ",
@@ -1774,7 +2497,7 @@ impl TuiApp {
         let cg = &self.call_graph_stats;
 
         // Build stats lines
-        let lines = vec![
+        let mut lines = vec![
             Line::from(vec![
                 Span::styled("Functions: ", Style::default().fg(Color::Cyan)),
                 Span::styled(
@@ -1850,6 +2573,81 @@ impl TuiApp {
                 },
             ]),
         ];
+
+        // Event bindings (when toggled with 'b')
+        if self.show_event_bindings && !self.event_bindings.is_empty() {
+            let mut event_spans = vec![Span::styled(
+                "Events: ",
+                Style::default().fg(Color::Cyan),
+            )];
+            for (i, eb) in self.event_bindings.iter().take(6).enumerate() {
+                if i > 0 {
+                    event_spans.push(Span::raw(" | "));
+                }
+                let color = if eb.emit_count > 0 && eb.listen_count == 0 {
+                    Color::Red // Dead event - emitted but never listened
+                } else if eb.emit_count == 0 && eb.listen_count > 0 {
+                    Color::Yellow // Orphan listener
+                } else {
+                    Color::White
+                };
+                event_spans.push(Span::styled(
+                    format!(
+                        "\"{}\" ({}->{})",
+                        truncate_str(&eb.event_name, 12),
+                        eb.emit_count,
+                        eb.listen_count
+                    ),
+                    Style::default().fg(color),
+                ));
+            }
+            if self.event_bindings.len() > 6 {
+                event_spans.push(Span::styled(
+                    format!(" +{} more", self.event_bindings.len() - 6),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            lines.push(Line::from(event_spans));
+        }
+
+        // Severity distribution bar
+        let total = self.stats.critical_count
+            + self.stats.error_count
+            + self.stats.warning_count
+            + self.stats.info_count;
+        if total > 0 {
+            let available_width = area.width.saturating_sub(4) as usize; // border + padding
+            let crit_w = (self.stats.critical_count * available_width / total).max(if self.stats.critical_count > 0 { 1 } else { 0 });
+            let err_w = (self.stats.error_count * available_width / total).max(if self.stats.error_count > 0 { 1 } else { 0 });
+            let warn_w = (self.stats.warning_count * available_width / total).max(if self.stats.warning_count > 0 { 1 } else { 0 });
+            let info_w = available_width.saturating_sub(crit_w + err_w + warn_w);
+            let mut bar_spans = vec![Span::raw(" ")];
+            if crit_w > 0 {
+                bar_spans.push(Span::styled(
+                    "\u{2588}".repeat(crit_w),
+                    Style::default().fg(Color::Red),
+                ));
+            }
+            if err_w > 0 {
+                bar_spans.push(Span::styled(
+                    "\u{2588}".repeat(err_w),
+                    Style::default().fg(Color::LightRed),
+                ));
+            }
+            if warn_w > 0 {
+                bar_spans.push(Span::styled(
+                    "\u{2588}".repeat(warn_w),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+            if info_w > 0 {
+                bar_spans.push(Span::styled(
+                    "\u{2588}".repeat(info_w),
+                    Style::default().fg(Color::Blue),
+                ));
+            }
+            lines.push(Line::from(bar_spans));
+        }
 
         let stats_widget = Paragraph::new(lines).block(
             Block::default()
@@ -2036,6 +2834,41 @@ impl TuiApp {
             ]));
         }
 
+        // Source→Sink path visualization
+        if !edge.source_sink_path.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "═══ SOURCE→SINK PATH ═══",
+                Style::default()
+                    .fg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            let path_len = edge.source_sink_path.len();
+            for (i, step) in edge.source_sink_path.iter().enumerate() {
+                let step_color = if i == 0 {
+                    Color::Red
+                } else if i == path_len - 1 {
+                    Color::Magenta
+                } else {
+                    Color::White
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", step),
+                    Style::default().fg(step_color),
+                )));
+                if i < path_len - 1 {
+                    lines.push(Line::from(Span::styled(
+                        "  |",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                    lines.push(Line::from(Span::styled(
+                        "  v",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+            }
+        }
+
         // Security warning if this is a source->sink flow
         if edge.caller_is_source && edge.callee_contains_sinks {
             lines.push(Line::from(""));
@@ -2096,6 +2929,127 @@ impl TuiApp {
         frame.render_widget(detail, area);
     }
 
+    /// Render call graph explore mode
+    fn render_explore_mode(&mut self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .split(area);
+
+        // Left: Function info + list of callers/callees
+        let func_name = self.explore_function_name.clone();
+        let func_file = self.explore_function_file.clone();
+        let func_filename = std::path::Path::new(&func_file)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| func_file.clone());
+
+        // Find classifications from edges
+        let has_sinks: Vec<String> = self
+            .call_edges
+            .iter()
+            .filter(|e| e.callee_func == func_name && e.callee_file == func_file)
+            .flat_map(|e| e.callee_sink_kinds.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let has_sanitizers: Vec<String> = self
+            .call_edges
+            .iter()
+            .filter(|e| e.callee_func == func_name && e.callee_file == func_file)
+            .flat_map(|e| e.callee_sanitizes.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        let mut info_lines = vec![
+            Line::from(Span::styled(
+                format!("=== EXPLORING: {} ===", func_name),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(vec![
+                Span::styled("File: ", Style::default().fg(Color::Yellow)),
+                Span::raw(&func_filename),
+            ]),
+        ];
+        if !has_sinks.is_empty() {
+            info_lines.push(Line::from(vec![
+                Span::styled("Contains Sinks: ", Style::default().fg(Color::Magenta)),
+                Span::styled(has_sinks.join(", "), Style::default().fg(Color::Magenta)),
+            ]));
+        }
+        if !has_sanitizers.is_empty() {
+            info_lines.push(Line::from(vec![
+                Span::styled("Sanitizers: ", Style::default().fg(Color::Green)),
+                Span::styled(
+                    has_sanitizers.join(", "),
+                    Style::default().fg(Color::Green),
+                ),
+            ]));
+        }
+        info_lines.push(Line::from(""));
+
+        // Show callers/callees based on view
+        let (view_title, list_data) = match self.explore_view {
+            ExploreView::Callers => ("CALLERS", &self.explore_callers),
+            ExploreView::Callees => ("CALLEES", &self.explore_callees),
+        };
+
+        info_lines.push(Line::from(Span::styled(
+            format!(
+                "--- {} ({}) --- [l: toggle]",
+                view_title,
+                list_data.len()
+            ),
+            Style::default().fg(Color::Yellow),
+        )));
+
+        let items: Vec<ListItem> = list_data
+            .iter()
+            .enumerate()
+            .map(|(i, (name, file, line))| {
+                let filename = std::path::Path::new(file)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file.clone());
+                let prefix = if i == self.explore_selected {
+                    "  >> "
+                } else {
+                    "     "
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(Color::Yellow)),
+                    Span::styled(name, Style::default().fg(Color::Cyan)),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("({}:{})", filename, line),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]))
+            })
+            .collect();
+
+        let info_para = Paragraph::new(info_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(" Explore (Esc: back, e/Enter: drill, l: toggle) "),
+        );
+        frame.render_widget(info_para, chunks[0]);
+
+        let explore_list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .title(format!(" {} ", view_title)),
+            )
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(explore_list, chunks[1], &mut self.explore_list_state);
+    }
+
     /// Render the status bar
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let help_text = if self.input_mode == InputMode::Search {
@@ -2103,14 +3057,18 @@ impl TuiApp {
         } else {
             match self.active_tab {
                 ActiveTab::Findings => {
-                    "Tab/1-4: switch tabs | j/k: navigate | Enter: detail | s: severity | /: search | c: clear | ?: help | q: quit"
+                    "Tab/1-4: switch | j/k: nav | Enter: detail | s: sev | f: subcat | d: conf | /: search | c: clear | ?: help | q: quit"
                 }
                 ActiveTab::CrossFileFlows => {
-                    "Tab/1-4: switch tabs | j/k: navigate | s: severity | /: search | q: quit"
+                    "Tab/1-4: switch | j/k: nav | Enter: detail | t: kind | n: src | i: sink | /: search | c: clear | ?: help | q: quit"
                 }
                 ActiveTab::Metrics => "Tab/1-4: switch tabs | j/k: navigate files | q: quit",
                 ActiveTab::CallGraph => {
-                    "Tab/1-4: switch | j/k: nav | Enter: detail | x: src→sink only | /: search | q: quit"
+                    if self.explore_mode {
+                        "j/k: nav | l: callers/callees | e/Enter: drill | Esc: back | ?: help | q: quit"
+                    } else {
+                        "Tab/1-4: switch | j/k: nav | Enter: detail | e: explore | x: src->sink | w: cross-file | b: events | ?: help | q: quit"
+                    }
                 }
             }
         };
@@ -2125,7 +3083,7 @@ impl TuiApp {
     /// Render help overlay
     fn render_help_overlay(&self, frame: &mut Frame, area: Rect) {
         let help_width = 60;
-        let help_height = 20;
+        let help_height = 34;
         let x = (area.width.saturating_sub(help_width)) / 2;
         let y = (area.height.saturating_sub(help_height)) / 2;
         let help_area = Rect::new(x, y, help_width, help_height);
@@ -2153,15 +3111,36 @@ impl TuiApp {
             Line::from("  Enter      Toggle detail view"),
             Line::from(""),
             Line::from(Span::styled(
-                "Filtering",
+                "Findings Tab",
                 Style::default().fg(Color::Yellow),
             )),
             Line::from("  s          Cycle severity filter"),
+            Line::from("  f          Cycle subcategory (All/Vuln/Audit/Style)"),
+            Line::from("  d          Cycle confidence filter"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Cross-File Flows Tab",
+                Style::default().fg(Color::Yellow),
+            )),
+            Line::from("  Enter      Toggle detail panel"),
+            Line::from("  t          Cycle flow kind filter"),
+            Line::from("  n          Cycle source type filter"),
+            Line::from("  i          Cycle sink type filter"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Call Graph Tab",
+                Style::default().fg(Color::Yellow),
+            )),
+            Line::from("  e          Explore function (drill-down)"),
+            Line::from("  w          Toggle cross-file only"),
+            Line::from("  x          Toggle source->sink only"),
+            Line::from("  b          Toggle event bindings"),
+            Line::from("  l          Switch callers/callees (explore)"),
+            Line::from(""),
+            Line::from(Span::styled("General", Style::default().fg(Color::Yellow))),
             Line::from("  /          Search mode"),
             Line::from("  c          Clear all filters"),
-            Line::from("  Esc        Clear search/filter"),
-            Line::from(""),
-            Line::from(Span::styled("Other", Style::default().fg(Color::Yellow))),
+            Line::from("  Esc        Clear search/filter/mode"),
             Line::from("  ?          Toggle this help"),
             Line::from("  q          Quit"),
         ];
@@ -2186,6 +3165,27 @@ fn truncate_str(s: &str, max_len: usize) -> String {
     }
 }
 
+/// Cycle through a dynamic set of filter options: None → first → second → ... → None
+fn cycle_filter(current: &Option<String>, options: &[String]) -> Option<String> {
+    if options.is_empty() {
+        return None;
+    }
+    match current {
+        None => Some(options[0].clone()),
+        Some(val) => {
+            if let Some(idx) = options.iter().position(|o| o == val) {
+                if idx + 1 < options.len() {
+                    Some(options[idx + 1].clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
 /// Run the TUI application
 #[allow(dead_code)]
 pub fn run(findings: Vec<Finding>, stats: ScanStats) -> Result<()> {
@@ -2201,6 +3201,7 @@ pub fn run_full(
     file_metrics: Vec<(String, CodeMetrics)>,
     call_edges: Vec<CallEdgeDisplay>,
     call_graph_stats: CallGraphStats,
+    event_bindings: Vec<EventBindingDisplay>,
     stats: ScanStats,
 ) -> Result<()> {
     let mut app = TuiApp::new(
@@ -2210,6 +3211,7 @@ pub fn run_full(
         file_metrics,
         call_edges,
         call_graph_stats,
+        event_bindings,
         stats,
     );
     run_app_internal(&mut app)
@@ -2263,7 +3265,7 @@ pub fn run_from_analysis(
     results: &[rma_analyzer::FileAnalysis],
     summary: &AnalysisSummary,
 ) -> Result<()> {
-    run_from_analysis_with_project(results, summary, None)
+    run_from_analysis_with_project(results, summary, None, 0)
 }
 
 /// Run the TUI with full project analysis data including cross-file flows and call graph
@@ -2271,6 +3273,7 @@ pub fn run_from_analysis_with_project(
     results: &[rma_analyzer::FileAnalysis],
     summary: &AnalysisSummary,
     project_result: Option<&rma_analyzer::project::ProjectAnalysisResult>,
+    suppressed_count: usize,
 ) -> Result<()> {
     // Collect all findings from results
     let findings: Vec<Finding> = results
@@ -2332,30 +3335,95 @@ pub fn run_from_analysis_with_project(
         language_breakdown,
     };
 
-    let stats = ScanStats::from(summary);
+    let mut stats = ScanStats::from(summary);
+    stats.suppressed_generated = suppressed_count;
 
     // Convert cross-file taints to display format
     let cross_file_flows = if let Some(proj) = project_result {
         proj.cross_file_taints
             .iter()
-            .map(|taint| CrossFileFlow {
-                source_file: taint.source.file.display().to_string(),
-                source_function: taint.source.function.clone(),
-                source_line: taint.source.line,
-                target_file: taint.sink.file.display().to_string(),
-                target_function: taint.sink.function.clone(),
-                target_line: taint.sink.line,
-                variable: taint.source.name.clone(),
-                flow_kind: if taint.description.contains("Event") {
+            .map(|taint| {
+                let source_type_str = taint.source_type.to_string();
+                let sink_type_str = taint.sink_type.to_string();
+
+                // Derive flow kind from source_type string for more accuracy
+                let flow_kind = if source_type_str.contains("Event")
+                    || taint.description.contains("Event")
+                {
                     FlowKind::EventEmission
                 } else if taint.description.contains("return") {
                     FlowKind::Return
-                } else if taint.description.contains("state") {
+                } else if taint.description.contains("state")
+                    || taint.description.contains("shared")
+                {
                     FlowKind::SharedState
                 } else {
                     FlowKind::DirectCall
-                },
-                severity: taint.severity,
+                };
+
+                // Build flow_path from taint.path
+                let flow_path: Vec<String> = {
+                    let mut path = Vec::new();
+                    // Add source as first entry
+                    let src_filename = taint
+                        .source
+                        .file
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("?");
+                    path.push(format!(
+                        "{} ({}:{})",
+                        taint.source.function, src_filename, taint.source.line
+                    ));
+                    // Add intermediate steps
+                    for step in &taint.path {
+                        let step_filename = step
+                            .file
+                            .file_name()
+                            .and_then(|f| f.to_str())
+                            .unwrap_or("?");
+                        path.push(format!(
+                            "{} ({}:{})",
+                            step.function, step_filename, step.line
+                        ));
+                    }
+                    // Add sink as last entry
+                    let sink_filename = taint
+                        .sink
+                        .file
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("?");
+                    path.push(format!(
+                        "{} ({}:{})",
+                        taint.sink.function, sink_filename, taint.sink.line
+                    ));
+                    path
+                };
+
+                CrossFileFlow {
+                    source_file: taint.source.file.display().to_string(),
+                    source_function: taint.source.function.clone(),
+                    source_line: taint.source.line,
+                    target_file: taint.sink.file.display().to_string(),
+                    target_function: taint.sink.function.clone(),
+                    target_line: taint.sink.line,
+                    variable: taint.source.name.clone(),
+                    flow_kind,
+                    severity: taint.severity,
+                    confidence: taint.confidence.to_string(),
+                    source_type: source_type_str,
+                    sink_type: sink_type_str,
+                    description: taint.description.clone(),
+                    bridge_type: taint.bridge_type.to_string(),
+                    reachability: taint.reachability.to_string(),
+                    sink_role: taint.sink_role.clone(),
+                    sink_arg_index: taint.sink_arg_index,
+                    sink_callsite_line: taint.sink_callsite_line,
+                    sink_evidence_detail: taint.sink_evidence.details.clone(),
+                    sink_evidence_strong: taint.sink_evidence.is_strong(),
+                    flow_path,
+                }
             })
             .collect()
     } else {
@@ -2431,6 +3499,7 @@ pub fn run_from_analysis_with_project(
                     callee_language: format!("{:?}", edge.callee.language),
                     callee_is_exported: edge.callee.is_exported,
                     classification_confidence: edge.callee.classification.confidence,
+                    source_sink_path: Vec::new(),
                 })
                 .collect();
 
@@ -2442,6 +3511,45 @@ pub fn run_from_analysis_with_project(
         (Vec::new(), CallGraphStats::default())
     };
 
+    // Convert event bindings to display format
+    let event_bindings = if let Some(proj) = project_result {
+        if let Some(ref cg) = proj.call_graph {
+            cg.all_event_bindings()
+                .map(|eb| EventBindingDisplay {
+                    event_name: eb.event_name.clone(),
+                    emit_count: eb.emit_sites.len(),
+                    listen_count: eb.listen_sites.len(),
+                    emit_files: eb
+                        .emit_sites
+                        .iter()
+                        .map(|s| {
+                            s.file
+                                .file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("?")
+                                .to_string()
+                        })
+                        .collect(),
+                    listen_files: eb
+                        .listen_sites
+                        .iter()
+                        .map(|s| {
+                            s.file
+                                .file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("?")
+                                .to_string()
+                        })
+                        .collect(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     run_full(
         findings,
         cross_file_flows,
@@ -2449,6 +3557,7 @@ pub fn run_from_analysis_with_project(
         file_metrics,
         call_edges,
         call_graph_stats,
+        event_bindings,
         stats,
     )
 }

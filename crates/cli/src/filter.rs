@@ -13,7 +13,7 @@
 
 use glob::Pattern;
 use regex::Regex;
-use rma_common::{Confidence, Finding, FindingCategory, Severity};
+use rma_common::{Confidence, Finding, FindingCategory, FindingSource, Severity};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -42,6 +42,8 @@ pub struct FilterStats {
     pub by_confidence: usize,
     /// Findings filtered by search text
     pub by_search: usize,
+    /// Findings filtered by subcategory
+    pub by_subcategory: usize,
     /// Breakdown of excluded severities (severity -> count)
     pub severity_breakdown: Vec<(Severity, usize)>,
     /// Breakdown of excluded rules (rule_id -> count)
@@ -156,10 +158,12 @@ pub struct FindingFilter {
     pub exclude_patterns: Vec<Pattern>,
     /// Category filter
     pub category: Option<FindingCategory>,
+    /// Subcategory filter (e.g., ["vuln"] to show only vulnerabilities)
+    pub subcategories: Vec<String>,
     /// Only show fixable findings
     pub fixable_only: bool,
-    /// Only show high-confidence findings
-    pub high_confidence_only: bool,
+    /// Minimum confidence threshold (findings below this are filtered out)
+    pub min_confidence: Option<Confidence>,
     /// Text search (case-insensitive substring)
     pub search_text: Option<String>,
     /// Regex search (takes precedence over text search)
@@ -243,15 +247,29 @@ impl FindingFilter {
         self
     }
 
+    /// Set subcategory filter
+    pub fn with_subcategories(mut self, subcats: Vec<String>) -> Self {
+        self.subcategories = subcats;
+        self
+    }
+
     /// Only show fixable findings
     pub fn with_fixable_only(mut self, fixable: bool) -> Self {
         self.fixable_only = fixable;
         self
     }
 
-    /// Only show high-confidence findings
+    /// Only show high-confidence findings (convenience wrapper)
     pub fn with_high_confidence_only(mut self, high: bool) -> Self {
-        self.high_confidence_only = high;
+        if high {
+            self.min_confidence = Some(Confidence::High);
+        }
+        self
+    }
+
+    /// Set minimum confidence threshold
+    pub fn with_min_confidence(mut self, confidence: Confidence) -> Self {
+        self.min_confidence = Some(confidence);
         self
     }
 
@@ -267,12 +285,20 @@ impl FindingFilter {
         Ok(self)
     }
 
-    /// Create a security-focused preset
+    /// Create a security-focused preset (vuln-only, excludes audit/hardening noise)
     pub fn preset_security() -> Self {
         Self::new()
             .with_category(FindingCategory::Security)
-            .with_high_confidence_only(true)
             .with_min_severity(Severity::Warning)
+            .with_subcategories(vec!["vuln".to_string()])
+    }
+
+    /// Create a security+audit preset (all security findings including hardening/audit)
+    pub fn preset_security_all() -> Self {
+        Self::new()
+            .with_category(FindingCategory::Security)
+            .with_min_severity(Severity::Warning)
+        // No subcategory filter — includes vuln + audit + hardening
     }
 
     /// Create a CI-optimized preset
@@ -332,7 +358,9 @@ impl FindingFilter {
         }
 
         filter.fixable_only = profile.fixable;
-        filter.high_confidence_only = profile.high_confidence;
+        if profile.high_confidence {
+            filter.min_confidence = Some(Confidence::High);
+        }
 
         Ok(filter)
     }
@@ -392,14 +420,29 @@ impl FindingFilter {
             return false;
         }
 
+        // Subcategory check
+        if !self.subcategories.is_empty() {
+            let finding_subcats = finding.subcategory.as_deref().unwrap_or(&[]);
+            if finding_subcats.is_empty() {
+                // Non-builtin sources (OSV, gosec, etc.) have no subcategory — let them through
+                if finding.source == FindingSource::Builtin {
+                    return false;
+                }
+            } else if !finding_subcats.iter().any(|s| self.subcategories.contains(s)) {
+                return false;
+            }
+        }
+
         // Fixable check
         if self.fixable_only && finding.fix.is_none() && finding.suggestion.is_none() {
             return false;
         }
 
-        // High confidence check
-        if self.high_confidence_only && finding.confidence != Confidence::High {
-            return false;
+        // Confidence check
+        if let Some(min_conf) = self.min_confidence {
+            if finding.confidence < min_conf {
+                return false;
+            }
         }
 
         // Search check
@@ -483,14 +526,28 @@ impl FindingFilter {
             return (false, Some(FilterReason::Category(finding.category)));
         }
 
+        // Subcategory check
+        if !self.subcategories.is_empty() {
+            let finding_subcats = finding.subcategory.as_deref().unwrap_or(&[]);
+            if finding_subcats.is_empty() {
+                if finding.source == FindingSource::Builtin {
+                    return (false, Some(FilterReason::Subcategory));
+                }
+            } else if !finding_subcats.iter().any(|s| self.subcategories.contains(s)) {
+                return (false, Some(FilterReason::Subcategory));
+            }
+        }
+
         // Fixable check
         if self.fixable_only && finding.fix.is_none() && finding.suggestion.is_none() {
             return (false, Some(FilterReason::NotFixable));
         }
 
-        // High confidence check
-        if self.high_confidence_only && finding.confidence != Confidence::High {
-            return (false, Some(FilterReason::LowConfidence(finding.confidence)));
+        // Confidence check
+        if let Some(min_conf) = self.min_confidence {
+            if finding.confidence < min_conf {
+                return (false, Some(FilterReason::LowConfidence(finding.confidence)));
+            }
         }
 
         // Search check
@@ -566,6 +623,9 @@ impl FindingFilter {
                         FilterReason::SearchNoMatch => {
                             stats.by_search += 1;
                         }
+                        FilterReason::Subcategory => {
+                            stats.by_subcategory += 1;
+                        }
                     }
                 }
                 matched
@@ -597,8 +657,9 @@ impl FindingFilter {
             || !self.file_patterns.is_empty()
             || !self.exclude_patterns.is_empty()
             || self.category.is_some()
+            || !self.subcategories.is_empty()
             || self.fixable_only
-            || self.high_confidence_only
+            || self.min_confidence.is_some()
             || self.search_text.is_some()
             || self.search_regex.is_some()
     }
@@ -641,12 +702,16 @@ impl FindingFilter {
             items.push(("Category".to_string(), format!("{}", cat)));
         }
 
+        if !self.subcategories.is_empty() {
+            items.push(("Subcategory".to_string(), self.subcategories.join(", ")));
+        }
+
         if self.fixable_only {
             items.push(("Fixable".to_string(), "only".to_string()));
         }
 
-        if self.high_confidence_only {
-            items.push(("Confidence".to_string(), "high only".to_string()));
+        if let Some(min_conf) = self.min_confidence {
+            items.push(("Min confidence".to_string(), format!("{}+", min_conf)));
         }
 
         if let Some(ref regex) = self.search_regex {
@@ -675,6 +740,7 @@ enum FilterReason {
     #[allow(dead_code)] // Used in matches_with_tracking for explain mode
     LowConfidence(Confidence),
     SearchNoMatch,
+    Subcategory,
 }
 
 /// Load filter profiles from rma.toml
@@ -736,6 +802,10 @@ mod tests {
             fix: None,
             confidence: Confidence::High,
             category,
+            subcategory: None,
+            technology: None,
+            impact: None,
+            likelihood: None,
             source: Default::default(),
             fingerprint: None,
             properties: None,
@@ -884,7 +954,7 @@ mod tests {
 
         assert!(filter.category.is_some());
         assert_eq!(filter.category.unwrap(), FindingCategory::Security);
-        assert!(filter.high_confidence_only);
+        assert!(filter.min_confidence.is_none());
         assert!(filter.min_severity.is_some());
     }
 

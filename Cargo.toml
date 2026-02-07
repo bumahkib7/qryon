@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.18.2"
+version = "0.19.0"
 edition = "2024"
 authors = ["Rust Monorepo Analyzer Team"]
 license = "MIT OR Apache-2.0"

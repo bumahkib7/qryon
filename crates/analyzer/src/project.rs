@@ -748,6 +748,11 @@ fn discover_files_recursive(
                 ".venv",
                 "venv",
                 "vendor",
+                "generated",
+                "gen",
+                "third_party",
+                "third-party",
+                "external",
             ];
             if excluded_dirs.contains(&name) || name.starts_with('.') {
                 return Ok(());
@@ -772,7 +777,34 @@ fn should_include_file(path: &Path, _config: &RmaConfig) -> bool {
         "hcl", "yaml", "yml", "json",
     ];
 
-    supported_extensions.contains(&ext)
+    if !supported_extensions.contains(&ext) {
+        return false;
+    }
+
+    // Exclude generated/minified files by name pattern
+    if let Some(name) = path.file_name().and_then(|f| f.to_str()) {
+        let name_lower = name.to_lowercase();
+        if name_lower.ends_with(".min.js")
+            || name_lower.ends_with(".min.css")
+            || name_lower.ends_with(".bundle.js")
+            || name_lower.ends_with(".generated.ts")
+            || name_lower.ends_with(".generated.go")
+            || name_lower.ends_with(".pb.go")
+            || name_lower.ends_with(".pb.rs")
+            || name_lower.ends_with(".g.dart")
+            || name_lower.ends_with(".freezed.dart")
+            || name_lower == "package-lock.json"
+            || name_lower == "yarn.lock"
+            || name_lower == "pnpm-lock.yaml"
+            || name_lower == "composer.lock"
+            || name_lower == "cargo.lock"
+            || name_lower == "go.sum"
+        {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Build an import graph from file imports

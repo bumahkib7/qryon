@@ -1,7 +1,11 @@
 //! Rule matcher - applies rules to source code and generates findings
 
-use crate::{pattern::PatternMatcher, PatternClause, PatternOperator, Result, Rule};
+use crate::{
+    embedded::MatchStrategy, pattern::PatternMatcher, ts_matcher::TreeSitterMatcher,
+    PatternClause, PatternOperator, Result, Rule,
+};
 use rma_common::{Finding, FindingCategory, FindingSource, Language, SourceLocation};
+use std::collections::HashSet;
 use std::path::Path;
 
 /// A compiled rule ready for matching
@@ -12,6 +16,9 @@ pub struct CompiledRule {
 
     /// Compiled pattern matcher
     pub matcher: PatternMatcher,
+
+    /// Optional tree-sitter matcher for AST-level matching
+    pub ts_matcher: Option<TreeSitterMatcher>,
 
     /// Whether this is a taint rule
     pub is_taint: bool,
@@ -90,9 +97,18 @@ impl CompiledRule {
             }
         }
 
+        // Build tree-sitter matcher if the rule has a TreeSitterQuery strategy
+        let ts_matcher = rule.match_strategy.as_ref().and_then(|s| match s {
+            MatchStrategy::TreeSitterQuery {
+                query, captures, ..
+            } => Some(TreeSitterMatcher::new(query.clone(), captures.clone())),
+            _ => None,
+        });
+
         Ok(Self {
             rule,
             matcher,
+            ts_matcher,
             is_taint,
             sources,
             sinks,
@@ -118,17 +134,49 @@ impl CompiledRule {
         findings
     }
 
-    /// Check with regular pattern matching
+    /// Check with regular pattern matching (dual dispatch: tree-sitter then regex fallback)
     fn check_patterns(&self, code: &str, path: &Path, language: Language) -> Vec<Finding> {
+        // First: check file-level context constraints (patterns_inside,
+        // patterns_not_inside, metavariable_regex). If the file doesn't
+        // satisfy these, no findings are possible.
+        if !self.matcher.context_matches(code) {
+            return Vec::new();
+        }
+
+        // Tree-sitter path: if we have a TS matcher, try structural matching first
+        if let Some(ref ts) = self.ts_matcher {
+            let ts_matches = ts.find_matches(code, language);
+            if !ts_matches.is_empty() {
+                return ts_matches
+                    .iter()
+                    .filter(|m| {
+                        !self
+                            .matcher
+                            .patterns_not
+                            .iter()
+                            .any(|p| p.matches(&m.text))
+                    })
+                    .map(|m| self.create_finding(path, m.line, m.text.trim(), language))
+                    .collect();
+            }
+            // If the language has a grammar, trust "no matches" — don't regex fallback
+            if TreeSitterMatcher::has_grammar(language) {
+                return Vec::new();
+            }
+        }
+
+        // Regex fallback (existing code, unchanged)
         let mut findings = Vec::new();
 
+        // Line-by-line matching using core patterns only (context already validated)
         for (line_num, line) in code.lines().enumerate() {
-            if self.matcher.matches(line) {
+            if self.matcher.matches_core(line) {
                 let finding = self.create_finding(path, line_num + 1, line.trim(), language);
                 findings.push(finding);
             }
         }
 
+        // Multi-line / regex matches against whole file
         let multi_matches = self.matcher.find_matches(code);
         for m in multi_matches {
             let line_num = code[..m.start].matches('\n').count() + 1;
@@ -176,6 +224,18 @@ impl CompiledRule {
         snippet: &str,
         language: Language,
     ) -> Finding {
+        // Build properties with cwe/owasp/references
+        let mut props = std::collections::HashMap::new();
+        if let Some(ref cwe) = self.rule.metadata.cwe {
+            props.insert("cwe".into(), serde_json::json!(cwe.as_vec()));
+        }
+        if let Some(ref owasp) = self.rule.metadata.owasp {
+            props.insert("owasp".into(), serde_json::json!(owasp));
+        }
+        if let Some(ref refs) = self.rule.metadata.references {
+            props.insert("references".into(), serde_json::json!(refs));
+        }
+
         let mut finding = Finding {
             id: format!("{}-{}-1", self.rule.id, line),
             rule_id: self.rule.id.clone(),
@@ -188,12 +248,27 @@ impl CompiledRule {
             fix: None,
             confidence: self.rule.confidence(),
             category: infer_category(&self.rule),
+            subcategory: self.rule.metadata.subcategory.clone(),
+            technology: self.rule.metadata.technology.clone(),
+            impact: self.rule.metadata.impact.as_ref().map(|i| format!("{:?}", i).to_uppercase()),
+            likelihood: self.rule.metadata.likelihood.as_ref().map(|l| format!("{:?}", l).to_uppercase()),
             source: FindingSource::Builtin,
             fingerprint: None,
-            properties: None,
+            properties: if props.is_empty() { None } else { Some(props) },
             occurrence_count: None,
             additional_locations: None,
         };
+
+        // Default subcategory for builtin findings missing it
+        if finding.subcategory.is_none() && finding.source == FindingSource::Builtin {
+            finding.subcategory = Some(vec![
+                if finding.category == FindingCategory::Security {
+                    "vuln".to_string()
+                } else {
+                    "other".to_string()
+                }
+            ]);
+        }
 
         finding.compute_fingerprint();
         finding
@@ -252,11 +327,24 @@ fn compile_pattern_operator(
     }
 
     if let Some(ref pattern) = op.pattern_inside {
-        matcher.add_pattern_inside(pattern)?;
+        if is_either {
+            // pattern-inside inside pattern-either → OR'd context (any must match)
+            matcher.add_pattern_inside_any(pattern)?;
+        } else {
+            matcher.add_pattern_inside(pattern)?;
+        }
+    }
+
+    if let Some(ref pattern) = op.pattern_not_inside {
+        matcher.add_pattern_not_inside(pattern)?;
     }
 
     if let Some(ref regex) = op.pattern_regex {
         matcher.add_regex(regex)?;
+    }
+
+    if let Some(ref mvr) = op.metavariable_regex {
+        matcher.add_metavariable_regex(&mvr.metavariable, &mvr.regex)?;
     }
 
     Ok(())
@@ -282,6 +370,9 @@ fn infer_category(rule: &Rule) -> FindingCategory {
     {
         return FindingCategory::Style;
     }
+    if category.contains("maintainability") {
+        return FindingCategory::Quality;
+    }
 
     if rule.metadata.cwe.is_some() {
         return FindingCategory::Security;
@@ -293,7 +384,7 @@ fn infer_category(rule: &Rule) -> FindingCategory {
         }
     }
 
-    FindingCategory::Security
+    FindingCategory::Quality
 }
 
 /// Rule runner that applies multiple rules to code
@@ -334,6 +425,25 @@ impl RuleRunner {
         findings
     }
 
+    /// Run all applicable rules except those in the exclude set.
+    ///
+    /// This allows the caller to skip rules that were already executed via
+    /// tree-sitter query matching, avoiding duplicate findings.
+    pub fn check_excluding(
+        &self,
+        code: &str,
+        path: &Path,
+        language: Language,
+        exclude_ids: &HashSet<String>,
+    ) -> Vec<Finding> {
+        let lang_str = language.to_string().to_lowercase();
+        self.rules
+            .iter()
+            .filter(|r| r.applies_to(&lang_str) && !exclude_ids.contains(&r.rule.id))
+            .flat_map(|r| r.check(code, path, language))
+            .collect()
+    }
+
     /// Run rules in parallel (for multiple files)
     pub fn check_parallel(&self, files: &[(String, &Path, Language)]) -> Vec<Finding> {
         use rayon::prelude::*;
@@ -370,6 +480,7 @@ mod tests {
             fix_regex: None,
             min_version: None,
             options: None,
+            match_strategy: None,
         }
     }
 

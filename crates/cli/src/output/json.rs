@@ -5,6 +5,10 @@
 //! - Fingerprints for baseline comparison
 //! - Confidence levels for triage
 //! - Category classification
+//!
+//! Finding serialization delegates to `serde_json::to_value(finding)` so that
+//! new `Finding` fields are automatically included in JSON output without
+//! updating this module.
 
 use anyhow::Result;
 use rma_analyzer::{AnalysisSummary, FileAnalysis};
@@ -34,14 +38,12 @@ pub fn output_with_path(
     scanned_path: Option<&str>,
 ) -> Result<()> {
     let output = serde_json::json!({
-        // Schema metadata for API stability
         "schema_version": SCHEMA_VERSION,
         "tool": "rma",
         "tool_version": env!("CARGO_PKG_VERSION"),
         "generated_at": chrono::Utc::now().to_rfc3339(),
         "scanned_path": scanned_path.unwrap_or("."),
 
-        // Scan summary
         "summary": {
             "files_analyzed": summary.files_analyzed,
             "total_findings": summary.total_findings,
@@ -57,43 +59,14 @@ pub fn output_with_path(
         },
         "duration_ms": duration.as_millis(),
 
-        // File results with findings
         "results": results.iter().map(|r| {
             serde_json::json!({
                 "path": r.path,
                 "language": format!("{}", r.language).to_lowercase(),
                 "metrics": r.metrics,
-                "findings": r.findings.iter().map(|f| {
-                    serde_json::json!({
-                        // Core fields
-                        "rule_id": f.rule_id,
-                        "severity": format!("{}", f.severity),
-                        "message": f.message,
-
-                        // Location details
-                        "location": {
-                            "file": f.location.file.display().to_string(),
-                            "start_line": f.location.start_line,
-                            "start_column": f.location.start_column,
-                            "end_line": f.location.end_line,
-                            "end_column": f.location.end_column,
-                        },
-
-                        // Enterprise fields
-                        "source": format!("{}", f.source),
-                        "confidence": format!("{}", f.confidence),
-                        "category": format!("{}", f.category),
-                        "fingerprint": f.fingerprint,
-
-                        // Optional fields
-                        "snippet": f.snippet,
-                        "suggestion": f.suggestion,
-
-                        // Deduplication fields (when same rule fires multiple times in same file)
-                        "occurrence_count": f.occurrence_count,
-                        "additional_locations": f.additional_locations,
-                    })
-                }).collect::<Vec<_>>()
+                "findings": r.findings.iter()
+                    .filter_map(|f| serialize_finding(f).ok())
+                    .collect::<Vec<_>>()
             })
         }).collect::<Vec<_>>()
     });
@@ -108,6 +81,34 @@ pub fn output_with_path(
     }
 
     Ok(())
+}
+
+/// Serialize a Finding to a JSON value.
+///
+/// Delegates to `serde_json::to_value` so all `Finding` fields (including
+/// future additions) are automatically included, respecting `skip_serializing_if`
+/// annotations. Then patches the `location.file` field from a PathBuf to a
+/// display string and drops internal-only fields.
+fn serialize_finding(finding: &rma_common::Finding) -> Result<serde_json::Value> {
+    let mut val = serde_json::to_value(finding)?;
+
+    // Patch location.file: PathBuf serializes as-is, but we want a display string
+    if let Some(loc) = val.get_mut("location") {
+        if let Some(file) = loc.get("file") {
+            if let Some(file_str) = file.as_str() {
+                loc["file"] = serde_json::Value::String(file_str.to_string());
+            }
+        }
+    }
+
+    // Drop internal fields not useful in JSON output
+    val.as_object_mut().map(|o| {
+        o.remove("id"); // Internal ID (rule_id-line-col), not useful externally
+        o.remove("language"); // Already on the parent file entry
+        o.remove("fix"); // Structured fix is for SARIF/autofix, not human JSON
+    });
+
+    Ok(val)
 }
 
 /// Count findings by category

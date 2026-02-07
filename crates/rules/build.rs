@@ -26,6 +26,8 @@ pub enum MatchStrategy {
     TreeSitterQuery {
         query: String,
         captures: Vec<String>,
+        /// Original Semgrep pattern for regex fallback
+        original_pattern: Option<String>,
     },
     /// Literal string search (fastest for simple cases)
     LiteralSearch {
@@ -34,9 +36,32 @@ pub enum MatchStrategy {
     },
     /// Pre-validated regex pattern
     Regex { pattern: String },
-    /// AST walker for complex patterns (pattern-inside, metavariable-regex)
+    /// AST walker for complex patterns (single pattern with metavariables)
     AstWalker {
         pattern: String,
+        metavariables: Vec<String>,
+    },
+    /// Compound pattern match (patterns + pattern-inside + metavariable-regex etc.)
+    /// Preserves the full structure of Semgrep `patterns:` arrays.
+    CompoundMatch {
+        /// Main patterns that must match (from `pattern:` clauses)
+        patterns: Vec<String>,
+        /// Alternative patterns from `pattern-either:` (any must match)
+        patterns_either: Vec<String>,
+        /// Context constraints from `pattern-inside:` (checked against whole file, AND)
+        patterns_inside: Vec<String>,
+        /// Context constraints where ANY must match (OR), e.g. from pattern-either
+        /// containing pattern-inside entries
+        patterns_inside_any: Vec<String>,
+        /// Negative constraints from `pattern-not:`
+        patterns_not: Vec<String>,
+        /// Negative context from `pattern-not-inside:` (checked against whole file)
+        patterns_not_inside: Vec<String>,
+        /// Regex patterns from `pattern-regex:`
+        pattern_regex: Vec<String>,
+        /// Metavariable regex constraints: (metavariable_name, regex_pattern)
+        metavariable_regex: Vec<(String, String)>,
+        /// Extracted metavariable names
         metavariables: Vec<String>,
     },
     /// Taint tracking mode
@@ -73,6 +98,15 @@ struct CompiledRule {
 
     /// Optimization: literal strings for fast pre-filtering
     literal_triggers: Vec<String>,
+
+    /// Security subcategory (vuln, audit, style) — normalized from YAML
+    subcategory: Option<Vec<String>>,
+    /// Technology tags from rule metadata
+    technology: Option<Vec<String>>,
+    /// Impact level (HIGH/MEDIUM/LOW)
+    impact: Option<String>,
+    /// Likelihood level (HIGH/MEDIUM/LOW)
+    likelihood: Option<String>,
 }
 
 // =============================================================================
@@ -133,6 +167,14 @@ struct RawMetadata {
     owasp: Option<Vec<String>>,
     #[serde(default)]
     references: Option<Vec<String>>,
+    #[serde(default)]
+    subcategory: Option<Vec<String>>,
+    #[serde(default)]
+    technology: Option<Vec<String>>,
+    #[serde(default)]
+    impact: Option<String>,
+    #[serde(default)]
+    likelihood: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -272,6 +314,20 @@ fn compile_rule(raw: RawRule) -> CompiledRule {
         CweField::Multiple(v) => v,
     });
 
+    // Normalize subcategory to canonical buckets
+    let subcategory = metadata.subcategory.map(|subs| {
+        subs.into_iter()
+            .map(|s| {
+                match s.to_lowercase().as_str() {
+                    "vuln" | "vulnerability" => "vuln".to_string(),
+                    "audit" | "hardening" | "security-audit" => "audit".to_string(),
+                    "best-practice" | "best-practices" | "style" => "style".to_string(),
+                    other => other.to_lowercase(),
+                }
+            })
+            .collect()
+    });
+
     CompiledRule {
         id: raw.id,
         message: raw.message,
@@ -290,6 +346,10 @@ fn compile_rule(raw: RawRule) -> CompiledRule {
         references: metadata.references,
         fix: raw.fix,
         literal_triggers,
+        subcategory,
+        technology: metadata.technology,
+        impact: metadata.impact,
+        likelihood: metadata.likelihood,
     }
 }
 
@@ -401,7 +461,11 @@ fn translate_pattern(pattern: &str, languages: &[String]) -> MatchStrategy {
     // Try to translate to tree-sitter query
     if let Some(query) = pattern_to_tree_sitter_query(pattern, languages) {
         let captures = extract_metavariables(pattern);
-        return MatchStrategy::TreeSitterQuery { query, captures };
+        return MatchStrategy::TreeSitterQuery {
+            query,
+            captures,
+            original_pattern: Some(pattern.to_string()),
+        };
     }
 
     // Fall back to AST walker
@@ -442,39 +506,188 @@ fn compile_pattern_either(patterns: &[PatternClause], _languages: &[String]) -> 
     }
 }
 
-/// Compile complex patterns array
+/// Compile complex patterns array — extracts ALL clause types into a CompoundMatch.
+///
+/// A Semgrep `patterns:` array uses AND semantics: all clauses must be satisfied.
+/// Each clause can be a `pattern`, `pattern-inside`, `pattern-not`, `pattern-either`,
+/// `metavariable-regex`, etc. Previously, this function would find the first complex
+/// clause and return only its `pattern-inside` as the main pattern, silently dropping
+/// all other clauses. This caused massive false positive rates on compound rules.
 fn compile_complex_patterns(patterns: &[PatternClause], languages: &[String]) -> MatchStrategy {
-    // Complex patterns with pattern-inside, metavariable-regex need AST walker
+    let mut main_patterns: Vec<String> = Vec::new();
+    let mut either_patterns: Vec<String> = Vec::new();
+    let mut inside_patterns: Vec<String> = Vec::new();
+    let mut inside_any_patterns: Vec<String> = Vec::new();
+    let mut not_patterns: Vec<String> = Vec::new();
+    let mut not_inside_patterns: Vec<String> = Vec::new();
+    let mut regex_patterns: Vec<String> = Vec::new();
+    let mut metavar_regex: Vec<(String, String)> = Vec::new();
+    let mut metavariables: Vec<String> = Vec::new();
+
     for clause in patterns {
-        if let PatternClause::Complex(map) = clause {
-            // Check for complex features that need AST walker
-            if map.contains_key("pattern-inside")
-                || map.contains_key("pattern-not-inside")
-                || map.contains_key("metavariable-regex")
-                || map.contains_key("metavariable-pattern")
-                || map.contains_key("focus-metavariable")
-            {
-                // Extract the main pattern if possible
-                if let Some(pattern) = extract_pattern_string(clause) {
-                    let metavars = extract_metavariables(&pattern);
-                    return MatchStrategy::AstWalker {
-                        pattern,
-                        metavariables: metavars,
-                    };
+        match clause {
+            PatternClause::Simple(s) => {
+                main_patterns.push(s.clone());
+                metavariables.extend(extract_metavariables(s));
+            }
+            PatternClause::Complex(map) => {
+                // Extract pattern
+                if let Some(p) = map.get("pattern").and_then(|v| v.as_str()) {
+                    main_patterns.push(p.to_string());
+                    metavariables.extend(extract_metavariables(p));
+                }
+
+                // Extract pattern-inside
+                if let Some(p) = map.get("pattern-inside").and_then(|v| v.as_str()) {
+                    inside_patterns.push(p.to_string());
+                }
+
+                // Extract pattern-not
+                if let Some(p) = map.get("pattern-not").and_then(|v| v.as_str()) {
+                    not_patterns.push(p.to_string());
+                }
+
+                // Extract pattern-not-inside
+                if let Some(p) = map.get("pattern-not-inside").and_then(|v| v.as_str()) {
+                    not_inside_patterns.push(p.to_string());
+                }
+
+                // Extract pattern-regex
+                if let Some(p) = map.get("pattern-regex").and_then(|v| v.as_str()) {
+                    // Validate regex at build time
+                    if regex::Regex::new(p).is_ok() {
+                        regex_patterns.push(p.to_string());
+                    }
+                }
+
+                // Extract metavariable-regex
+                if let Some(mv) = map.get("metavariable-regex") {
+                    let var = mv
+                        .get("metavariable")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let re = mv
+                        .get("regex")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    if let (Some(var), Some(re)) = (var, re) {
+                        // Validate regex at build time
+                        if regex::Regex::new(&re).is_ok() {
+                            metavar_regex.push((var, re));
+                        }
+                    }
+                }
+
+                // Extract pattern-either (nested OR within AND)
+                if let Some(either) = map.get("pattern-either") {
+                    if let Some(arr) = either.as_sequence() {
+                        extract_either_patterns(
+                            arr,
+                            &mut either_patterns,
+                            &mut inside_any_patterns,
+                            &mut metavariables,
+                        );
+                    }
                 }
             }
         }
     }
 
-    // Try to find a simple pattern
-    for clause in patterns {
-        if let Some(pattern) = extract_pattern_string(clause) {
-            return translate_pattern(&pattern, languages);
-        }
+    // If we have nothing useful, skip the rule
+    if main_patterns.is_empty() && either_patterns.is_empty() && regex_patterns.is_empty() {
+        return MatchStrategy::Skipped {
+            reason: "Could not extract usable pattern from compound rule".to_string(),
+        };
     }
 
-    MatchStrategy::Skipped {
-        reason: "Could not extract usable pattern".to_string(),
+    // Optimization: if there are no context constraints and only a single simple pattern,
+    // use the simpler AstWalker strategy
+    if inside_patterns.is_empty()
+        && inside_any_patterns.is_empty()
+        && not_inside_patterns.is_empty()
+        && metavar_regex.is_empty()
+        && not_patterns.is_empty()
+        && regex_patterns.is_empty()
+        && either_patterns.is_empty()
+        && main_patterns.len() == 1
+    {
+        return translate_pattern(&main_patterns[0], languages);
+    }
+
+    MatchStrategy::CompoundMatch {
+        patterns: main_patterns,
+        patterns_either: either_patterns,
+        patterns_inside: inside_patterns,
+        patterns_inside_any: inside_any_patterns,
+        patterns_not: not_patterns,
+        patterns_not_inside: not_inside_patterns,
+        pattern_regex: regex_patterns,
+        metavariable_regex: metavar_regex,
+        metavariables,
+    }
+}
+
+/// Extract patterns from a pattern-either sequence (nested within a patterns array).
+/// Handles simple string alternatives, {pattern: "..."}, {pattern-inside: "..."}, and
+/// nested {patterns: [...]} maps.
+///
+/// When `pattern-either` contains `pattern-inside` items, these become OR'd context
+/// constraints (any of them must match), stored in `inside_any_patterns`.
+fn extract_either_patterns(
+    arr: &[serde_yaml::Value],
+    either_patterns: &mut Vec<String>,
+    inside_any_patterns: &mut Vec<String>,
+    metavariables: &mut Vec<String>,
+) {
+    for item in arr {
+        // Simple string alternative
+        if let Some(s) = item.as_str() {
+            either_patterns.push(s.to_string());
+            metavariables.extend(extract_metavariables(s));
+            continue;
+        }
+
+        // Mapping alternative
+        if let Some(map) = item.as_mapping() {
+            // {pattern-inside: "..."} — OR'd context constraint
+            if let Some(p) = map
+                .get(&serde_yaml::Value::String("pattern-inside".to_string()))
+                .and_then(|v| v.as_str())
+            {
+                inside_any_patterns.push(p.to_string());
+                continue;
+            }
+
+            // Direct {pattern: "..."} alternative
+            if let Some(p) = map
+                .get(&serde_yaml::Value::String("pattern".to_string()))
+                .and_then(|v| v.as_str())
+            {
+                either_patterns.push(p.to_string());
+                metavariables.extend(extract_metavariables(p));
+            }
+
+            // Nested {patterns: [...]} group — extract leaf patterns
+            if let Some(nested) = map
+                .get(&serde_yaml::Value::String("patterns".to_string()))
+                .and_then(|v| v.as_sequence())
+            {
+                for nested_item in nested {
+                    if let Some(s) = nested_item.as_str() {
+                        either_patterns.push(s.to_string());
+                        metavariables.extend(extract_metavariables(s));
+                    } else if let Some(nm) = nested_item.as_mapping() {
+                        if let Some(p) = nm
+                            .get(&serde_yaml::Value::String("pattern".to_string()))
+                            .and_then(|v| v.as_str())
+                        {
+                            either_patterns.push(p.to_string());
+                            metavariables.extend(extract_metavariables(p));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -498,6 +711,36 @@ fn pattern_to_tree_sitter_query(pattern: &str, languages: &[String]) -> Option<S
 
     // String literal patterns
     if let Some(query) = translate_string_pattern(pattern, lang) {
+        return Some(query);
+    }
+
+    // Member access: $X.password, $OBJ.$ATTR
+    if let Some(query) = translate_member_access_pattern(pattern, lang) {
+        return Some(query);
+    }
+
+    // Index/subscript: $X[$Y]
+    if let Some(query) = translate_index_pattern(pattern, lang) {
+        return Some(query);
+    }
+
+    // Binary operator: $X + $Y, $X == $Y
+    if let Some(query) = translate_binary_op_pattern(pattern, lang) {
+        return Some(query);
+    }
+
+    // Import patterns: require('...'), import ..., from X import Y
+    if let Some(query) = translate_import_pattern(pattern, lang) {
+        return Some(query);
+    }
+
+    // Return statements: return $X
+    if let Some(query) = translate_return_pattern(pattern, lang) {
+        return Some(query);
+    }
+
+    // Conditionals: if $COND: ...
+    if let Some(query) = translate_conditional_pattern(pattern, lang) {
         return Some(query);
     }
 
@@ -629,6 +872,352 @@ fn translate_string_pattern(pattern: &str, lang: &str) -> Option<String> {
     None
 }
 
+/// Translate member access patterns like `$X.password` or `$OBJ.secret_key`
+///
+/// Handles both literal member names (e.g., `$X.password`) where we match
+/// the attribute name exactly, and generic access (`$X.$Y`) where we match
+/// any attribute access.
+fn translate_member_access_pattern(pattern: &str, lang: &str) -> Option<String> {
+    // Match: $VAR.identifier (literal member) or $VAR.$VAR (generic access)
+    let member_re = regex::Regex::new(r"^\$\w+\.(\$?\w+)$").ok()?;
+    let caps = member_re.captures(pattern.trim())?;
+    let member = caps.get(1)?.as_str();
+
+    // If member is a metavariable ($Y), match any attribute access
+    let is_metavar = member.starts_with('$');
+
+    let query = match lang {
+        "python" => {
+            if is_metavar {
+                r#"(attribute object: (_) @obj attribute: (identifier) @attr)"#.to_string()
+            } else {
+                format!(
+                    r#"(attribute object: (_) @obj attribute: (identifier) @attr (#eq? @attr "{}"))"#,
+                    member
+                )
+            }
+        }
+        "javascript" | "typescript" => {
+            if is_metavar {
+                r#"(member_expression object: (_) @obj property: (property_identifier) @prop)"#
+                    .to_string()
+            } else {
+                format!(
+                    r#"(member_expression object: (_) @obj property: (property_identifier) @prop (#eq? @prop "{}"))"#,
+                    member
+                )
+            }
+        }
+        "java" => {
+            if is_metavar {
+                r#"(field_access object: (_) @obj field: (identifier) @field)"#.to_string()
+            } else {
+                format!(
+                    r#"(field_access object: (_) @obj field: (identifier) @field (#eq? @field "{}"))"#,
+                    member
+                )
+            }
+        }
+        "go" => {
+            if is_metavar {
+                r#"(selector_expression operand: (_) @obj field: (field_identifier) @field)"#
+                    .to_string()
+            } else {
+                format!(
+                    r#"(selector_expression operand: (_) @obj field: (field_identifier) @field (#eq? @field "{}"))"#,
+                    member
+                )
+            }
+        }
+        _ => return None,
+    };
+
+    Some(query)
+}
+
+/// Translate index/subscript patterns like `$X[$Y]` or `$DICT["key"]`
+///
+/// Matches array/dict subscript access for languages with subscript node types.
+fn translate_index_pattern(pattern: &str, lang: &str) -> Option<String> {
+    // Match: $VAR[$...] or $VAR["literal"] or identifier[$...]
+    let index_re = regex::Regex::new(r"^(\$?\w+)\[(.+)\]$").ok()?;
+    let caps = index_re.captures(pattern.trim())?;
+    let _obj = caps.get(1)?.as_str();
+    let index_expr = caps.get(2)?.as_str();
+
+    // If index is a string literal, add a match predicate
+    let is_string_literal = index_expr.starts_with('"') && index_expr.ends_with('"');
+
+    let query = match lang {
+        "python" => {
+            if is_string_literal {
+                let inner = &index_expr[1..index_expr.len() - 1];
+                format!(
+                    r#"(subscript value: (_) @obj subscript: (string) @key (#match? @key "{}"))"#,
+                    inner
+                )
+            } else {
+                r#"(subscript value: (_) @obj subscript: (_) @key)"#.to_string()
+            }
+        }
+        "javascript" | "typescript" => {
+            if is_string_literal {
+                let inner = &index_expr[1..index_expr.len() - 1];
+                format!(
+                    r#"(subscript_expression object: (_) @obj index: (string) @key (#match? @key "{}"))"#,
+                    inner
+                )
+            } else {
+                r#"(subscript_expression object: (_) @obj index: (_) @key)"#.to_string()
+            }
+        }
+        "java" => {
+            // Java uses array_access
+            r#"(array_access array: (_) @obj index: (_) @key)"#.to_string()
+        }
+        _ => return None,
+    };
+
+    Some(query)
+}
+
+/// Translate binary operator patterns like `$X + $Y`, `$X == $Y`
+///
+/// Matches binary expressions with specific operators. The operator is matched
+/// literally from the pattern.
+fn translate_binary_op_pattern(pattern: &str, lang: &str) -> Option<String> {
+    // Match: $VAR op $VAR — supports common operators
+    let bin_re =
+        regex::Regex::new(r"^(\$\w+)\s*(==|!=|<=|>=|<|>|\+|-|\*|/|%|\|\||&&|and|or|in|not\s+in)\s*(\$\w+)$")
+            .ok()?;
+    let caps = bin_re.captures(pattern.trim())?;
+    let _lhs = caps.get(1)?.as_str();
+    let op = caps.get(2)?.as_str();
+    let _rhs = caps.get(3)?.as_str();
+
+    let query = match lang {
+        "python" => {
+            match op {
+                "in" | "not in" => {
+                    // Python uses comparison_operator for `in` / `not in`
+                    r#"(comparison_operator (_) @lhs (_) @rhs)"#.to_string()
+                }
+                "and" | "or" => {
+                    format!(
+                        r#"(boolean_operator left: (_) @lhs operator: "{}" right: (_) @rhs)"#,
+                        op
+                    )
+                }
+                _ => {
+                    format!(
+                        r#"(binary_operator left: (_) @lhs operator: "{}" right: (_) @rhs)"#,
+                        op
+                    )
+                }
+            }
+        }
+        "javascript" | "typescript" => {
+            format!(
+                r#"(binary_expression left: (_) @lhs operator: "{}" right: (_) @rhs)"#,
+                op
+            )
+        }
+        _ => return None,
+    };
+
+    Some(query)
+}
+
+/// Translate import patterns like `require('...')`, `import ...`, `from X import Y`
+///
+/// Handles:
+/// - JS/TS: `require("module")` or `require('module')`
+/// - Python: `import module`, `from module import name`
+/// - Go: `import "module"`
+fn translate_import_pattern(pattern: &str, lang: &str) -> Option<String> {
+    let trimmed = pattern.trim();
+
+    // JS/TS: require("module") or require('module')
+    let require_re = regex::Regex::new(r#"^require\(\s*['"](.+)['"]\s*\)$"#).ok()?;
+    if let Some(caps) = require_re.captures(trimmed) {
+        let module = caps.get(1)?.as_str();
+        return match lang {
+            "javascript" | "typescript" => Some(format!(
+                r#"(call_expression function: (identifier) @func (#eq? @func "require") arguments: (arguments (string) @mod (#match? @mod "{}")))"#,
+                regex::escape(module)
+            )),
+            _ => None,
+        };
+    }
+
+    // Python: from $MODULE import $NAME or from module import name
+    let from_import_re = regex::Regex::new(r"^from\s+(\S+)\s+import\s+(\S+)$").ok()?;
+    if let Some(caps) = from_import_re.captures(trimmed) {
+        let module = caps.get(1)?.as_str();
+        let name = caps.get(2)?.as_str();
+        let is_module_meta = module.starts_with('$');
+        let is_name_meta = name.starts_with('$');
+
+        return match lang {
+            "python" => {
+                if is_module_meta && is_name_meta {
+                    Some(
+                        r#"(import_from_statement module_name: (dotted_name) @mod name: (dotted_name) @name)"#
+                            .to_string(),
+                    )
+                } else if is_module_meta {
+                    Some(format!(
+                        r#"(import_from_statement module_name: (dotted_name) @mod name: (dotted_name) @name (#match? @name "{}"))"#,
+                        regex::escape(name)
+                    ))
+                } else if is_name_meta {
+                    Some(format!(
+                        r#"(import_from_statement module_name: (dotted_name) @mod (#match? @mod "{}") name: (dotted_name) @name)"#,
+                        regex::escape(module)
+                    ))
+                } else {
+                    Some(format!(
+                        r#"(import_from_statement module_name: (dotted_name) @mod (#match? @mod "{}") name: (dotted_name) @name (#match? @name "{}"))"#,
+                        regex::escape(module),
+                        regex::escape(name)
+                    ))
+                }
+            }
+            _ => None,
+        };
+    }
+
+    // Simple import: import $MODULE or import module
+    let import_re = regex::Regex::new(r"^import\s+(\S+)$").ok()?;
+    if let Some(caps) = import_re.captures(trimmed) {
+        let module = caps.get(1)?.as_str();
+        let is_meta = module.starts_with('$');
+
+        return match lang {
+            "python" => {
+                if is_meta {
+                    Some(r#"(import_statement name: (dotted_name) @mod)"#.to_string())
+                } else {
+                    Some(format!(
+                        r#"(import_statement name: (dotted_name) @mod (#match? @mod "{}"))"#,
+                        regex::escape(module)
+                    ))
+                }
+            }
+            "go" => {
+                if is_meta {
+                    Some(r#"(import_declaration (import_spec path: (interpreted_string_literal) @mod))"#.to_string())
+                } else {
+                    Some(format!(
+                        r#"(import_declaration (import_spec path: (interpreted_string_literal) @mod (#match? @mod "{}")))"#,
+                        regex::escape(module)
+                    ))
+                }
+            }
+            _ => None,
+        };
+    }
+
+    None
+}
+
+/// Translate return statement patterns like `return $X` or `return None`
+///
+/// Matches return statements across languages. When the value is a metavariable,
+/// matches any return; when literal, adds a predicate.
+fn translate_return_pattern(pattern: &str, lang: &str) -> Option<String> {
+    let return_re = regex::Regex::new(r"^return\s+(.+)$").ok()?;
+    let caps = return_re.captures(pattern.trim())?;
+    let value = caps.get(1)?.as_str().trim();
+    let is_meta = value.starts_with('$');
+
+    let query = match lang {
+        "python" => {
+            if is_meta {
+                r#"(return_statement (_) @val) @ret"#.to_string()
+            } else {
+                format!(
+                    r#"(return_statement (_) @val (#match? @val "{}")) @ret"#,
+                    regex::escape(value)
+                )
+            }
+        }
+        "javascript" | "typescript" => {
+            if is_meta {
+                r#"(return_statement (_) @val) @ret"#.to_string()
+            } else {
+                format!(
+                    r#"(return_statement (_) @val (#match? @val "{}")) @ret"#,
+                    regex::escape(value)
+                )
+            }
+        }
+        "java" => {
+            if is_meta {
+                r#"(return_statement (_) @val) @ret"#.to_string()
+            } else {
+                format!(
+                    r#"(return_statement (_) @val (#match? @val "{}")) @ret"#,
+                    regex::escape(value)
+                )
+            }
+        }
+        "go" => {
+            if is_meta {
+                r#"(return_statement (expression_list (_) @val)) @ret"#.to_string()
+            } else {
+                format!(
+                    r#"(return_statement (expression_list (_) @val (#match? @val "{}"))) @ret"#,
+                    regex::escape(value)
+                )
+            }
+        }
+        "rust" => {
+            if is_meta {
+                r#"(return_expression (_) @val) @ret"#.to_string()
+            } else {
+                format!(
+                    r#"(return_expression (_) @val (#match? @val "{}")) @ret"#,
+                    regex::escape(value)
+                )
+            }
+        }
+        _ => return None,
+    };
+
+    Some(query)
+}
+
+/// Translate conditional patterns like `if $COND: ...` or `if ($COND) { ... }`
+///
+/// Matches if-statements, capturing the condition for further analysis.
+fn translate_conditional_pattern(pattern: &str, lang: &str) -> Option<String> {
+    // Match: if (...) or if $COND:
+    let if_re = regex::Regex::new(r"^if\s+(.+?)(\s*:|\s*\{|$)").ok()?;
+    let _caps = if_re.captures(pattern.trim())?;
+
+    let query = match lang {
+        "python" => {
+            r#"(if_statement condition: (_) @cond) @if"#.to_string()
+        }
+        "javascript" | "typescript" => {
+            r#"(if_statement condition: (parenthesized_expression (_) @cond)) @if"#.to_string()
+        }
+        "java" => {
+            r#"(if_statement condition: (parenthesized_expression (_) @cond)) @if"#.to_string()
+        }
+        "go" => {
+            r#"(if_statement condition: (_) @cond) @if"#.to_string()
+        }
+        "rust" => {
+            r#"(if_expression condition: (_) @cond) @if"#.to_string()
+        }
+        _ => return None,
+    };
+
+    Some(query)
+}
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -639,12 +1228,10 @@ fn extract_pattern_string(clause: &PatternClause) -> Option<String> {
         PatternClause::Complex(map) => map
             .get("pattern")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                map.get("pattern-inside")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            }),
+            .map(|s| s.to_string()),
+        // NOTE: Previously fell back to "pattern-inside" which caused
+        // context patterns to be treated as main patterns, generating
+        // massive false positives on compound rules.
     }
 }
 
@@ -664,6 +1251,15 @@ fn extract_literals_from_rule(raw: &RawRule) -> Vec<String> {
     }
 
     if let Some(ref patterns) = raw.pattern_either {
+        for clause in patterns {
+            if let Some(p) = extract_pattern_string(clause) {
+                literals.extend(extract_literals_from_pattern(&p));
+            }
+        }
+    }
+
+    // Also extract from compound patterns array
+    if let Some(ref patterns) = raw.patterns {
         for clause in patterns {
             if let Some(p) = extract_pattern_string(clause) {
                 literals.extend(extract_literals_from_pattern(&p));

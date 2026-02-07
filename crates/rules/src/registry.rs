@@ -234,6 +234,7 @@ mod tests {
             fix_regex: None,
             min_version: None,
             options: None,
+            match_strategy: None,
         }
     }
 

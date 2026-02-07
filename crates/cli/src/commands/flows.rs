@@ -286,6 +286,7 @@ pub fn run(args: FlowsArgs) -> Result<()> {
             &filtered_results,
             &summary,
             Some(&filtered_project),
+            0,
         );
     }
 
@@ -1139,7 +1140,7 @@ fn output_json(
             sink_function: t.sink.function.clone(),
             sink_file: t.sink.file.display().to_string(),
             sink_line: t.sink.line,
-            severity: format!("{:?}", t.severity),
+            severity: t.severity.to_string(),
             sink_context: t.sink_context.description().to_string(),
             sink_context_cwe: t.sink_context.primary_cwe().to_string(),
             description: t.description.clone(),

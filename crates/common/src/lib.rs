@@ -9,7 +9,8 @@ pub mod suppression;
 pub use config::{
     AllowConfig, AllowType, Baseline, BaselineConfig, BaselineEntry, BaselineMode,
     CURRENT_CONFIG_VERSION, ConfigLoadResult, ConfigSource, ConfigWarning,
-    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS, DEFAULT_VENDOR_IGNORE_PATHS,
+    DEFAULT_EXAMPLE_IGNORE_PATHS, DEFAULT_GENERATED_IGNORE_PATHS, DEFAULT_TEST_IGNORE_PATHS,
+    DEFAULT_VENDOR_IGNORE_PATHS,
     EffectiveConfig, Fingerprint, GosecProviderConfig, InlineSuppression, OsvEcosystem,
     OsvProviderConfig, OxcProviderConfig, OxlintProviderConfig, PmdProviderConfig, Profile,
     ProfileThresholds, ProfilesConfig, ProviderType, ProvidersConfig, RULES_ALWAYS_ENABLED,
@@ -363,7 +364,9 @@ impl std::fmt::Display for Severity {
 }
 
 /// Confidence level for findings (how certain we are this is a real issue)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
     /// Low confidence - may be a false positive, requires manual review
@@ -556,6 +559,18 @@ pub struct Finding {
     /// Category of finding (security, quality, performance, style)
     #[serde(default)]
     pub category: FindingCategory,
+    /// Security subcategory (vuln, audit, style) — normalized from YAML metadata
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub subcategory: Option<Vec<String>>,
+    /// Technology tags from rule metadata
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub technology: Option<Vec<String>>,
+    /// Impact level from rule metadata (HIGH/MEDIUM/LOW)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub impact: Option<String>,
+    /// Likelihood level from rule metadata (HIGH/MEDIUM/LOW)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub likelihood: Option<String>,
     /// Source engine that produced this finding
     #[serde(default)]
     pub source: FindingSource,

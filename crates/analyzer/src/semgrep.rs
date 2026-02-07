@@ -22,6 +22,7 @@
 use rma_common::{Finding, Language};
 use rma_rules::load_embedded_rules;
 use rma_rules::{Rule, RuleRegistry, RuleRunner, load_rules_from_dir};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tracing::{debug, info, warn};
@@ -218,6 +219,17 @@ impl SemgrepRuleEngine {
     /// Check a file and return findings
     pub fn check_file(&self, path: &Path, content: &str, language: Language) -> Vec<Finding> {
         self.runner.check(content, path, language)
+    }
+
+    /// Check a file, excluding rules that were already handled (e.g. by tree-sitter)
+    pub fn check_file_excluding(
+        &self,
+        path: &Path,
+        content: &str,
+        language: Language,
+        exclude_ids: &HashSet<String>,
+    ) -> Vec<Finding> {
+        self.runner.check_excluding(content, path, language, exclude_ids)
     }
 
     /// Check multiple files in parallel
@@ -423,11 +435,39 @@ impl crate::rules::Rule for EmbeddedRulesRule {
     }
 
     fn check(&self, parsed: &rma_parser::ParsedFile) -> Vec<Finding> {
-        if let Some(engine) = self.get_engine() {
-            engine.check_file(&parsed.path, &parsed.content, parsed.language)
+        let mut findings = Vec::new();
+
+        // 1. Tree-sitter structural matching (precise, multi-line, uses ParsedFile.tree)
+        let ts_matched_ids = if let Ok(ruleset) = rma_rules::load_embedded_ruleset() {
+            let (ts_findings, matched_ids) =
+                crate::ts_query_matcher::run_ts_queries(parsed, &ruleset);
+            findings.extend(ts_findings);
+            matched_ids
         } else {
-            vec![] // Gracefully degrade if engine fails to load
+            HashSet::new()
+        };
+
+        // 2. Regex fallback for rules not handled by tree-sitter
+        if let Some(engine) = self.get_engine() {
+            let regex_findings = engine.check_file_excluding(
+                &parsed.path,
+                &parsed.content,
+                parsed.language,
+                &ts_matched_ids,
+            );
+            // Deduplicate: skip regex findings where tree-sitter already found same rule+line
+            for f in regex_findings {
+                let dominated = findings.iter().any(|existing| {
+                    existing.rule_id == f.rule_id
+                        && existing.location.start_line == f.location.start_line
+                });
+                if !dominated {
+                    findings.push(f);
+                }
+            }
         }
+
+        findings
     }
 }
 

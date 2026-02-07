@@ -34,6 +34,8 @@ pub enum MatchStrategy {
     TreeSitterQuery {
         query: String,
         captures: Vec<String>,
+        /// Original Semgrep pattern for regex fallback
+        original_pattern: Option<String>,
     },
     /// Literal string search (fastest for simple cases)
     LiteralSearch {
@@ -42,9 +44,32 @@ pub enum MatchStrategy {
     },
     /// Pre-validated regex pattern
     Regex { pattern: String },
-    /// AST walker for complex patterns (pattern-inside, metavariable-regex)
+    /// AST walker for complex patterns (single pattern with metavariables)
     AstWalker {
         pattern: String,
+        metavariables: Vec<String>,
+    },
+    /// Compound pattern match (patterns + pattern-inside + metavariable-regex etc.)
+    /// Preserves the full structure of Semgrep `patterns:` arrays.
+    CompoundMatch {
+        /// Main patterns that must match (from `pattern:` clauses)
+        patterns: Vec<String>,
+        /// Alternative patterns from `pattern-either:` (any must match)
+        patterns_either: Vec<String>,
+        /// Context constraints from `pattern-inside:` (checked against whole file, AND)
+        patterns_inside: Vec<String>,
+        /// Context constraints where ANY must match (OR), e.g. from pattern-either
+        /// containing pattern-inside entries
+        patterns_inside_any: Vec<String>,
+        /// Negative constraints from `pattern-not:`
+        patterns_not: Vec<String>,
+        /// Negative context from `pattern-not-inside:` (checked against whole file)
+        patterns_not_inside: Vec<String>,
+        /// Regex patterns from `pattern-regex:`
+        pattern_regex: Vec<String>,
+        /// Metavariable regex constraints: (metavariable_name, regex_pattern)
+        metavariable_regex: Vec<(String, String)>,
+        /// Extracted metavariable names
         metavariables: Vec<String>,
     },
     /// Taint tracking mode
@@ -81,6 +106,15 @@ pub struct CompiledRule {
 
     /// Optimization: literal strings for fast pre-filtering
     pub literal_triggers: Vec<String>,
+
+    /// Security subcategory (vuln, audit, style) — normalized from YAML
+    pub subcategory: Option<Vec<String>>,
+    /// Technology tags from rule metadata
+    pub technology: Option<Vec<String>>,
+    /// Impact level (HIGH/MEDIUM/LOW)
+    pub impact: Option<String>,
+    /// Likelihood level (HIGH/MEDIUM/LOW)
+    pub likelihood: Option<String>,
 }
 
 /// Compiled rules organized by language
@@ -169,6 +203,7 @@ impl CompiledRuleSet {
                 MatchStrategy::LiteralSearch { .. } => "literal_search",
                 MatchStrategy::Regex { .. } => "regex",
                 MatchStrategy::AstWalker { .. } => "ast_walker",
+                MatchStrategy::CompoundMatch { .. } => "compound_match",
                 MatchStrategy::Taint { .. } => "taint",
                 MatchStrategy::Skipped { .. } => "skipped",
             };
@@ -195,7 +230,9 @@ pub fn load_embedded_ruleset() -> Result<CompiledRuleSet> {
     );
 
     let ruleset: CompiledRuleSet = bincode::deserialize(COMPILED_RULES)
-        .map_err(|e| RuleError::ParseError(format!("Failed to deserialize rules: {}", e)))?;
+        .map_err(|e| RuleError::ParseError(format!(
+            "Rules blob is out of date ({}). Please rebuild with `cargo build` to regenerate.", e
+        )))?;
 
     let strategy_counts = ruleset.strategy_counts();
     info!(
@@ -297,24 +334,120 @@ fn compiled_to_rule(compiled: &CompiledRule) -> Rule {
     type TaintPatterns = Option<Vec<PatternClause>>;
 
     // Extract pattern based on strategy
-    let (pattern, is_taint, sources, sinks, sanitizers): (
+    let (pattern, patterns_out, pattern_either_out, pattern_regex_out, is_taint, sources, sinks, sanitizers): (
+        Option<String>,
+        Option<Vec<PatternClause>>,
+        Option<Vec<PatternClause>>,
         Option<String>,
         bool,
         TaintPatterns,
         TaintPatterns,
         TaintPatterns,
     ) = match &compiled.strategy {
-        MatchStrategy::TreeSitterQuery { query, .. } => {
-            // Store the tree-sitter query as the pattern
-            (Some(query.clone()), false, None, None, None)
+        MatchStrategy::TreeSitterQuery { original_pattern, .. } => {
+            // Use original Semgrep pattern for regex fallback, NOT the S-expression
+            (original_pattern.clone(), None, None, None, false, None, None, None)
         }
         MatchStrategy::LiteralSearch { literals, .. } => {
-            // Store first literal as pattern
-            (literals.first().cloned(), false, None, None, None)
+            (literals.first().cloned(), None, None, None, false, None, None, None)
         }
-        MatchStrategy::Regex { pattern } => (Some(pattern.clone()), false, None, None, None),
+        MatchStrategy::Regex { pattern } => {
+            (None, None, None, Some(pattern.clone()), false, None, None, None)
+        }
         MatchStrategy::AstWalker { pattern, .. } => {
-            (Some(pattern.clone()), false, None, None, None)
+            (Some(pattern.clone()), None, None, None, false, None, None, None)
+        }
+        MatchStrategy::CompoundMatch {
+            ref patterns,
+            ref patterns_either,
+            ref patterns_inside,
+            ref patterns_inside_any,
+            ref patterns_not,
+            ref patterns_not_inside,
+            ref pattern_regex,
+            ref metavariable_regex,
+            ..
+        } => {
+            // Reconstruct the full patterns array from compound fields.
+            // Each field type becomes a PatternClause::Complex with the appropriate operator.
+            let mut clauses: Vec<PatternClause> = Vec::new();
+
+            for p in patterns {
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    pattern: Some(p.clone()),
+                    ..Default::default()
+                })));
+            }
+            for p in patterns_inside {
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    pattern_inside: Some(p.clone()),
+                    ..Default::default()
+                })));
+            }
+            // OR'd pattern-inside from pattern-either: reconstruct as
+            // pattern-either containing pattern-inside items
+            if !patterns_inside_any.is_empty() {
+                let either_inside: Vec<PatternClause> = patterns_inside_any
+                    .iter()
+                    .map(|p| {
+                        PatternClause::Complex(Box::new(PatternOperator {
+                            pattern_inside: Some(p.clone()),
+                            ..Default::default()
+                        }))
+                    })
+                    .collect();
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    pattern_either: Some(either_inside),
+                    ..Default::default()
+                })));
+            }
+            for p in patterns_not {
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    pattern_not: Some(p.clone()),
+                    ..Default::default()
+                })));
+            }
+            for p in patterns_not_inside {
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    pattern_not_inside: Some(p.clone()),
+                    ..Default::default()
+                })));
+            }
+            for p in pattern_regex {
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    pattern_regex: Some(p.clone()),
+                    ..Default::default()
+                })));
+            }
+            for (var, re) in metavariable_regex {
+                clauses.push(PatternClause::Complex(Box::new(PatternOperator {
+                    metavariable_regex: Some(MetavariableRegex {
+                        metavariable: var.clone(),
+                        regex: re.clone(),
+                    }),
+                    ..Default::default()
+                })));
+            }
+
+            // Build pattern-either for the Rule (main pattern alternatives)
+            let pe = if patterns_either.is_empty() {
+                None
+            } else {
+                Some(
+                    patterns_either
+                        .iter()
+                        .map(|p| PatternClause::Simple(p.clone()))
+                        .collect(),
+                )
+            };
+
+            let patterns_opt = if clauses.is_empty() {
+                None
+            } else {
+                Some(clauses)
+            };
+
+            (None, patterns_opt, pe, None, false, None, None, None)
         }
         MatchStrategy::Taint {
             sources,
@@ -333,9 +466,9 @@ fn compiled_to_rule(compiled: &CompiledRule) -> Rule {
                 .iter()
                 .map(|p| PatternClause::Simple(p.clone()))
                 .collect();
-            (None, true, Some(src), Some(snk), Some(san))
+            (None, None, None, None, true, Some(src), Some(snk), Some(san))
         }
-        MatchStrategy::Skipped { .. } => (None, false, None, None, None),
+        MatchStrategy::Skipped { .. } => (None, None, None, None, false, None, None, None),
     };
 
     Rule {
@@ -354,17 +487,17 @@ fn compiled_to_rule(compiled: &CompiledRule) -> Rule {
             RuleMode::Search
         },
         pattern,
-        pattern_either: None,
-        patterns: None,
+        pattern_either: pattern_either_out,
+        patterns: patterns_out,
         pattern_not: compiled.pattern_not.clone(),
-        pattern_regex: None,
+        pattern_regex: pattern_regex_out,
         pattern_sources: sources,
         pattern_sinks: sinks,
         pattern_sanitizers: sanitizers,
         pattern_propagators: None,
         metadata: RuleMetadata {
             category: compiled.category.clone(),
-            technology: None,
+            technology: compiled.technology.clone(),
             cwe: compiled.cwe.as_ref().map(|cwes| {
                 if cwes.len() == 1 {
                     CweField::Single(cwes[0].clone())
@@ -381,9 +514,23 @@ fn compiled_to_rule(compiled: &CompiledRule) -> Rule {
                     _ => None,
                 }
             }),
-            impact: None,
-            likelihood: None,
-            subcategory: None,
+            impact: compiled.impact.as_ref().and_then(|i| {
+                match i.to_uppercase().as_str() {
+                    "HIGH" => Some(ImpactLevel::High),
+                    "MEDIUM" => Some(ImpactLevel::Medium),
+                    "LOW" => Some(ImpactLevel::Low),
+                    _ => None,
+                }
+            }),
+            likelihood: compiled.likelihood.as_ref().and_then(|l| {
+                match l.to_uppercase().as_str() {
+                    "HIGH" => Some(LikelihoodLevel::High),
+                    "MEDIUM" => Some(LikelihoodLevel::Medium),
+                    "LOW" => Some(LikelihoodLevel::Low),
+                    _ => None,
+                }
+            }),
+            subcategory: compiled.subcategory.clone(),
             references: compiled.references.clone(),
             source_rule_url: None,
             extra: HashMap::new(),
@@ -392,6 +539,7 @@ fn compiled_to_rule(compiled: &CompiledRule) -> Rule {
         fix_regex: None,
         min_version: None,
         options: None,
+        match_strategy: Some(compiled.strategy.clone()),
     }
 }
 
@@ -453,5 +601,118 @@ mod tests {
         // Should have at least some strategies
         let total: usize = counts.values().sum();
         assert!(total > 0 || ruleset.total_count == 0);
+    }
+
+    #[test]
+    fn test_compound_match_rules_exist() {
+        let ruleset = load_embedded_ruleset().unwrap();
+        let counts = ruleset.strategy_counts();
+        let compound = counts.get("compound_match").copied().unwrap_or(0);
+        // After the pattern matcher fix, compound rules should be properly compiled
+        eprintln!("Strategy counts: {:?}", counts);
+        eprintln!("Compound match rules: {}", compound);
+        assert!(compound > 0, "Expected some CompoundMatch rules after fix");
+    }
+
+    #[test]
+    fn test_pg_orm_sqli_is_compound() {
+        let strategy = get_match_strategy("go.lang.security.audit.sqli.pg-orm-sqli");
+        if let Some(strategy) = strategy {
+            eprintln!("pg-orm-sqli strategy: {:?}", strategy);
+            match strategy {
+                MatchStrategy::CompoundMatch {
+                    ref patterns_inside,
+                    ref metavariable_regex,
+                    ref patterns_either,
+                    ..
+                } => {
+                    assert!(!patterns_inside.is_empty(), "Should have pattern-inside");
+                    assert!(
+                        !metavariable_regex.is_empty(),
+                        "Should have metavariable-regex"
+                    );
+                    assert!(
+                        !patterns_either.is_empty(),
+                        "Should have pattern-either alternatives"
+                    );
+                }
+                other => {
+                    panic!("Expected CompoundMatch, got {:?}", other);
+                }
+            }
+        }
+        // If rule not found, that's OK (depends on which rules are compiled)
+    }
+
+    #[test]
+    fn test_compound_rule_matching_filters_by_context() {
+        // Simulate the pg-orm-sqli scenario: a compound rule with pattern-inside
+        // should NOT fire on code that doesn't match the pattern-inside constraint.
+        use crate::matcher::CompiledRule;
+        use rma_common::Language;
+        use std::path::Path;
+
+        let rules = load_embedded_rules().unwrap();
+        let sqli_rule = rules
+            .iter()
+            .find(|r| r.id.contains("pg-orm-sqli"));
+
+        if let Some(rule) = sqli_rule {
+            let compiled = CompiledRule::compile(rule.clone()).unwrap();
+
+            // Code WITHOUT go-pg import — should produce ZERO findings
+            let code_no_gopg = r#"
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Hello")
+}
+"#;
+            let findings = compiled.check(code_no_gopg, Path::new("main.go"), Language::Go);
+            eprintln!("Findings for code without go-pg: {}", findings.len());
+            assert_eq!(
+                findings.len(),
+                0,
+                "Should NOT fire on Go code without go-pg import"
+            );
+        }
+    }
+
+    #[test]
+    fn test_metadata_subcategory_populated() {
+        let ruleset = load_embedded_ruleset().unwrap();
+        let go_rules = ruleset.rules_for_language("go");
+
+        let mut with_subcat = 0;
+        let mut without_subcat = 0;
+        let mut found_tls = false;
+
+        for rule in &go_rules {
+            if rule.subcategory.is_some() {
+                with_subcat += 1;
+            } else {
+                without_subcat += 1;
+            }
+            if rule.id == "use-tls" {
+                found_tls = true;
+                eprintln!("use-tls: subcategory={:?}, technology={:?}, impact={:?}, likelihood={:?}",
+                    rule.subcategory, rule.technology, rule.impact, rule.likelihood);
+                assert_eq!(rule.subcategory, Some(vec!["audit".to_string()]));
+                assert_eq!(rule.technology, Some(vec!["go".to_string()]));
+                assert_eq!(rule.impact.as_deref(), Some("MEDIUM"));
+                assert_eq!(rule.likelihood.as_deref(), Some("LOW"));
+            }
+        }
+
+        eprintln!("Go rules: {} total, {} with subcategory, {} without",
+            go_rules.len(), with_subcat, without_subcat);
+
+        assert!(found_tls, "use-tls rule should exist in Go rules");
+        assert!(with_subcat > 0, "Some Go rules should have subcategory metadata");
     }
 }

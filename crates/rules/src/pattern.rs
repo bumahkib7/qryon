@@ -180,14 +180,22 @@ pub struct PatternMatcher {
     /// Patterns that must NOT match
     pub patterns_not: Vec<CompiledPattern>,
 
-    /// Patterns the match must be inside
+    /// Patterns the match must be inside (checked against whole file, AND)
     pub patterns_inside: Vec<CompiledPattern>,
 
-    /// Patterns the match must NOT be inside
+    /// Patterns where ANY must match (checked against whole file, OR).
+    /// Used for pattern-either containing pattern-inside.
+    pub patterns_inside_any: Vec<CompiledPattern>,
+
+    /// Patterns the match must NOT be inside (checked against whole file)
     pub patterns_not_inside: Vec<CompiledPattern>,
 
     /// Regex patterns
     pub regex_patterns: Vec<Regex>,
+
+    /// Metavariable regex constraints: (metavar_name, compiled_regex)
+    /// Checked against whole file as an approximation of proper binding
+    pub metavariable_constraints: Vec<(String, Regex)>,
 }
 
 impl PatternMatcher {
@@ -198,8 +206,10 @@ impl PatternMatcher {
             patterns_either: vec![],
             patterns_not: vec![],
             patterns_inside: vec![],
+            patterns_inside_any: vec![],
             patterns_not_inside: vec![],
             regex_patterns: vec![],
+            metavariable_constraints: vec![],
         }
     }
 
@@ -222,9 +232,17 @@ impl PatternMatcher {
         Ok(())
     }
 
-    /// Add a context pattern (must be inside)
+    /// Add a context pattern (must be inside, AND — all must match)
     pub fn add_pattern_inside(&mut self, pattern: &str) -> Result<()> {
         self.patterns_inside
+            .push(CompiledPattern::compile(pattern)?);
+        Ok(())
+    }
+
+    /// Add an OR'd context pattern (at least one must match).
+    /// Used for pattern-either containing pattern-inside entries.
+    pub fn add_pattern_inside_any(&mut self, pattern: &str) -> Result<()> {
+        self.patterns_inside_any
             .push(CompiledPattern::compile(pattern)?);
         Ok(())
     }
@@ -235,10 +253,66 @@ impl PatternMatcher {
         Ok(())
     }
 
-    /// Check if code matches this pattern set
-    pub fn matches(&self, code: &str) -> bool {
+    /// Add a metavariable regex constraint (checked at file level)
+    pub fn add_metavariable_regex(&mut self, metavariable: &str, regex: &str) -> Result<()> {
+        self.metavariable_constraints
+            .push((metavariable.to_string(), Regex::new(regex)?));
+        Ok(())
+    }
+
+    /// Add a pattern-not-inside constraint
+    pub fn add_pattern_not_inside(&mut self, pattern: &str) -> Result<()> {
+        self.patterns_not_inside
+            .push(CompiledPattern::compile(pattern)?);
+        Ok(())
+    }
+
+    /// Check if file-level context constraints are satisfied.
+    /// This checks patterns_inside, patterns_not_inside, and metavariable constraints
+    /// against the full file content.
+    pub fn context_matches(&self, full_code: &str) -> bool {
+        // All patterns_inside must match somewhere in the full file (AND)
+        if !self.patterns_inside.iter().all(|p| p.matches(full_code)) {
+            return false;
+        }
+
+        // At least one patterns_inside_any must match (OR) — from pattern-either containing pattern-inside
+        if !self.patterns_inside_any.is_empty()
+            && !self
+                .patterns_inside_any
+                .iter()
+                .any(|p| p.matches(full_code))
+        {
+            return false;
+        }
+
+        // No patterns_not_inside should match
+        if self
+            .patterns_not_inside
+            .iter()
+            .any(|p| p.matches(full_code))
+        {
+            return false;
+        }
+
+        // All metavariable regex constraints must match somewhere in the file
+        if !self
+            .metavariable_constraints
+            .iter()
+            .all(|(_, r)| r.is_match(full_code))
+        {
+            return false;
+        }
+
+        true
+    }
+
+    /// Check if code matches the core patterns (without context checks).
+    /// Use this for per-line matching after context_matches() has been validated.
+    pub fn matches_core(&self, code: &str) -> bool {
         // If we have pattern-either, at least one must match
-        if !self.patterns_either.is_empty() && !self.patterns_either.iter().any(|p| p.matches(code))
+        if !self.patterns_either.is_empty()
+            && !self.patterns_either.iter().any(|p| p.matches(code))
         {
             return false;
         }
@@ -259,6 +333,17 @@ impl PatternMatcher {
         }
 
         true
+    }
+
+    /// Check if code matches this pattern set (context + core).
+    /// When checking a single line, context constraints (patterns_inside)
+    /// are checked against that same line, which may not be what you want.
+    /// For file-level checking, use context_matches() + matches_core() separately.
+    pub fn matches(&self, code: &str) -> bool {
+        if !self.context_matches(code) {
+            return false;
+        }
+        self.matches_core(code)
     }
 
     /// Find all matches in code
@@ -346,5 +431,28 @@ mod tests {
         assert!(matcher.matches("print(foo)"));
         assert!(matcher.matches("console.log(bar)"));
         assert!(!matcher.matches("println(baz)"));
+    }
+
+    #[test]
+    fn test_patterns_inside_any_or_semantics() {
+        // Simulates: pattern-either containing pattern-inside entries
+        // File must contain at least one of the OR'd contexts
+        let mut matcher = PatternMatcher::new();
+        matcher.add_pattern("$SESSION(...)").unwrap();
+        matcher.add_pattern_inside_any("require('express-session')").unwrap();
+        matcher.add_pattern_inside_any("require('cookie-session')").unwrap();
+
+        // File with express-session: context matches
+        let file_a = "const session = require('express-session')\napp.use(session(opts))";
+        assert!(matcher.context_matches(file_a));
+        assert!(matcher.matches_core("session(opts)"));
+
+        // File with cookie-session: context matches
+        let file_b = "const cs = require('cookie-session')\napp.use(cs(opts))";
+        assert!(matcher.context_matches(file_b));
+
+        // File with neither: context fails
+        let file_c = "const x = require('helmet')\napp.use(session(opts))";
+        assert!(!matcher.context_matches(file_c));
     }
 }

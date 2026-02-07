@@ -29,6 +29,7 @@ pub mod rules;
 pub mod security;
 pub mod semantics;
 pub mod semgrep;
+pub mod ts_query_matcher;
 
 use anyhow::Result;
 use cache::AnalysisCache;

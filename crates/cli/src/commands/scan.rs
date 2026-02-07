@@ -106,8 +106,10 @@ pub struct ScanArgs {
     // =========================================================================
     // Smart presets
     // =========================================================================
-    /// Use security-focused preset
+    /// Use security-focused preset (vuln-only, excludes audit/hardening)
     pub preset_security: bool,
+    /// Use security+audit preset (includes hardening/audit findings)
+    pub preset_security_all: bool,
     /// Use CI preset
     pub preset_ci: bool,
     /// Use review preset
@@ -116,6 +118,8 @@ pub struct ScanArgs {
     pub filter_profile: Option<String>,
     /// Show filter explanation
     pub explain: bool,
+    /// Include generated files in scan (suppressed by default)
+    pub include_generated: bool,
     /// Disable analysis cache (force fresh analysis)
     pub no_cache: bool,
 }
@@ -513,6 +517,7 @@ pub fn run(args: ScanArgs) -> Result<()> {
             &filtered_results,
             &filtered_summary,
             filtered_project.as_ref(),
+            suppressed_count,
         );
     }
 
@@ -1051,6 +1056,10 @@ fn run_cross_file_phase(
             fix: None,
             confidence: rma_common::Confidence::Medium,
             category: rma_common::FindingCategory::Security,
+            subcategory: None,
+            technology: None,
+            impact: None,
+            likelihood: None,
             source: rma_common::FindingSource::TaintFlow,
             fingerprint: None,
             properties: None,
@@ -1167,7 +1176,8 @@ fn apply_suppressions(
     // Build suppression engine from config
     let rules_config = toml_config.map(|c| c.rules.clone()).unwrap_or_default();
     let mut engine = SuppressionEngine::new(&rules_config, effective.use_default_presets)
-        .with_skip_security_in_tests(effective.skip_security_in_tests);
+        .with_skip_security_in_tests(effective.skip_security_in_tests)
+        .with_include_generated(args.include_generated);
 
     // Load suppression store if enabled
     let suppression_config = toml_config.map(|c| &c.suppressions);
@@ -1393,6 +1403,8 @@ fn build_finding_filter(
     // Start with a preset if specified
     let mut filter = if args.preset_security {
         FindingFilter::preset_security()
+    } else if args.preset_security_all {
+        FindingFilter::preset_security_all()
     } else if args.preset_ci {
         FindingFilter::preset_ci()
     } else if args.preset_review {
@@ -1724,10 +1736,12 @@ mod tests {
             search_regex: None,
             // Presets
             preset_security: false,
+            preset_security_all: false,
             preset_ci: false,
             preset_review: false,
             filter_profile: None,
             explain: false,
+            include_generated: false,
             no_cache: false,
         }
     }

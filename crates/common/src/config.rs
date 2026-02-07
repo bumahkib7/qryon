@@ -324,6 +324,28 @@ pub const DEFAULT_VENDOR_IGNORE_PATHS: &[&str] = &[
     "**/cache/**",
 ];
 
+/// Default ignore paths for generated/auto-generated files
+/// Applied when use_default_presets is true (balanced/strict profiles, PR/CI mode)
+/// Override with --include-generated or rma.toml config
+pub const DEFAULT_GENERATED_IGNORE_PATHS: &[&str] = &[
+    // Kubernetes generated
+    "**/zz_generated.*", "**/zz_generated_*",
+    // Generic generated markers
+    "**/*_generated.*", "**/*_generated_*",
+    "**/generated/**",
+    // Protocol Buffers
+    "**/*.pb.go", "**/*.pb.cc", "**/*.pb.h",
+    "**/*_pb2.py", "**/*_pb2_grpc.py",
+    "**/*_grpc.pb.go",
+    // Go code generation
+    "**/*.gen.go", "**/*.gen.ts", "**/*.gen.js",
+    "**/wire_gen.go",
+    // Deep copy / deep equal generated
+    "**/*_deepcopy.go",
+    // OpenAPI / Swagger generated
+    "**/*_client.go",
+];
+
 /// Rules that should NOT be suppressed in test/example paths
 /// Security rules should still fire in tests to catch issues
 pub const RULES_ALWAYS_ENABLED: &[&str] = &[
@@ -2196,6 +2218,8 @@ pub enum SuppressionSource {
     PathRule,
     /// Suppressed by default test/example preset (--mode pr/ci)
     Preset,
+    /// Suppressed by generated file pattern
+    PathGenerated,
     /// Suppressed by baseline
     Baseline,
     /// Suppressed by database entry
@@ -2209,6 +2233,7 @@ impl std::fmt::Display for SuppressionSource {
             SuppressionSource::PathGlobal => write!(f, "path-global"),
             SuppressionSource::PathRule => write!(f, "path-rule"),
             SuppressionSource::Preset => write!(f, "preset"),
+            SuppressionSource::PathGenerated => write!(f, "path-generated"),
             SuppressionSource::Baseline => write!(f, "baseline"),
             SuppressionSource::Database => write!(f, "database"),
         }
@@ -2245,6 +2270,10 @@ pub struct SuppressionEngine {
     example_patterns: Vec<regex::Regex>,
     /// Compiled regex patterns for vendored/bundled/minified files (always applied)
     vendor_patterns: Vec<regex::Regex>,
+    /// Compiled regex patterns for generated file paths
+    generated_patterns: Vec<regex::Regex>,
+    /// Whether generated file suppression is disabled (--include-generated)
+    include_generated: bool,
     /// Optional suppression store for database-backed suppressions
     suppression_store: Option<std::sync::Arc<crate::suppression::SuppressionStore>>,
 }
@@ -2291,6 +2320,16 @@ impl SuppressionEngine {
             .filter_map(|p| Self::compile_glob(p))
             .collect();
 
+        // Generated file patterns - compiled when presets are active
+        let generated_patterns = if use_default_presets {
+            DEFAULT_GENERATED_IGNORE_PATHS
+                .iter()
+                .filter_map(|p| Self::compile_glob(p))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         Self {
             global_ignore_paths: rules_config.ignore_paths.clone(),
             rule_ignore_paths: rules_config.ignore_paths_by_rule.clone(),
@@ -2302,6 +2341,8 @@ impl SuppressionEngine {
             test_patterns,
             example_patterns,
             vendor_patterns,
+            generated_patterns,
+            include_generated: false,
             suppression_store: None,
         }
     }
@@ -2340,6 +2381,15 @@ impl SuppressionEngine {
     /// Enable skipping security rules in test paths (--skip-tests-all)
     pub fn with_skip_security_in_tests(mut self, skip: bool) -> Self {
         self.skip_security_in_tests = skip;
+        self
+    }
+
+    /// Include generated files in scan (suppressed by default)
+    pub fn with_include_generated(mut self, include: bool) -> Self {
+        self.include_generated = include;
+        if include {
+            self.generated_patterns.clear();
+        }
         self
     }
 
@@ -2504,6 +2554,15 @@ impl SuppressionEngine {
                     SuppressionSource::Preset,
                     "File is vendored/bundled/minified third-party code".to_string(),
                     "vendor-preset".to_string(),
+                );
+            }
+
+            // 5b. Check generated file patterns
+            if !self.include_generated && Self::matches_patterns(&path_str, &self.generated_patterns) {
+                return SuppressionResult::suppressed(
+                    SuppressionSource::PathGenerated,
+                    "Path matches generated file pattern".to_string(),
+                    "generated".to_string(),
                 );
             }
         }

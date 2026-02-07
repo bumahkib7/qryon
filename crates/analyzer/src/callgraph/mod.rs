@@ -783,7 +783,7 @@ impl CallGraph {
     }
 
     /// Find a path between two functions (BFS)
-    fn find_path(
+    pub fn find_path(
         &self,
         from_file: &Path,
         from_name: &str,

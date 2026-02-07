@@ -219,6 +219,7 @@ rules:
             fix_regex: None,
             min_version: None,
             options: None,
+            match_strategy: None,
         };
 
         let yaml = rule_to_yaml(&rule).unwrap();

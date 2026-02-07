@@ -258,16 +258,20 @@ pub enum Commands {
         // =====================================================================
         // Smart presets
         // =====================================================================
-        /// Use security-focused preset (security rules, high confidence, warning+)
-        #[arg(long, conflicts_with_all = ["preset_ci", "preset_review"])]
+        /// Use security-focused preset (vuln-only, excludes audit/hardening)
+        #[arg(long, conflicts_with_all = ["preset_ci", "preset_review", "preset_security_all"])]
         preset_security: bool,
 
+        /// Use security+audit preset (includes hardening/audit findings)
+        #[arg(long, conflicts_with_all = ["preset_ci", "preset_review", "preset_security"])]
+        preset_security_all: bool,
+
         /// Use CI preset (errors only, compact output)
-        #[arg(long, conflicts_with_all = ["preset_security", "preset_review"])]
+        #[arg(long, conflicts_with_all = ["preset_security", "preset_security_all", "preset_review"])]
         preset_ci: bool,
 
         /// Use review preset (warnings+, grouped by file)
-        #[arg(long, conflicts_with_all = ["preset_security", "preset_ci"])]
+        #[arg(long, conflicts_with_all = ["preset_security", "preset_security_all", "preset_ci"])]
         preset_review: bool,
 
         /// Load filter profile from config file
@@ -289,6 +293,10 @@ pub enum Commands {
         /// Launch interactive TUI viewer for browsing findings
         #[arg(short = 'I', long)]
         interactive: bool,
+
+        /// Include generated files in scan (suppressed by default)
+        #[arg(long)]
+        include_generated: bool,
 
         /// Disable analysis cache (force fresh analysis)
         #[arg(long)]
@@ -1057,6 +1065,7 @@ fn main() -> Result<()> {
             search,
             search_regex,
             preset_security,
+            preset_security_all,
             preset_ci,
             preset_review,
             filter_profile,
@@ -1064,6 +1073,7 @@ fn main() -> Result<()> {
             stream,
             no_progress,
             interactive,
+            include_generated,
             no_cache,
         } => commands::scan::run(commands::scan::ScanArgs {
             path,
@@ -1111,6 +1121,7 @@ fn main() -> Result<()> {
             search,
             search_regex,
             preset_security,
+            preset_security_all,
             preset_ci,
             preset_review,
             filter_profile,
@@ -1118,6 +1129,7 @@ fn main() -> Result<()> {
             stream,
             no_progress,
             interactive,
+            include_generated,
             no_cache,
         }),
 

@@ -250,6 +250,20 @@ pub fn output(
                         properties["fingerprint"] = serde_json::json!(fingerprint);
                     }
 
+                    // Add rule metadata fields
+                    if let Some(ref subcategory) = f.subcategory {
+                        properties["subcategory"] = serde_json::json!(subcategory);
+                    }
+                    if let Some(ref technology) = f.technology {
+                        properties["technology"] = serde_json::json!(technology);
+                    }
+                    if let Some(ref impact) = f.impact {
+                        properties["impact"] = serde_json::json!(impact);
+                    }
+                    if let Some(ref likelihood) = f.likelihood {
+                        properties["likelihood"] = serde_json::json!(likelihood);
+                    }
+
                     // Add OSV-specific metadata for vulnerability findings
                     if is_osv_finding(&f.rule_id)
                         && let Some(osv_meta) = extract_osv_metadata(&f.message, &f.rule_id)
