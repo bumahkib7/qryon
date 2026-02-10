@@ -1,4 +1,4 @@
-//! WASM Plugin System for RMA
+//! WASM Plugin System for Qryon
 //!
 //! This crate provides a WebAssembly-based plugin system that allows users
 //! to write custom analysis rules in any language that compiles to WASM.

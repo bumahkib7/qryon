@@ -1,7 +1,7 @@
 {
-  "name": "rma-cli",
+  "name": "qryon",
   "version": "0.18.1",
-  "description": "Static security analyzer for polyglot projects (JS/TS, Python, Rust, Go, Java)",
+  "description": "Qryon - Ultra-fast code intelligence and security analyzer for polyglot projects",
   "keywords": [
     "security",
     "static-analysis",
@@ -16,22 +16,22 @@
     "go",
     "java"
   ],
-  "homepage": "https://github.com/bumahkib7/rust-monorepo-analyzer",
+  "homepage": "https://github.com/bumahkib7/qryon",
   "bugs": {
-    "url": "https://github.com/bumahkib7/rust-monorepo-analyzer/issues"
+    "url": "https://github.com/bumahkib7/qryon/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bumahkib7/rust-monorepo-analyzer.git"
+    "url": "git+https://github.com/bumahkib7/qryon.git"
   },
   "license": "MIT OR Apache-2.0",
   "author": "bumahkib7",
   "bin": {
-    "rma": "./bin/rma-wrapper.js"
+    "qryon": "./bin/qryon-wrapper.js"
   },
   "scripts": {
     "postinstall": "node install.js",
-    "test": "node bin/rma-wrapper.js --version"
+    "test": "node bin/qryon-wrapper.js --version"
   },
   "engines": {
     "node": ">=14.0.0"

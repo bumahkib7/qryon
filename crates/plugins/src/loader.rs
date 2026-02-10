@@ -9,11 +9,11 @@ pub fn default_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
     // Project-local plugins
-    dirs.push(PathBuf::from(".rma/plugins"));
+    dirs.push(PathBuf::from(".qryon/plugins"));
 
     // User plugins
     if let Some(home) = dirs::home_dir() {
-        dirs.push(home.join(".config/rma/plugins"));
+        dirs.push(home.join(".config/qryon/plugins"));
     }
 
     // System plugins

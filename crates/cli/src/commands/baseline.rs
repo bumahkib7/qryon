@@ -23,7 +23,7 @@ pub fn run(args: BaselineArgs) -> Result<()> {
 
     // Discover configuration
     let (config_path, toml_config) = RmaTomlConfig::discover(&args.path)
-        .unwrap_or_else(|| (PathBuf::from("rma.toml"), RmaTomlConfig::default()));
+        .unwrap_or_else(|| (PathBuf::from("qryon.toml"), RmaTomlConfig::default()));
 
     let output_path = args
         .output
@@ -143,7 +143,7 @@ pub fn run(args: BaselineArgs) -> Result<()> {
         println!();
         println!("  {}", "Next steps:".cyan().bold());
         println!(
-            "  {} Set {} in rma.toml to only report new issues",
+            "  {} Set {} in qryon.toml to only report new issues",
             Theme::bullet(),
             "baseline.mode = \"new-only\"".yellow()
         );

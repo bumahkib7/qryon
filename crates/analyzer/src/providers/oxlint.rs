@@ -4,7 +4,7 @@
 //! a high-performance Rust-native JavaScript/TypeScript linter with 500+ rules.
 //!
 //! This provider shells out to the oxlint CLI and parses its JSON output,
-//! converting findings to RMA's unified Finding format.
+//! converting findings to Qryon's unified Finding format.
 
 use super::AnalysisProvider;
 use anyhow::{Context, Result};

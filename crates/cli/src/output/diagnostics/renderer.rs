@@ -1,7 +1,7 @@
 //! Rich diagnostic renderer implementation
 //!
 //! Produces rustc-style diagnostic output with:
-//! - Error codes (RMA-S001, etc.)
+//! - Error codes (QRYON-S001, etc.)
 //! - Source context with line numbers
 //! - Underline highlighting
 //! - Notes and help messages
@@ -272,7 +272,7 @@ mod tests {
 
         // Header should contain warning, code, and message
         assert!(header.contains("warning"));
-        assert!(header.contains("RMA-S001"));
+        assert!(header.contains("QRYON-S001"));
         assert!(header.contains("Unsafe block requires manual security review"));
     }
 
@@ -302,7 +302,7 @@ mod tests {
         let output = renderer.render(&finding, &mut cache);
 
         // Should contain all parts
-        assert!(output.contains("warning[RMA-S001]"));
+        assert!(output.contains("warning[QRYON-S001]"));
         assert!(output.contains("-->"));
         assert!(output.contains("unsafe"));
         assert!(output.contains("note"));
@@ -319,7 +319,7 @@ mod tests {
         let output = renderer.render(&finding, &mut cache);
 
         // Should still render with fallback snippet
-        assert!(output.contains("warning[RMA-S001]"));
+        assert!(output.contains("warning[QRYON-S001]"));
         assert!(output.contains("unsafe { ptr::read(x) }"));
     }
 

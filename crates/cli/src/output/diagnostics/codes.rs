@@ -1,10 +1,10 @@
 //! Diagnostic error code registry
 //!
 //! Maps rule IDs to error codes following the pattern:
-//! - RMA-S### for Security issues
-//! - RMA-Q### for Quality issues
-//! - RMA-T### for Style/lint issues
-//! - RMA-J### for Java external tool findings (PMD)
+//! - QRYON-S### for Security issues
+//! - QRYON-Q### for Quality issues
+//! - QRYON-T### for Style/lint issues
+//! - QRYON-J### for Java external tool findings (PMD)
 //!
 //! Number ranges:
 //! - 001-099: Rust
@@ -46,7 +46,7 @@ impl Category {
 /// A diagnostic code with metadata
 #[derive(Debug, Clone)]
 pub struct DiagnosticCode {
-    /// The full code string (e.g., "RMA-S001")
+    /// The full code string (e.g., "QRYON-S001")
     pub code: String,
     /// The category of the diagnostic
     pub category: Category,
@@ -58,7 +58,7 @@ impl DiagnosticCode {
     /// Create a new diagnostic code
     pub fn new(category: Category, number: u16) -> Self {
         Self {
-            code: format!("RMA-{}{:03}", category.prefix(), number),
+            code: format!("QRYON-{}{:03}", category.prefix(), number),
             category,
             docs_url: None,
         }
@@ -67,7 +67,7 @@ impl DiagnosticCode {
     /// Create with a documentation URL
     pub fn with_docs(category: Category, number: u16, docs_url: &'static str) -> Self {
         Self {
-            code: format!("RMA-{}{:03}", category.prefix(), number),
+            code: format!("QRYON-{}{:03}", category.prefix(), number),
             category,
             docs_url: Some(docs_url),
         }
@@ -298,14 +298,14 @@ mod tests {
     #[test]
     fn test_known_rule() {
         let code = REGISTRY.get("rust/unsafe-block");
-        assert_eq!(code.code, "RMA-S001");
+        assert_eq!(code.code, "QRYON-S001");
         assert_eq!(code.category, Category::Security);
     }
 
     #[test]
     fn test_unknown_rule_generates_code() {
         let code = REGISTRY.get("unknown/some-rule");
-        assert!(code.code.starts_with("RMA-Q9"));
+        assert!(code.code.starts_with("QRYON-Q9"));
     }
 
     #[test]
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_pmd_rule() {
         let code = REGISTRY.get("pmd/java/HardcodedPassword");
-        assert_eq!(code.code, "RMA-J002");
+        assert_eq!(code.code, "QRYON-J002");
         assert_eq!(code.category, Category::Pmd);
     }
 
@@ -327,6 +327,6 @@ mod tests {
     fn test_unknown_pmd_rule_generates_code() {
         // Unknown PMD rules get a hashed code in Q9xx range
         let code = REGISTRY.get("pmd/java/SomeUnknownRule");
-        assert!(code.code.starts_with("RMA-Q9"));
+        assert!(code.code.starts_with("QRYON-Q9"));
     }
 }

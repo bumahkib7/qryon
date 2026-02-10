@@ -274,7 +274,7 @@ pub fn run(args: ScanArgs) -> Result<()> {
         let baseline_path = toml_config
             .as_ref()
             .map(|(_, c)| c.baseline.file.clone())
-            .unwrap_or_else(|| PathBuf::from(".rma/baseline.json"));
+            .unwrap_or_else(|| PathBuf::from(".qryon/baseline.json"));
 
         if baseline_path.exists()
             && let Ok(baseline) = Baseline::load(&baseline_path)
@@ -620,7 +620,7 @@ fn print_scan_header(
     effective: &EffectiveScanSettings,
 ) {
     println!();
-    println!("{}", "🔍 RMA - Rust Monorepo Analyzer".cyan().bold());
+    println!("{}", "🔍 Qryon".cyan().bold());
     println!("{}", Theme::separator(50));
     println!(
         "  {} {}",
@@ -641,7 +641,7 @@ fn print_scan_header(
     }
 
     if toml_config.is_some() {
-        println!("  {} {}", "Config:".dimmed(), "rma.toml".green());
+        println!("  {} {}", "Config:".dimmed(), "qryon.toml".green());
     }
 
     if let Some(ref langs) = args.languages {
@@ -705,7 +705,7 @@ fn print_scan_header(
     }
 
     // Show providers if not just default
-    if args.providers.len() > 1 || (args.providers.len() == 1 && args.providers[0] != "rma") {
+    if args.providers.len() > 1 || (args.providers.len() == 1 && args.providers[0] != "rma" && args.providers[0] != "qryon") {
         println!(
             "  {} {}",
             "Providers:".dimmed(),
@@ -811,7 +811,7 @@ fn build_providers_config(
         config.enabled = providers
             .iter()
             .filter_map(|p| match p.trim().to_lowercase().as_str() {
-                "rma" => Some(ProviderType::Rma),
+                "rma" | "qryon" => Some(ProviderType::Rma),
                 "pmd" => Some(ProviderType::Pmd),
                 "oxlint" => Some(ProviderType::Oxlint),
                 "oxc" => Some(ProviderType::Oxc),
@@ -910,7 +910,7 @@ fn run_analyze_phase(
     let analyzer = AnalyzerEngine::with_providers(config.clone(), providers_config);
 
     // If we have external providers, use the directory-based analysis
-    let has_external_providers = args.providers.iter().any(|p| p != "rma");
+    let has_external_providers = args.providers.iter().any(|p| p != "rma" && p != "qryon");
     let result = if has_external_providers {
         analyzer.analyze_files_with_providers(parsed_files, &args.path)?
     } else {
@@ -1126,7 +1126,7 @@ fn run_ai_phase(args: &ScanArgs, _results: &mut [rma_analyzer::FileAnalysis]) ->
 }
 
 fn run_index_phase(args: &ScanArgs) -> Result<()> {
-    let index_path = args.path.join(".rma/index");
+    let index_path = args.path.join(".qryon/index");
     let index_config = IndexConfig {
         index_path,
         ..Default::default()
@@ -1186,7 +1186,7 @@ fn apply_suppressions(
     if store_enabled {
         let db_path = suppression_config
             .map(|c| args.path.join(&c.database))
-            .unwrap_or_else(|| args.path.join(".rma/suppressions.db"));
+            .unwrap_or_else(|| args.path.join(".qryon/suppressions.db"));
 
         if db_path.exists()
             && let Ok(store) = rma_common::suppression::SuppressionStore::open(&db_path)

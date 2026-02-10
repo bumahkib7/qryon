@@ -2,7 +2,7 @@
 //!
 //! This module provides beautiful, context-rich diagnostic output similar to
 //! what rustc produces. It includes:
-//! - Error codes (RMA-S001, RMA-Q001, etc.)
+//! - Error codes (QRYON-S001, QRYON-Q001, etc.)
 //! - Source code context with line numbers
 //! - Underline highlighting for the problematic span
 //! - Notes and help messages

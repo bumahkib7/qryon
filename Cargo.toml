@@ -17,9 +17,9 @@ members = [
 [workspace.package]
 version = "0.19.0"
 edition = "2024"
-authors = ["Rust Monorepo Analyzer Team"]
+authors = ["Qryon Team"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bumahkib7/rust-monorepo-analyzer"
+repository = "https://github.com/bumahkib7/qryon"
 
 [workspace.dependencies]
 # Core

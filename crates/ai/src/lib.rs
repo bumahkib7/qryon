@@ -1,4 +1,4 @@
-//! AI-Powered Vulnerability Detection for RMA
+//! AI-Powered Vulnerability Detection for Qryon
 //!
 //! This crate provides AI integration for sophisticated security analysis,
 //! supporting multiple AI providers (Claude, OpenAI, local models).
@@ -214,7 +214,8 @@ impl AiEngine {
                 ))
             }
             AiProvider::Local => {
-                let endpoint = std::env::var("RMA_LOCAL_AI_ENDPOINT")
+                let endpoint = std::env::var("QRYON_LOCAL_AI_ENDPOINT")
+                    .or_else(|_| std::env::var("RMA_LOCAL_AI_ENDPOINT"))
                     .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
                 Box::new(providers::local::LocalProvider::new(

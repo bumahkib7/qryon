@@ -1,4 +1,4 @@
-//! Tantivy/Sled based indexing for Rust Monorepo Analyzer
+//! Tantivy/Sled based indexing for Qryon
 //!
 //! Provides fast full-text search and incremental updates.
 
@@ -25,7 +25,7 @@ pub struct IndexConfig {
 impl Default for IndexConfig {
     fn default() -> Self {
         Self {
-            index_path: PathBuf::from(".rma/index"),
+            index_path: PathBuf::from(".qryon/index"),
             memory_budget: 50_000_000, // 50MB
         }
     }

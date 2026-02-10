@@ -12,7 +12,7 @@ pub struct DaemonArgs {
 
 pub fn run(args: DaemonArgs) -> Result<()> {
     println!();
-    println!("{}", "🚀 RMA Daemon".cyan().bold());
+    println!("{}", "🚀 Qryon Daemon".cyan().bold());
     println!("{}", Theme::separator(50));
     println!(
         "  {} {}:{}",

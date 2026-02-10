@@ -7,7 +7,7 @@
 //! # Cache Structure
 //!
 //! ```text
-//! .rma/cache/
+//! .qryon/cache/
 //!   analysis/
 //!     {content_hash}.json  # Per-file analysis results
 //!   manifest.json          # File path -> hash mapping
@@ -54,7 +54,7 @@ pub struct CacheEntry {
 /// Summary of cached file analysis results
 ///
 /// This is a lightweight summary stored in memory for quick lookups.
-/// The full FileAnalysis is stored on disk in `.rma/cache/analysis/{hash}.json`.
+/// The full FileAnalysis is stored on disk in `.qryon/cache/analysis/{hash}.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedFileAnalysis {
     /// Number of findings in this file
@@ -254,7 +254,7 @@ impl AnalysisCache {
 
     /// Save analysis results to cache (alias for store_analysis)
     ///
-    /// Stores the full FileAnalysis to `.rma/cache/analysis/{hash}.json`
+    /// Stores the full FileAnalysis to `.qryon/cache/analysis/{hash}.json`
     /// where hash is the content hash of the source file.
     pub fn save_analysis(&self, path: &Path, hash: u64, analysis: &FileAnalysis) -> Result<()> {
         if !self.enabled {

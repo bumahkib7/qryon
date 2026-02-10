@@ -14,14 +14,14 @@ pub struct InitArgs {
 }
 
 pub fn run(args: InitArgs) -> Result<()> {
-    let config_dir = args.path.join(".rma");
-    let config_file = args.path.join("rma.toml");
+    let config_dir = args.path.join(".qryon");
+    let config_file = args.path.join("qryon.toml");
     let legacy_config = config_dir.join("config.json");
 
     // Check if already initialized
     if (config_file.exists() || legacy_config.exists()) && !args.force {
         println!(
-            "{} RMA is already initialized in this directory",
+            "{} Qryon is already initialized in this directory",
             Theme::warning_mark()
         );
         if config_file.exists() {
@@ -37,7 +37,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     let profile = args.profile.unwrap_or(Profile::Balanced);
 
     println!();
-    println!("{}", "🚀 Initializing RMA".cyan().bold());
+    println!("{}", "🚀 Initializing Qryon".cyan().bold());
     println!("{}", Theme::separator(50));
 
     // Create directory structure
@@ -48,7 +48,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     println!(
         "  {} Created {}",
         Theme::success_mark(),
-        ".rma/".bright_white()
+        ".qryon/".bright_white()
     );
 
     // Generate TOML config
@@ -75,7 +75,7 @@ provider = "claude"
     println!(
         "  {} Created {} (profile: {})",
         Theme::success_mark(),
-        "rma.toml".bright_white(),
+        "qryon.toml".bright_white(),
         profile.to_string().cyan()
     );
 
@@ -85,7 +85,7 @@ provider = "claude"
 
     // Create .gitignore for RMA directory
     let gitignore_path = config_dir.join(".gitignore");
-    let gitignore_content = r#"# RMA cache and index (do not commit)
+    let gitignore_content = r#"# Qryon cache and index (do not commit)
 index/
 cache/
 *.lock
@@ -97,15 +97,15 @@ cache/
     println!(
         "  {} Created {}",
         Theme::success_mark(),
-        ".rma/.gitignore".bright_white()
+        ".qryon/.gitignore".bright_white()
     );
 
     println!();
     println!("{}", Theme::double_separator(50));
-    println!("{} RMA initialized successfully!", Theme::success_mark());
+    println!("{} Qryon initialized successfully!", Theme::success_mark());
     println!();
     println!("  {}", "Configuration:".cyan().bold());
-    println!("  {} Config file: {}", Theme::bullet(), "rma.toml".yellow());
+    println!("  {} Config file: {}", Theme::bullet(), "qryon.toml".yellow());
     println!(
         "  {} Profile: {} ({})",
         Theme::bullet(),
@@ -121,22 +121,22 @@ cache/
     println!(
         "  {} Run {} to analyze your code",
         Theme::bullet(),
-        "rma scan".yellow()
+        "qryon scan".yellow()
     );
     println!(
         "  {} Run {} to validate configuration",
         Theme::bullet(),
-        "rma config validate".yellow()
+        "qryon config validate".yellow()
     );
     println!(
         "  {} Run {} to create a baseline for legacy issues",
         Theme::bullet(),
-        "rma baseline".yellow()
+        "qryon baseline".yellow()
     );
     println!(
         "  {} Edit {} to customize rules and thresholds",
         Theme::bullet(),
-        "rma.toml".yellow()
+        "qryon.toml".yellow()
     );
     println!();
 

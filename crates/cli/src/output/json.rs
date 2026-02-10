@@ -39,7 +39,7 @@ pub fn output_with_path(
 ) -> Result<()> {
     let output = serde_json::json!({
         "schema_version": SCHEMA_VERSION,
-        "tool": "rma",
+        "tool": "qryon",
         "tool_version": env!("CARGO_PKG_VERSION"),
         "generated_at": chrono::Utc::now().to_rfc3339(),
         "scanned_path": scanned_path.unwrap_or("."),

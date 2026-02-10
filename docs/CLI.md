@@ -1,6 +1,6 @@
 # CLI Reference
 
-Complete command-line reference for RMA (Rust Monorepo Analyzer).
+Complete command-line reference for Qryon.
 
 ## Global Options
 
@@ -22,7 +22,7 @@ These options can be used with any command:
 Scan a repository for security issues, code smells, and metrics.
 
 ```bash
-rma scan [PATH] [OPTIONS]
+qryon scan [PATH] [OPTIONS]
 ```
 
 **Arguments:**
@@ -47,28 +47,28 @@ rma scan [PATH] [OPTIONS]
 **Examples:**
 ```bash
 # Basic scan
-rma scan .
+qryon scan .
 
 # Scan with AI analysis
-rma scan ./src --ai
+qryon scan ./src --ai
 
 # Only critical and error severity
-rma scan . -s error
+qryon scan . -s error
 
 # JSON output to file
-rma scan . -o json -f results.json
+qryon scan . -o json -f results.json
 
 # SARIF for GitHub Code Scanning
-rma scan . -o sarif -f results.sarif
+qryon scan . -o sarif -f results.sarif
 
 # Only Rust and Python files
-rma scan . -l rust,python
+qryon scan . -l rust,python
 
 # Incremental scan (only changed files)
-rma scan . -i
+qryon scan . -i
 
 # Use 4 parallel workers
-rma scan . -j 4
+qryon scan . -j 4
 ```
 
 ### watch
@@ -76,7 +76,7 @@ rma scan . -j 4
 Watch for file changes and re-analyze in real-time.
 
 ```bash
-rma watch [PATH] [OPTIONS]
+qryon watch [PATH] [OPTIONS]
 ```
 
 **Arguments:**
@@ -92,16 +92,16 @@ rma watch [PATH] [OPTIONS]
 **Examples:**
 ```bash
 # Watch current directory
-rma watch .
+qryon watch .
 
 # Watch with screen clear
-rma watch . --clear
+qryon watch . --clear
 
 # Custom debounce (1 second)
-rma watch . -d 1000
+qryon watch . -d 1000
 
 # Only watch Rust files
-rma watch . -l rust
+qryon watch . -l rust
 ```
 
 ### search
@@ -109,7 +109,7 @@ rma watch . -l rust
 Search the index for files, findings, or content.
 
 ```bash
-rma search <QUERY> [OPTIONS]
+qryon search <QUERY> [OPTIONS]
 ```
 
 **Arguments:**
@@ -127,19 +127,19 @@ rma search <QUERY> [OPTIONS]
 **Examples:**
 ```bash
 # Search for content
-rma search "TODO"
+qryon search "TODO"
 
 # Search for files by name
-rma search "main.rs" -t file
+qryon search "main.rs" -t file
 
 # Search findings
-rma search "unsafe" -t finding
+qryon search "unsafe" -t finding
 
 # Limit results
-rma search "error" -l 10
+qryon search "error" -l 10
 
 # JSON output
-rma search "config" -o json
+qryon search "config" -o json
 ```
 
 ### stats
@@ -147,7 +147,7 @@ rma search "config" -o json
 Show index and analysis statistics.
 
 ```bash
-rma stats [OPTIONS]
+qryon stats [OPTIONS]
 ```
 
 **Options:**
@@ -159,18 +159,18 @@ rma stats [OPTIONS]
 **Examples:**
 ```bash
 # Show statistics
-rma stats
+qryon stats
 
 # JSON format
-rma stats -o json
+qryon stats -o json
 ```
 
 ### init
 
-Initialize RMA configuration in the current directory.
+Initialize Qryon configuration in the current directory.
 
 ```bash
-rma init [OPTIONS]
+qryon init [OPTIONS]
 ```
 
 **Options:**
@@ -181,20 +181,20 @@ rma init [OPTIONS]
 **Examples:**
 ```bash
 # Initialize config
-rma init
+qryon init
 
 # Overwrite existing
-rma init --force
+qryon init --force
 ```
 
-This creates `.rma/config.json` with default settings.
+This creates `.qryon/config.json` with default settings.
 
 ### daemon
 
 Start the HTTP API server for IDE integration.
 
 ```bash
-rma daemon [OPTIONS]
+qryon daemon [OPTIONS]
 ```
 
 **Options:**
@@ -206,10 +206,10 @@ rma daemon [OPTIONS]
 **Examples:**
 ```bash
 # Start with defaults
-rma daemon
+qryon daemon
 
 # Custom host and port
-rma daemon -H 0.0.0.0 -p 8080
+qryon daemon -H 0.0.0.0 -p 8080
 ```
 
 ### plugin
@@ -217,7 +217,7 @@ rma daemon -H 0.0.0.0 -p 8080
 Manage WASM analysis plugins.
 
 ```bash
-rma plugin <ACTION> [OPTIONS]
+qryon plugin <ACTION> [OPTIONS]
 ```
 
 **Actions:**
@@ -225,46 +225,46 @@ rma plugin <ACTION> [OPTIONS]
 #### list
 List installed plugins.
 ```bash
-rma plugin list
+qryon plugin list
 ```
 
 #### install
 Install a plugin from a WASM file.
 ```bash
-rma plugin install <SOURCE>
+qryon plugin install <SOURCE>
 ```
 
 #### remove
 Remove an installed plugin.
 ```bash
-rma plugin remove <NAME>
+qryon plugin remove <NAME>
 ```
 
 #### test
 Test a plugin with a file.
 ```bash
-rma plugin test <PLUGIN> [--file <PATH>]
+qryon plugin test <PLUGIN> [--file <PATH>]
 ```
 
 #### info
 Show detailed plugin information.
 ```bash
-rma plugin info <NAME>
+qryon plugin info <NAME>
 ```
 
 **Examples:**
 ```bash
 # List plugins
-rma plugin list
+qryon plugin list
 
 # Install plugin
-rma plugin install ./my-rules.wasm
+qryon plugin install ./my-rules.wasm
 
 # Test plugin
-rma plugin test my-rules --file src/main.rs
+qryon plugin test my-rules --file src/main.rs
 
 # Remove plugin
-rma plugin remove my-rules
+qryon plugin remove my-rules
 ```
 
 ### config
@@ -272,7 +272,7 @@ rma plugin remove my-rules
 View and modify configuration.
 
 ```bash
-rma config <ACTION> [OPTIONS]
+qryon config <ACTION> [OPTIONS]
 ```
 
 **Actions:**
@@ -280,40 +280,40 @@ rma config <ACTION> [OPTIONS]
 #### show
 Display current configuration.
 ```bash
-rma config show
+qryon config show
 ```
 
 #### get
 Get a specific configuration value.
 ```bash
-rma config get <KEY>
+qryon config get <KEY>
 ```
 
 #### set
 Set a configuration value.
 ```bash
-rma config set <KEY> <VALUE>
+qryon config set <KEY> <VALUE>
 ```
 
 #### path
 Show configuration file path.
 ```bash
-rma config path
+qryon config path
 ```
 
 **Examples:**
 ```bash
 # Show all config
-rma config show
+qryon config show
 
 # Get specific value
-rma config get min_severity
+qryon config get min_severity
 
 # Set value
-rma config set min_severity warning
+qryon config set min_severity warning
 
 # Show config path
-rma config path
+qryon config path
 ```
 
 ### completions
@@ -321,7 +321,7 @@ rma config path
 Generate shell completion scripts.
 
 ```bash
-rma completions <SHELL>
+qryon completions <SHELL>
 ```
 
 **Arguments:**
@@ -331,20 +331,20 @@ rma completions <SHELL>
 **Examples:**
 ```bash
 # Generate and install
-rma completions bash > ~/.local/share/bash-completion/completions/rma
-rma completions zsh > ~/.zfunc/_rma
-rma completions fish > ~/.config/fish/completions/rma.fish
+qryon completions bash > ~/.local/share/bash-completion/completions/qryon
+qryon completions zsh > ~/.zfunc/_qryon
+qryon completions fish > ~/.config/fish/completions/qryon.fish
 ```
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `RMA_CONFIG` | Path to configuration file | `.rma/config.json` |
-| `RMA_LOG` | Log level | `info` |
-| `RMA_NO_COLOR` | Disable colors | (unset) |
+| `QRYON_CONFIG` | Path to configuration file | `.qryon/config.json` |
+| `QRYON_LOG` | Log level | `info` |
+| `QRYON_NO_COLOR` | Disable colors | (unset) |
 | `OPENAI_API_KEY` | API key for AI analysis | (required for --ai) |
-| `RMA_CACHE_DIR` | Cache directory | `~/.cache/rma` |
+| `QRYON_CACHE_DIR` | Cache directory | `~/.cache/qryon` |
 
 ## Exit Codes
 
@@ -363,10 +363,10 @@ rma completions fish > ~/.config/fish/completions/rma.fish
 
 ```yaml
 # GitHub Actions
-- name: Run RMA
+- name: Run Qryon
   run: |
-    curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
-    rma scan . --output sarif -f results.sarif
+    curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
+    qryon scan . --output sarif -f results.sarif
 
 - name: Upload SARIF
   uses: github/codeql-action/upload-sarif@v2
@@ -377,15 +377,15 @@ rma completions fish > ~/.config/fish/completions/rma.fish
 ### Verbose Debugging
 
 ```bash
-RMA_LOG=debug rma scan . -vvv
+QRYON_LOG=debug qryon scan . -vvv
 ```
 
 ### Performance Tuning
 
 ```bash
 # Use all CPU cores
-rma scan . -j 0
+qryon scan . -j 0
 
 # Limit parallelism on memory-constrained systems
-rma scan . -j 2
+qryon scan . -j 2
 ```

@@ -22,7 +22,7 @@ coverage/
 *.dll
 
 # Index data
-.rma/
+.qryon/
 *.index
 *.sled
 

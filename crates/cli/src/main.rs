@@ -1,4 +1,4 @@
-//! RMA CLI - Rust Monorepo Analyzer Command Line Interface
+//! Qryon CLI - Ultra-fast Code Intelligence and Security Analyzer
 //!
 //! A sophisticated, intelligent, color-coded CLI for code analysis and security scanning.
 
@@ -18,21 +18,21 @@ use std::path::PathBuf;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-/// RMA - Ultra-fast Rust-native code intelligence and security analyzer
+/// Qryon - Ultra-fast Rust-native code intelligence and security analyzer
 ///
 /// Analyzes codebases for security vulnerabilities, code quality issues,
 /// and provides intelligent insights with optional AI-powered deep analysis.
 #[derive(Parser)]
-#[command(name = "rma")]
-#[command(author = "RMA Team <rma@example.com>")]
+#[command(name = "qryon")]
+#[command(author = "Qryon Team <qryon@example.com>")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Ultra-fast code intelligence and security analyzer", long_about = None)]
 #[command(after_help = format!(
     "{}\n  {} {}\n  {} {}\n  {} {}",
     "Examples:".cyan().bold(),
-    "$".dimmed(), "rma scan ./my-project --format json",
-    "$".dimmed(), "rma watch . --ai",
-    "$".dimmed(), "rma search 'sql injection' --limit 10"
+    "$".dimmed(), "qryon scan ./my-project --format json",
+    "$".dimmed(), "qryon watch . --ai",
+    "$".dimmed(), "qryon search 'sql injection' --limit 10"
 ))]
 #[command(propagate_version = true)]
 pub struct Cli {
@@ -49,7 +49,7 @@ pub struct Cli {
     pub no_color: bool,
 
     /// Configuration file path
-    #[arg(short, long, global = true, env = "RMA_CONFIG")]
+    #[arg(short, long, global = true, env = "QRYON_CONFIG")]
     pub config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -62,16 +62,16 @@ pub enum Commands {
     /// Scan a repository for security issues and code metrics
     ///
     /// Filtering examples:
-    ///   rma scan --severity error                    # Only errors and critical
-    ///   rma scan --rules "sql-*,xss-*"               # Only SQL/XSS rules
-    ///   rma scan --exclude-rules "style/*"           # Exclude style rules
-    ///   rma scan --files "src/**/*.rs"               # Only Rust files in src/
-    ///   rma scan --category security --high-confidence
-    ///   rma scan --search "injection"                # Search in messages
-    ///   rma scan --preset-security                   # Security-focused preset
-    ///   rma scan --preset-ci                         # CI-optimized preset
-    ///   rma scan --filter-profile security           # Use saved profile
-    ///   rma scan --explain                           # Show filter breakdown
+    ///   qryon scan --severity error                    # Only errors and critical
+    ///   qryon scan --rules "sql-*,xss-*"               # Only SQL/XSS rules
+    ///   qryon scan --exclude-rules "style/*"           # Exclude style rules
+    ///   qryon scan --files "src/**/*.rs"               # Only Rust files in src/
+    ///   qryon scan --category security --high-confidence
+    ///   qryon scan --search "injection"                # Search in messages
+    ///   qryon scan --preset-security                   # Security-focused preset
+    ///   qryon scan --preset-ci                         # CI-optimized preset
+    ///   qryon scan --filter-profile security           # Use saved profile
+    ///   qryon scan --explain                           # Show filter breakdown
     #[command(visible_alias = "s")]
     Scan {
         /// Path to the repository to scan
@@ -142,11 +142,11 @@ pub enum Commands {
         #[arg(long, default_value = "origin/main", requires = "changed_only")]
         base: String,
 
-        /// Analysis providers to use (comma-separated: rma,oxc,pmd,oxlint,rustsec,gosec,osv)
-        /// Default: rma (built-in rules only)
+        /// Analysis providers to use (comma-separated: qryon,oxc,pmd,oxlint,rustsec,gosec,osv)
+        /// Default: qryon (built-in rules only)
         /// oxc: Rust-native JS/TS linting (no external binary needed)
         /// osv: Multi-language dependency vulnerability scanning via OSV.dev
-        /// Example: --providers rma,oxc,osv (enables native Oxc + OSV scanning)
+        /// Example: --providers qryon,oxc,osv (enables native Oxc + OSV scanning)
         #[arg(long, value_delimiter = ',', default_value = "rma")]
         providers: Vec<String>,
 
@@ -178,7 +178,7 @@ pub enum Commands {
         diff_base: String,
 
         /// Read unified diff from stdin instead of running git diff
-        /// Useful for piping diff output: git diff origin/main | rma scan --diff --diff-stdin
+        /// Useful for piping diff output: git diff origin/main | qryon scan --diff --diff-stdin
         #[arg(long, requires = "diff")]
         diff_stdin: bool,
 
@@ -385,7 +385,7 @@ pub enum Commands {
         format: OutputFormat,
     },
 
-    /// Start the RMA HTTP daemon server
+    /// Start the Qryon HTTP daemon server
     Daemon {
         /// Port to listen on
         #[arg(short, long, default_value = "8080")]
@@ -406,13 +406,13 @@ pub enum Commands {
         action: PluginAction,
     },
 
-    /// Manage RMA configuration
+    /// Manage Qryon configuration
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
 
-    /// Initialize RMA in a repository
+    /// Initialize Qryon in a repository
     Init {
         /// Path to initialize
         #[arg(default_value = ".")]
@@ -453,7 +453,7 @@ pub enum Commands {
         shell: Shell,
     },
 
-    /// Check RMA installation health and diagnostics
+    /// Check Qryon installation health and diagnostics
     Doctor {
         /// Show detailed output with more information
         #[arg(short, long)]
@@ -484,7 +484,7 @@ pub enum Commands {
         format: BenchFormat,
     },
 
-    /// Manage RMA cache (OSV vulnerability data, etc.)
+    /// Manage Qryon cache (OSV vulnerability data, etc.)
     Cache {
         #[command(subcommand)]
         action: CacheAction,
@@ -639,12 +639,12 @@ pub enum Commands {
     /// identify potential security vulnerabilities.
     ///
     /// Examples:
-    ///   rma flows .                           # Analyze current directory
-    ///   rma flows --sort-by confidence        # Sort by confidence score
-    ///   rma flows --sink-type sql             # Filter SQL injection flows
-    ///   rma flows --evidence                  # Show full flow paths
-    ///   rma flows --group-by sink-type        # Group by vulnerability type
-    ///   rma flows --dedupe --stats            # Dedupe and show statistics
+    ///   qryon flows .                           # Analyze current directory
+    ///   qryon flows --sort-by confidence        # Sort by confidence score
+    ///   qryon flows --sink-type sql             # Filter SQL injection flows
+    ///   qryon flows --evidence                  # Show full flow paths
+    ///   qryon flows --group-by sink-type        # Group by vulnerability type
+    ///   qryon flows --dedupe --stats            # Dedupe and show statistics
     #[command(visible_alias = "flow")]
     Flows {
         /// Path to analyze
@@ -797,7 +797,7 @@ pub enum SuppressAction {
     /// Export suppressions to JSON
     Export {
         /// Output file path
-        #[arg(short, long, default_value = ".rma/suppressions.json")]
+        #[arg(short, long, default_value = ".qryon/suppressions.json")]
         output: PathBuf,
     },
 

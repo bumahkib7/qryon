@@ -1,4 +1,4 @@
-//! Interactive TUI (Terminal User Interface) for RMA findings viewer
+//! Interactive TUI (Terminal User Interface) for Qryon findings viewer
 //!
 //! Provides an interactive terminal interface for browsing and filtering scan results
 //! using ratatui and crossterm. Features multiple tabs for different analysis views.
@@ -1056,7 +1056,7 @@ impl TuiApp {
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan))
                     .title(Span::styled(
-                        " RMA Interactive Analyzer ",
+                        " Qryon Interactive Analyzer ",
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),

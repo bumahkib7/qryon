@@ -1,4 +1,4 @@
-//! Code analysis and security scanning for Rust Monorepo Analyzer
+//! Code analysis and security scanning for Qryon
 //!
 //! This crate provides metrics computation, vulnerability detection,
 //! and pattern-based analysis on parsed ASTs.
@@ -133,7 +133,7 @@ impl AnalyzerEngine {
             match provider_type {
                 ProviderType::Rma => {
                     // RMA is always enabled via native rules, nothing to register
-                    debug!("RMA native rules enabled");
+                    debug!("Qryon native rules enabled");
                 }
                 ProviderType::Pmd => {
                     let pmd = PmdProvider::new(config.pmd.clone());

@@ -4,7 +4,7 @@
 //! which inspects source code for security problems by scanning the Go AST.
 //!
 //! This provider shells out to the gosec CLI and parses its JSON output,
-//! converting findings to RMA's unified Finding format.
+//! converting findings to Qryon's unified Finding format.
 
 use super::AnalysisProvider;
 use anyhow::{Context, Result};

@@ -1,4 +1,4 @@
-//! Doctor command - checks RMA installation health
+//! Doctor command - checks Qryon installation health
 
 use crate::ui::theme::Theme;
 use anyhow::Result;
@@ -18,7 +18,7 @@ pub struct DoctorArgs {
 
 pub fn run(args: DoctorArgs) -> Result<()> {
     println!();
-    println!("{}", "🩺 RMA Doctor".cyan().bold());
+    println!("{}", "🩺 Qryon Doctor".cyan().bold());
     println!("{}", Theme::separator(60));
     println!();
 
@@ -27,7 +27,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     // 1. Version info
     print_section("Version");
     println!(
-        "  {} rma {}",
+        "  {} qryon {}",
         Theme::success_mark(),
         env!("CARGO_PKG_VERSION").bright_white()
     );
@@ -170,7 +170,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     if all_ok {
         println!(
             "{}",
-            "✅ All checks passed! RMA is ready to use.".green().bold()
+            "✅ All checks passed! Qryon is ready to use.".green().bold()
         );
     } else {
         println!(
@@ -191,20 +191,20 @@ fn print_section(name: &str) {
 
 fn check_config() -> Result<String, String> {
     // Check for .rma.toml in current directory
-    if Path::new(".rma.toml").exists() {
-        match rma_common::RmaTomlConfig::load(Path::new(".rma.toml")) {
-            Ok(_) => Ok("Found .rma.toml (valid)".to_string()),
-            Err(e) => Err(format!(".rma.toml exists but invalid: {}", e)),
+    if Path::new(".qryon.toml").exists() {
+        match rma_common::RmaTomlConfig::load(Path::new(".qryon.toml")) {
+            Ok(_) => Ok("Found .qryon.toml (valid)".to_string()),
+            Err(e) => Err(format!(".qryon.toml exists but invalid: {}", e)),
         }
     } else {
-        Ok("Using default configuration (no .rma.toml)".to_string())
+        Ok("Using default configuration (no .qryon.toml)".to_string())
     }
 }
 
 fn check_plugins() -> Result<(usize, usize), String> {
-    // Check ~/.rma/plugins directory
+    // Check ~/.qryon/plugins directory
     let plugin_dir = dirs::home_dir()
-        .map(|h| h.join(".rma").join("plugins"))
+        .map(|h| h.join(".qryon").join("plugins"))
         .ok_or_else(|| "Could not determine home directory".to_string())?;
 
     if !plugin_dir.exists() {
@@ -249,7 +249,7 @@ fn check_providers(verbose: bool) {
     println!(
         "  {} {} (built-in, always available)",
         Theme::success_mark(),
-        "rma".green()
+        "qryon".green()
     );
 
     // Oxc native - native Rust linter using oxc_linter

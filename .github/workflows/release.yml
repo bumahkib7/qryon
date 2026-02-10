@@ -95,28 +95,28 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           if command -v strip &> /dev/null; then
-            strip target/${{ matrix.target }}/release/rma || true
+            strip target/${{ matrix.target }}/release/qryon || true
           fi
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../rma-${{ matrix.target }}.tar.gz rma
+          tar -czvf ../../../qryon-${{ matrix.target }}.tar.gz qryon
           cd ../../..
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../rma-${{ matrix.target }}.zip rma.exe
+          7z a ../../../qryon-${{ matrix.target }}.zip qryon.exe
           cd ../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rma-${{ matrix.target }}
-          path: rma-${{ matrix.target }}.*
+          name: qryon-${{ matrix.target }}
+          path: qryon-${{ matrix.target }}.*
 
   release:
     name: Create Release
@@ -234,20 +234,20 @@ jobs:
       - name: Download Linux amd64 binary
         uses: actions/download-artifact@v4
         with:
-          name: rma-x86_64-unknown-linux-gnu
+          name: qryon-x86_64-unknown-linux-gnu
           path: binaries/amd64
 
       - name: Download Linux arm64 binary
         uses: actions/download-artifact@v4
         with:
-          name: rma-aarch64-unknown-linux-gnu
+          name: qryon-aarch64-unknown-linux-gnu
           path: binaries/arm64
 
       - name: Extract binaries
         run: |
-          cd binaries/amd64 && tar -xzf rma-x86_64-unknown-linux-gnu.tar.gz && cd ../..
-          cd binaries/arm64 && tar -xzf rma-aarch64-unknown-linux-gnu.tar.gz && cd ../..
-          chmod +x binaries/amd64/rma binaries/arm64/rma
+          cd binaries/amd64 && tar -xzf qryon-x86_64-unknown-linux-gnu.tar.gz && cd ../..
+          cd binaries/arm64 && tar -xzf qryon-aarch64-unknown-linux-gnu.tar.gz && cd ../..
+          chmod +x binaries/amd64/qryon binaries/arm64/qryon
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -274,8 +274,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/bumahkib7/rma:${{ steps.version.outputs.version }}
-            ghcr.io/bumahkib7/rma:latest
+            ghcr.io/bumahkib7/qryon:${{ steps.version.outputs.version }}
+            ghcr.io/bumahkib7/qryon:latest
 
   update-homebrew:
     name: Update Homebrew Tap

@@ -1,11 +1,11 @@
-# RMA Installer for Windows
-# Usage: iwr -useb https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.ps1 | iex
+# Qryon Installer for Windows
+# Usage: iwr -useb https://raw.githubusercontent.com/bumahkib7/qryon/master/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
 
 # Configuration
-$repo = "bumahkib7/rust-monorepo-analyzer"
-$binaryName = "rma.exe"
+$repo = "bumahkib7/qryon"
+$binaryName = "qryon.exe"
 $installDir = "$env:USERPROFILE\.local\bin"
 
 function Write-Color {
@@ -16,7 +16,7 @@ function Write-Color {
 function Show-Banner {
     Write-Color ""
     Write-Color "  ╔═══════════════════════════════════════════╗" "Cyan"
-    Write-Color "  ║     🔍 RMA - Rust Monorepo Analyzer       ║" "Cyan"
+    Write-Color "  ║              🔍 Qryon                      ║" "Cyan"
     Write-Color "  ║         Windows Installer                  ║" "Cyan"
     Write-Color "  ╚═══════════════════════════════════════════╝" "Cyan"
     Write-Color ""
@@ -43,9 +43,9 @@ function Get-LatestVersion {
 function Install-Binary {
     param([string]$Platform, [string]$Version)
 
-    $downloadUrl = "https://github.com/$repo/releases/latest/download/rma-$Platform.zip"
-    $tempDir = Join-Path $env:TEMP "rma-install"
-    $zipFile = Join-Path $tempDir "rma.zip"
+    $downloadUrl = "https://github.com/$repo/releases/latest/download/qryon-$Platform.zip"
+    $tempDir = Join-Path $env:TEMP "qryon-install"
+    $zipFile = Join-Path $tempDir "qryon.zip"
 
     # Create temp directory
     if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
@@ -104,10 +104,10 @@ function Add-ToPath {
 }
 
 function Test-Installation {
-    $rmaPath = Join-Path $installDir $binaryName
-    if (Test-Path $rmaPath) {
-        $version = & $rmaPath --version 2>$null
-        Write-Color "[✓] RMA installed successfully! Version: $version" "Green"
+    $qryonPath = Join-Path $installDir $binaryName
+    if (Test-Path $qryonPath) {
+        $version = & $qryonPath --version 2>$null
+        Write-Color "[✓] Qryon installed successfully! Version: $version" "Green"
     } else {
         Write-Color "[✗] Installation verification failed" "Red"
         exit 1
@@ -118,10 +118,10 @@ function Show-Usage {
     Write-Color ""
     Write-Color "Quick Start:" "White"
     Write-Color ""
-    Write-Color "  rma scan .              # Scan current directory" "Cyan"
-    Write-Color "  rma scan ./src --ai     # Scan with AI analysis" "Cyan"
-    Write-Color "  rma watch .             # Watch for changes" "Cyan"
-    Write-Color "  rma --help              # Show all commands" "Cyan"
+    Write-Color "  qryon scan .              # Scan current directory" "Cyan"
+    Write-Color "  qryon scan ./src --ai     # Scan with AI analysis" "Cyan"
+    Write-Color "  qryon watch .             # Watch for changes" "Cyan"
+    Write-Color "  qryon --help              # Show all commands" "Cyan"
     Write-Color ""
     Write-Color "Documentation: https://github.com/$repo" "White"
     Write-Color ""

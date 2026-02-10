@@ -1,13 +1,13 @@
-# Pre-commit hooks for RMA (Rust Monorepo Analyzer)
+# Pre-commit hooks for Qryon
 # See https://pre-commit.com for more information
 #
 # Usage in .pre-commit-config.yaml:
 #
 #   repos:
-#     - repo: https://github.com/anthropics/rma
+#     - repo: https://github.com/bumahkib7/qryon
 #       rev: v0.12.0  # Use the latest release
 #       hooks:
-#         - id: rma
+#         - id: qryon
 #           # Optional: customize severity threshold
 #           args: ['--severity', 'warning']
 #
@@ -16,16 +16,16 @@
 #   repos:
 #     - repo: local
 #       hooks:
-#         - id: rma
-#           name: RMA Security Scanner
-#           entry: rma analyze --format github
+#         - id: qryon
+#           name: Qryon Security Scanner
+#           entry: qryon analyze --format github
 #           language: system
 #           types_or: [javascript, typescript, python, rust, go, java]
 
-- id: rma
-  name: RMA Security Scanner
+- id: qryon
+  name: Qryon Security Scanner
   description: Static security analyzer for polyglot projects
-  entry: rma analyze --format github
+  entry: qryon analyze --format github
   language: system
   types_or:
     - javascript
@@ -39,18 +39,18 @@
   pass_filenames: true
   require_serial: false
 
-- id: rma-all
-  name: RMA Security Scanner (Full Scan)
-  description: Run RMA on entire repository
-  entry: rma scan . --format github
+- id: qryon-all
+  name: Qryon Security Scanner (Full Scan)
+  description: Run Qryon on entire repository
+  entry: qryon scan . --format github
   language: system
   pass_filenames: false
   always_run: true
 
-- id: rma-sarif
-  name: RMA Security Scanner (SARIF)
+- id: qryon-sarif
+  name: Qryon Security Scanner (SARIF)
   description: Generate SARIF output for CI/CD integration
-  entry: rma scan --format sarif --output-file rma-results.sarif
+  entry: qryon scan --format sarif --output-file qryon-results.sarif
   language: system
   pass_filenames: false
   always_run: true

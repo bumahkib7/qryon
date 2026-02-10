@@ -54,7 +54,7 @@ pub fn output(
     }
 
     // Output summary as a group
-    println!("::group::RMA Scan Summary");
+    println!("::group::Qryon Scan Summary");
     println!("Files analyzed: {}", summary.files_analyzed);
     println!("Total findings: {}", summary.total_findings);
     println!("  Critical: {}", summary.critical_count);

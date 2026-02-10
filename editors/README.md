@@ -1,6 +1,6 @@
-# RMA Editor Integrations
+# Qryon Editor Integrations
 
-This directory contains IDE and editor integrations for RMA (Rust Monorepo Analyzer).
+This directory contains IDE and editor integrations for Qryon.
 
 ## Overview
 
@@ -15,7 +15,7 @@ This directory contains IDE and editor integrations for RMA (Rust Monorepo Analy
 
 ### Prerequisites
 
-1. Build RMA binaries:
+1. Build Qryon binaries:
 ```bash
 cargo build --release
 ```
@@ -26,7 +26,7 @@ cargo build --release
 cp target/release/rma-lsp ~/.cargo/bin/
 
 # CLI (for daemon, watch mode)
-cp target/release/rma ~/.cargo/bin/
+cp target/release/qryon ~/.cargo/bin/
 ```
 
 ### VS Code
@@ -43,7 +43,7 @@ code --install-extension rma-vscode-0.6.0.vsix
 
 ```lua
 -- In your init.lua
-vim.opt.runtimepath:append('/path/to/rust-monorepo-analyzer/editors/neovim')
+vim.opt.runtimepath:append('/path/to/qryon/editors/neovim')
 require('rma').setup()
 ```
 
@@ -51,7 +51,7 @@ require('rma').setup()
 
 ```bash
 # 1. Start daemon
-rma daemon --port 8080
+qryon daemon --port 8080
 
 # 2. Build plugin
 cd editors/jetbrains
@@ -64,7 +64,7 @@ cd editors/jetbrains
 
 ```bash
 # 1. Start daemon
-rma daemon --port 8080
+qryon daemon --port 8080
 
 # 2. Open dashboard
 open editors/web-dashboard/index.html
@@ -84,7 +84,7 @@ open editors/web-dashboard/index.html
          │                 │                      │
          ▼                 ▼                      ▼
 ┌─────────────────────────────┐      ┌─────────────────────────────┐
-│        rma-lsp              │      │        rma daemon           │
+│        rma-lsp              │      │        qryon daemon         │
 │   (Language Server)         │      │      (HTTP + WebSocket)     │
 └──────────────┬──────────────┘      └──────────────┬──────────────┘
                │                                    │
@@ -92,7 +92,7 @@ open editors/web-dashboard/index.html
                                 │
                                 ▼
                     ┌───────────────────────┐
-                    │    RMA Core Engine    │
+                    │   Qryon Core Engine   │
                     │  - Parser (tree-sitter)│
                     │  - Analyzer (45+ rules)│
                     │  - RustSec integration │
@@ -132,14 +132,14 @@ GET  /api/v1/stats     - Get statistics
 
 | Feature | VS Code | Neovim | JetBrains | Web |
 |---------|---------|--------|-----------|-----|
-| Real-time diagnostics | ✅ | ✅ | ✅ | ✅ |
-| Inline annotations | ✅ | ✅ | ✅ | ❌ |
-| Code actions | ✅ | ✅ | 🔜 | ❌ |
-| Quick fixes | 🔜 | 🔜 | 🔜 | ❌ |
-| Project-wide scan | ✅ | ✅ | ✅ | ✅ |
-| RustSec integration | ✅ | ✅ | ✅ | ✅ |
-| Custom rules | 🔜 | 🔜 | 🔜 | 🔜 |
-| Statistics view | ❌ | ❌ | ❌ | ✅ |
+| Real-time diagnostics | Yes | Yes | Yes | Yes |
+| Inline annotations | Yes | Yes | Yes | No |
+| Code actions | Yes | Yes | Soon | No |
+| Quick fixes | Soon | Soon | Soon | No |
+| Project-wide scan | Yes | Yes | Yes | Yes |
+| RustSec integration | Yes | Yes | Yes | Yes |
+| Custom rules | Soon | Soon | Soon | Soon |
+| Statistics view | No | No | No | Yes |
 
 ## Troubleshooting
 
@@ -151,7 +151,7 @@ which rma-lsp
 rma-lsp --version
 
 # Check LSP logs in editor
-# VS Code: View → Output → RMA
+# VS Code: View → Output → Qryon
 # Neovim: :LspLog
 ```
 
@@ -162,14 +162,14 @@ rma-lsp --version
 curl http://localhost:8080/health
 
 # Check daemon logs
-rma daemon --port 8080 -vv
+qryon daemon --port 8080 -vv
 ```
 
 ### No findings showing
 
 ```bash
 # Test CLI directly
-rma scan ./src
+qryon scan ./src
 
 # Check if file type is supported
 # Supported: .rs, .js, .ts, .tsx, .jsx, .py, .go, .java

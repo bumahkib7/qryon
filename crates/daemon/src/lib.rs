@@ -1,4 +1,4 @@
-//! RMA Daemon - Background server for IDE integration and API access
+//! Qryon Daemon - Background server for IDE integration and API access
 //!
 //! Features:
 //! - REST API for scanning and analysis
@@ -85,7 +85,7 @@ pub async fn start_server_with_config(config: DaemonConfig) -> Result<()> {
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    info!("Starting RMA daemon on {}", addr);
+    info!("Starting Qryon daemon on {}", addr);
     info!("  REST API: http://{}/api/v1/", addr);
     info!("  WebSocket: ws://{}/ws/watch", addr);
 

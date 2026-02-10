@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * RMA npm package installer
+ * Qryon npm package installer
  * Downloads the pre-built binary for the current platform on npm install
  */
 
@@ -12,8 +12,8 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const os = require('os');
 
-const REPO = 'bumahkib7/rust-monorepo-analyzer';
-const BINARY_NAME = process.platform === 'win32' ? 'rma.exe' : 'rma';
+const REPO = 'bumahkib7/qryon';
+const BINARY_NAME = process.platform === 'win32' ? 'qryon.exe' : 'qryon';
 const BIN_DIR = path.join(__dirname, 'bin');
 
 function getPlatform() {
@@ -47,7 +47,7 @@ function downloadFile(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
 
-    client.get(url, { headers: { 'User-Agent': 'rma-npm-installer' } }, (response) => {
+    client.get(url, { headers: { 'User-Agent': 'qryon-npm-installer' } }, (response) => {
       // Handle redirects
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         return downloadFile(response.headers.location).then(resolve).catch(reject);
@@ -68,7 +68,7 @@ function downloadFile(url) {
 
 function extractTarGz(buffer, destDir) {
   // Safe extraction using execFileSync with explicit arguments (no shell interpolation)
-  const tmpFile = path.join(os.tmpdir(), `rma-${Date.now()}.tar.gz`);
+  const tmpFile = path.join(os.tmpdir(), `qryon-${Date.now()}.tar.gz`);
   fs.writeFileSync(tmpFile, buffer);
 
   try {
@@ -79,7 +79,7 @@ function extractTarGz(buffer, destDir) {
 }
 
 function extractZip(buffer, destDir) {
-  const tmpFile = path.join(os.tmpdir(), `rma-${Date.now()}.zip`);
+  const tmpFile = path.join(os.tmpdir(), `qryon-${Date.now()}.zip`);
   fs.writeFileSync(tmpFile, buffer);
 
   try {
@@ -97,7 +97,7 @@ function extractZip(buffer, destDir) {
 }
 
 async function install() {
-  console.log('Installing RMA binary...');
+  console.log('Installing Qryon binary...');
 
   const { target, ext } = getPlatform();
   const version = getVersion();
@@ -105,7 +105,7 @@ async function install() {
   console.log(`  Platform: ${target}`);
   console.log(`  Version: v${version}`);
 
-  const downloadUrl = `https://github.com/${REPO}/releases/download/v${version}/rma-${target}.${ext}`;
+  const downloadUrl = `https://github.com/${REPO}/releases/download/v${version}/qryon-${target}.${ext}`;
   console.log(`  Downloading from: ${downloadUrl}`);
 
   // Ensure bin directory exists
@@ -133,7 +133,7 @@ async function install() {
     // Verify installation
     if (fs.existsSync(binaryPath)) {
       console.log(`  Binary installed: ${binaryPath}`);
-      console.log('  RMA installed successfully!');
+      console.log('  Qryon installed successfully!');
     } else {
       throw new Error(`Binary not found at ${binaryPath}`);
     }
@@ -141,8 +141,8 @@ async function install() {
     console.error(`\nFailed to download pre-built binary: ${error.message}`);
     console.error('\nAlternative installation methods:');
     console.error('  1. cargo install rma-cli');
-    console.error('  2. curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash');
-    console.error('  3. brew install bumahkib7/tap/rma (macOS)');
+    console.error('  2. curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash');
+    console.error('  3. brew install bumahkib7/tap/qryon (macOS)');
     process.exit(1);
   }
 }

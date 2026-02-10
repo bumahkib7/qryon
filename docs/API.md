@@ -1,15 +1,15 @@
 # HTTP API Reference
 
-RMA provides an HTTP API through daemon mode for IDE integration and programmatic access.
+Qryon provides an HTTP API through daemon mode for IDE integration and programmatic access.
 
 ## Starting the Server
 
 ```bash
 # Default: http://127.0.0.1:9876
-rma daemon
+qryon daemon
 
 # Custom host and port
-rma daemon --host 0.0.0.0 --port 8080
+qryon daemon --host 0.0.0.0 --port 8080
 ```
 
 ## Base URL
@@ -293,7 +293,7 @@ The daemon does not implement rate limiting. For production use, place behind a 
 CORS is enabled by default, allowing requests from any origin. Configure via environment:
 
 ```bash
-RMA_CORS_ORIGINS=http://localhost:3000 rma daemon
+QRYON_CORS_ORIGINS=http://localhost:3000 qryon daemon
 ```
 
 ## WebSocket (Future)

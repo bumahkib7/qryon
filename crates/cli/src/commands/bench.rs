@@ -69,7 +69,7 @@ pub fn run(args: BenchArgs) -> Result<()> {
 
     if args.format == BenchFormat::Text {
         println!();
-        println!("{}", "⏱  RMA Benchmark".cyan().bold());
+        println!("{}", "⏱  Qryon Benchmark".cyan().bold());
         println!("{}", Theme::separator(60));
         println!(
             "  {} {}",

@@ -230,7 +230,7 @@ pub fn run(args: SecurityArgs) -> Result<()> {
     );
     println!(
         "{}",
-        "║           🔒 RMA Security Audit                                   ║".cyan()
+        "║           🔒 Qryon Security Audit                                  ║".cyan()
     );
     println!(
         "{}",
@@ -1611,7 +1611,7 @@ fn output_sarif(report: &SecurityReport) -> Result<()> {
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "rma-security",
+                    "name": "qryon-security",
                     "version": env!("CARGO_PKG_VERSION"),
                     "informationUri": "https://github.com/bumahkib7/rust-monorepo-analyzer",
                 }

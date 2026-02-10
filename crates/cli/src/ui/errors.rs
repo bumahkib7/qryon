@@ -41,7 +41,7 @@ fn get_suggestions(error: &Error) -> Vec<String> {
     // File/path related errors
     if error_str.contains("no such file") || error_str.contains("not found") {
         suggestions.push("Check that the path exists and is accessible".into());
-        suggestions.push("Try running 'rma init' to initialize the project".into());
+        suggestions.push("Try running 'qryon init' to initialize the project".into());
     }
 
     // Permission errors
@@ -52,14 +52,14 @@ fn get_suggestions(error: &Error) -> Vec<String> {
 
     // Index related errors
     if error_str.contains("index") || error_str.contains("tantivy") {
-        suggestions.push("Try running 'rma scan' first to build the index".into());
-        suggestions.push("Delete .rma/index and re-scan to rebuild".into());
+        suggestions.push("Try running 'qryon scan' first to build the index".into());
+        suggestions.push("Delete .qryon/index and re-scan to rebuild".into());
     }
 
     // Configuration errors
     if error_str.contains("config") || error_str.contains("configuration") {
-        suggestions.push("Check your configuration with 'rma config list'".into());
-        suggestions.push("Reset to defaults with 'rma config reset'".into());
+        suggestions.push("Check your configuration with 'qryon config list'".into());
+        suggestions.push("Reset to defaults with 'qryon config reset'".into());
     }
 
     // API/Network errors
@@ -69,7 +69,7 @@ fn get_suggestions(error: &Error) -> Vec<String> {
     {
         suggestions.push("Check your internet connection".into());
         suggestions.push("Verify API credentials are configured correctly".into());
-        suggestions.push("Set API keys with 'rma config set ai.api_key YOUR_KEY'".into());
+        suggestions.push("Set API keys with 'qryon config set ai.api_key YOUR_KEY'".into());
     }
 
     // AI-related errors
@@ -87,7 +87,7 @@ fn get_suggestions(error: &Error) -> Vec<String> {
     // Generic fallback
     if suggestions.is_empty() {
         suggestions.push("Run with '-v' or '-vv' for more details".into());
-        suggestions.push("Check 'rma --help' for usage information".into());
+        suggestions.push("Check 'qryon --help' for usage information".into());
     }
 
     suggestions

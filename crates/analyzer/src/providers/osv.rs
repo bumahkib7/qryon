@@ -240,7 +240,7 @@ impl OsvProvider {
         let cache_dir = config
             .cache_dir
             .clone()
-            .unwrap_or_else(|| PathBuf::from(".rma/cache/osv"));
+            .unwrap_or_else(|| PathBuf::from(".qryon/cache/osv"));
 
         let cache_ttl = parse_duration(&config.cache_ttl).unwrap_or(Duration::from_secs(86400));
 

@@ -1,6 +1,6 @@
-# Contributing to RMA
+# Contributing to Qryon
 
-Thank you for your interest in contributing to RMA (Rust Monorepo Analyzer)!
+Thank you for your interest in contributing to Qryon!
 
 ## Getting Started
 
@@ -13,8 +13,8 @@ Thank you for your interest in contributing to RMA (Rust Monorepo Analyzer)!
 
 ```bash
 # Clone the repository
-git clone https://github.com/bumahkib7/rust-monorepo-analyzer.git
-cd rust-monorepo-analyzer
+git clone https://github.com/bumahkib7/qryon.git
+cd qryon
 
 # Build all crates
 make build
@@ -191,7 +191,7 @@ make test-coverage
 
 When reporting bugs, please include:
 
-1. RMA version (`rma --version`)
+1. Qryon version (`qryon --version`)
 2. Operating system and version
 3. Steps to reproduce
 4. Expected vs actual behavior

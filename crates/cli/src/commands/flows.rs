@@ -199,7 +199,7 @@ pub fn run(args: FlowsArgs) -> Result<()> {
     let total_excluded = excluded_taint_flows + excluded_cross_file;
     if total_excluded > 0 && !args.quiet {
         eprintln!(
-            "[rma] Excluded {} test-only flows (use --include-tests to show)",
+            "[qryon] Excluded {} test-only flows (use --include-tests to show)",
             total_excluded
         );
     }

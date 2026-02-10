@@ -1,6 +1,6 @@
-# RMA Roadmap
+# Qryon Roadmap
 
-This document outlines the evolution of RMA (Rust Monorepo Analyzer) from its initial release to the current version, and what's planned for the future.
+This document outlines the evolution of Qryon from its initial release to the current version, and what's planned for the future.
 
 ## Version History
 
@@ -13,14 +13,14 @@ This document outlines the evolution of RMA (Rust Monorepo Analyzer) from its in
 - SARIF output for GitHub Security tab
 - Watch mode for real-time analysis
 - HTTP API daemon
-- Configuration via `rma.toml`
+- Configuration via `qryon.toml`
 - Profiles: fast, balanced, strict
 
 **v0.2.0** — Configuration & CI
 - Config versioning (`config_version = 1`)
 - Stable fingerprints for baseline comparisons
 - Rulesets (security, maintainability)
-- Inline suppression (`// rma-ignore-next-line`)
+- Inline suppression (`// qryon-ignore-next-line`)
 - GitHub Actions integration
 
 ---
@@ -71,7 +71,7 @@ This document outlines the evolution of RMA (Rust Monorepo Analyzer) from its in
 ### Phase 5: Vulnerability Scanning (v0.10.0 - v0.12.0)
 
 **v0.12.0** — Security Audit
-- `rma audit` command for comprehensive vulnerability assessment
+- `qryon audit` command for comprehensive vulnerability assessment
 - OSV provider for multi-language dependency scanning
 - RustSec provider for Rust advisory database
 
@@ -101,7 +101,7 @@ This document outlines the evolution of RMA (Rust Monorepo Analyzer) from its in
 
 **v0.15.0** — GitHub Integration
 - SARIF scanned files summary for GitHub Code Scanning
-- Dedicated RMA scan workflow
+- Dedicated Qryon scan workflow
 - Open source community files (CODEOWNERS, CODE_OF_CONDUCT, SECURITY.md)
 
 **v0.16.0** — Enhanced TUI & Caching *(Current)*
@@ -136,7 +136,7 @@ This document outlines the evolution of RMA (Rust Monorepo Analyzer) from its in
 ### v0.18.0 (Planned)
 
 - [ ] **Full LSP Integration** — Real-time diagnostics in any editor
-- [ ] **Auto-fix suggestions** — `rma fix` command with safe transformations
+- [ ] **Auto-fix suggestions** — `qryon fix` command with safe transformations
 - [ ] **Baseline management** — Track and suppress legacy issues
 
 ### v0.19.0 (Planned)
@@ -162,9 +162,9 @@ This document outlines the evolution of RMA (Rust Monorepo Analyzer) from its in
 - Supply chain security (SBOM generation)
 
 ### Ecosystem
-- VS Code extension (✅ Done)
-- Neovim plugin (✅ Done)
-- JetBrains plugin (✅ Done)
+- VS Code extension (Done)
+- Neovim plugin (Done)
+- JetBrains plugin (Done)
 - Pre-commit hooks
 - Monorepo-aware caching
 
@@ -206,4 +206,4 @@ Priority areas for contribution:
 
 ## Feedback
 
-Have ideas for the roadmap? Open a [GitHub Discussion](https://github.com/bumahkib7/rust-monorepo-analyzer/discussions) or file an issue!
+Have ideas for the roadmap? Open a [GitHub Discussion](https://github.com/bumahkib7/qryon/discussions) or file an issue!

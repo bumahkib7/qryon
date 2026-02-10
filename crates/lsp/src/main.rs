@@ -1,4 +1,4 @@
-//! RMA Language Server
+//! Qryon Language Server
 //!
 //! Provides real-time code analysis feedback to IDEs via the Language Server Protocol.
 //!
@@ -12,15 +12,15 @@
 //! Add to `.vscode/settings.json`:
 //! ```json
 //! {
-//!   "rma.server.path": "/path/to/rma-lsp"
+//!   "qryon.server.path": "/path/to/qryon-lsp"
 //! }
 //! ```
 //!
 //! ## Neovim (with nvim-lspconfig)
 //!
 //! ```lua
-//! require('lspconfig').rma.setup({
-//!   cmd = { '/path/to/rma-lsp' },
+//! require('lspconfig').qryon.setup({
+//!   cmd = { '/path/to/qryon-lsp' },
 //!   filetypes = { 'rust', 'javascript', 'typescript', 'python', 'go', 'java' },
 //! })
 //! ```
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         .init();
 
     info!(
-        "Starting RMA Language Server v{}",
+        "Starting Qryon Language Server v{}",
         env!("CARGO_PKG_VERSION")
     );
 
@@ -68,6 +68,6 @@ async fn main() -> Result<()> {
     let (service, socket) = LspService::new(RmaBackend::new);
     Server::new(stdin, stdout, socket).serve(service).await;
 
-    info!("RMA Language Server stopped");
+    info!("Qryon Language Server stopped");
     Ok(())
 }

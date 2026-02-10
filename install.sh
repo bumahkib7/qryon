@@ -1,14 +1,14 @@
 #!/bin/bash
-# RMA Installer - One command installation
+# Qryon Installer - One command installation
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 #
 # Install specific version:
-#   VERSION=0.12.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+#   VERSION=0.12.0 curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 #
 # Custom install directory:
-#   RMA_INSTALL_DIR=/usr/local/bin curl -fsSL ... | bash
+#   QRYON_INSTALL_DIR=/usr/local/bin curl -fsSL ... | bash
 
 set -e
 
@@ -22,14 +22,14 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Configuration
-REPO="bumahkib7/rust-monorepo-analyzer"
-BINARY_NAME="rma"
-INSTALL_DIR="${RMA_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="bumahkib7/qryon"
+BINARY_NAME="qryon"
+INSTALL_DIR="${QRYON_INSTALL_DIR:-$HOME/.local/bin}"
 
 print_banner() {
     echo -e "${CYAN}"
     echo "  ╔═══════════════════════════════════════════╗"
-    echo "  ║     🔍 RMA - Rust Monorepo Analyzer       ║"
+    echo "  ║              🔍 Qryon                      ║"
     echo "  ║         One-Command Installer              ║"
     echo "  ╚═══════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -131,12 +131,12 @@ get_version() {
 install_binary() {
     local DOWNLOAD_URL
     if [ "$VERSION" = "latest" ]; then
-        DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/rma-${PLATFORM}.tar.gz"
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/qryon-${PLATFORM}.tar.gz"
     else
-        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/rma-${PLATFORM}.tar.gz"
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/qryon-${PLATFORM}.tar.gz"
     fi
     local TMP_DIR=$(mktemp -d)
-    local ARCHIVE="${TMP_DIR}/rma.tar.gz"
+    local ARCHIVE="${TMP_DIR}/qryon.tar.gz"
 
     info "Downloading from: $DOWNLOAD_URL"
 
@@ -212,7 +212,7 @@ setup_path() {
     if [ -n "$SHELL_RC" ]; then
         if ! grep -q "$INSTALL_DIR" "$SHELL_RC" 2>/dev/null; then
             echo "" >> "$SHELL_RC"
-            echo "# RMA - Rust Monorepo Analyzer" >> "$SHELL_RC"
+            echo "# Qryon" >> "$SHELL_RC"
             echo "$PATH_LINE" >> "$SHELL_RC"
             success "Added ${INSTALL_DIR} to PATH in ${SHELL_RC}"
             warn "Run 'source ${SHELL_RC}' or restart your terminal"
@@ -227,7 +227,7 @@ setup_path() {
 verify_installation() {
     if [ -x "${INSTALL_DIR}/${BINARY_NAME}" ]; then
         local VERSION=$("${INSTALL_DIR}/${BINARY_NAME}" --version 2>/dev/null || echo "unknown")
-        success "RMA installed successfully! Version: $VERSION"
+        success "Qryon installed successfully! Version: $VERSION"
     else
         error "Installation verification failed"
     fi
@@ -238,10 +238,10 @@ print_usage() {
     echo ""
     echo -e "${BOLD}Quick Start:${NC}"
     echo ""
-    echo -e "  ${CYAN}rma scan .${NC}              # Scan current directory"
-    echo -e "  ${CYAN}rma scan ./src --ai${NC}     # Scan with AI analysis"
-    echo -e "  ${CYAN}rma watch .${NC}             # Watch for changes"
-    echo -e "  ${CYAN}rma --help${NC}              # Show all commands"
+    echo -e "  ${CYAN}qryon scan .${NC}              # Scan current directory"
+    echo -e "  ${CYAN}qryon scan ./src --ai${NC}     # Scan with AI analysis"
+    echo -e "  ${CYAN}qryon watch .${NC}             # Watch for changes"
+    echo -e "  ${CYAN}qryon --help${NC}              # Show all commands"
     echo ""
     echo -e "${BOLD}Documentation:${NC} https://github.com/${REPO}"
     echo ""

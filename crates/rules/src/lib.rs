@@ -1,4 +1,4 @@
-//! RMA Rule Engine - Semgrep-compatible rule loader and matcher
+//! Qryon Rule Engine - Semgrep-compatible rule loader and matcher
 //!
 //! This crate provides:
 //! - YAML rule parsing (Semgrep format)

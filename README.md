@@ -1,10 +1,10 @@
-# RMA - Rust Monorepo Analyzer
+# Qryon
 
 <div align="center">
 
 **Find security vulnerabilities in seconds, not minutes.**
 
-[![CI](https://github.com/bumahkib7/rust-monorepo-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/bumahkib7/rust-monorepo-analyzer/actions/workflows/ci.yml)
+[![CI](https://github.com/bumahkib7/qryon/actions/workflows/ci.yml/badge.svg)](https://github.com/bumahkib7/qryon/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/rma-cli)](https://www.npmjs.com/package/rma-cli)
 [![crates.io](https://img.shields.io/crates/v/rma-cli.svg)](https://crates.io/crates/rma-cli)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
@@ -16,18 +16,18 @@
 npm install -g rma-cli
 
 # Find vulnerabilities instantly
-rma scan .
+qryon scan .
 ```
 
 <p align="center">
-  <img src="pics/demo.gif" alt="RMA scanning a codebase and finding vulnerabilities" width="700">
+  <img src="pics/demo.gif" alt="Qryon scanning a codebase and finding vulnerabilities" width="700">
 </p>
 
 ---
 
-## Why RMA?
+## Why Qryon?
 
-| Feature | RMA | Semgrep OSS | CodeQL |
+| Feature | Qryon | Semgrep OSS | CodeQL |
 |---------|:---:|:-----------:|:------:|
 | **Scan 1M lines** | 45s | 8+ min | 15+ min |
 | **Languages** | 28 | 30+ | 12 |
@@ -37,7 +37,7 @@ rma scan .
 | **Single binary** | Yes | No | No |
 | **Price** | Free | Free/Paid | Free |
 
-**RMA is 10x faster** because it compiles Semgrep rules to native Rust matchers at build time - no interpreter overhead.
+**Qryon is 10x faster** because it compiles Semgrep rules to native Rust matchers at build time - no interpreter overhead.
 
 ---
 
@@ -45,16 +45,16 @@ rma scan .
 
 ```bash
 # Scan your project
-rma scan .
+qryon scan .
 
 # Interactive TUI - browse findings with vim keys
-rma scan . --interactive
+qryon scan . --interactive
 
 # CI/CD mode - SARIF output for GitHub Security tab
-rma scan . --output sarif -f results.sarif
+qryon scan . --output sarif -f results.sarif
 
 # Watch mode - re-scan on file changes
-rma watch .
+qryon watch .
 ```
 
 <details>
@@ -62,7 +62,7 @@ rma watch .
 
 **Homebrew (macOS/Linux):**
 ```bash
-brew tap bumahkib7/tap && brew install rma
+brew tap bumahkib7/tap && brew install qryon
 ```
 
 **Cargo (Rust):**
@@ -72,17 +72,17 @@ cargo install rma-cli
 
 **Docker:**
 ```bash
-docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rma scan /workspace
+docker run -v $(pwd):/workspace ghcr.io/bumahkib7/qryon scan /workspace
 ```
 
 **Shell Script:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 ```
 
 **GitHub Actions:**
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer@v0.16.0
+- uses: bumahkib7/qryon@v0.16.0
   with:
     path: '.'
     upload-sarif: true
@@ -95,7 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/ma
 ## What It Finds
 
 ```
-critical[RMA-S005]: SQL query built with format! - use parameterized queries
+critical[QRYON-S005]: SQL query built with format! - use parameterized queries
   --> src/database.rs:42:9
 40 │     let user_input = get_input();
 41 │
@@ -133,7 +133,7 @@ Plus 23 more languages with parsing and metrics support.
 Browse findings, call graphs, and taint flows with keyboard navigation:
 
 ```bash
-rma scan . --interactive
+qryon scan . --interactive
 ```
 
 <p align="center">
@@ -159,7 +159,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: bumahkib7/rust-monorepo-analyzer@v0.16.0
+      - uses: bumahkib7/qryon@v0.16.0
         with:
           path: '.'
           upload-sarif: true
@@ -169,9 +169,9 @@ Findings appear in the GitHub Security tab automatically.
 
 ---
 
-## RMA Dashboard - Team Features
+## Qryon Dashboard - Team Features
 
-Love the CLI? **[RMA Dashboard](https://rma-dashboard.bukhari-kibuka7.workers.dev)** adds powerful team features:
+Love the CLI? **[Qryon Dashboard](https://rma-dashboard.bukhari-kibuka7.workers.dev)** adds powerful team features:
 
 | Feature | CLI | Dashboard |
 |---------|:---:|:---------:|
@@ -184,7 +184,7 @@ Love the CLI? **[RMA Dashboard](https://rma-dashboard.bukhari-kibuka7.workers.de
 | PR integration | - | Yes |
 | RBAC & audit logs | - | Yes |
 
-**[Try RMA Dashboard free →](https://rma-dashboard.bukhari-kibuka7.workers.dev)**
+**[Try Qryon Dashboard free →](https://rma-dashboard.bukhari-kibuka7.workers.dev)**
 
 ---
 
@@ -196,7 +196,7 @@ Love the CLI? **[RMA Dashboard](https://rma-dashboard.bukhari-kibuka7.workers.de
 Track data flows across file and function boundaries:
 
 ```bash
-rma flows . --evidence --group-by sink-type
+qryon flows . --evidence --group-by sink-type
 ```
 
 - Forward taint propagation
@@ -212,7 +212,7 @@ rma flows . --evidence --group-by sink-type
 Integrated with [OSV.dev](https://osv.dev) for real-time CVE detection:
 
 ```bash
-rma security .
+qryon security .
 ```
 
 Supports: Cargo, npm, PyPI, Go modules, Maven
@@ -223,7 +223,7 @@ Supports: Cargo, npm, PyPI, Go modules, Maven
 <summary><strong>HTTP API (Daemon Mode)</strong></summary>
 
 ```bash
-rma daemon --port 9876
+qryon daemon --port 9876
 ```
 
 REST API + WebSocket for IDE integration.
@@ -245,7 +245,7 @@ REST API + WebSocket for IDE integration.
 Extend with custom analysis rules:
 
 ```bash
-rma plugin install ./my-plugin.wasm
+qryon plugin install ./my-plugin.wasm
 ```
 
 </details>
@@ -254,7 +254,7 @@ rma plugin install ./my-plugin.wasm
 
 ## How It Works
 
-RMA compiles [Semgrep community rules](https://github.com/semgrep/semgrep-rules) at **build time** into optimized native matchers:
+Qryon compiles [Semgrep community rules](https://github.com/semgrep/semgrep-rules) at **build time** into optimized native matchers:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -278,7 +278,7 @@ RMA compiles [Semgrep community rules](https://github.com/semgrep/semgrep-rules)
 ## Configuration
 
 ```bash
-rma init  # Creates rma.toml
+qryon init  # Creates qryon.toml
 ```
 
 ```toml
@@ -297,7 +297,7 @@ max_complexity = 10
 
 Inline suppression:
 ```javascript
-// rma-ignore-next-line js/xss-sink reason="content is sanitized"
+// qryon-ignore-next-line js/xss-sink reason="content is sanitized"
 element.textContent = processedContent;
 ```
 
@@ -306,11 +306,11 @@ element.textContent = processedContent;
 ## Benchmarks
 
 ```bash
-hyperfine 'rma scan /path/to/repo' 'semgrep --config auto /path/to/repo'
+hyperfine 'qryon scan /path/to/repo' 'semgrep --config auto /path/to/repo'
 ```
 
 On a 500K LOC monorepo:
-- **RMA**: 23 seconds
+- **Qryon**: 23 seconds
 - **Semgrep**: 4 minutes 12 seconds
 
 ---
@@ -333,7 +333,7 @@ MIT or Apache-2.0, at your option.
 
 <div align="center">
 
-**[Documentation](https://github.com/bumahkib7/rust-monorepo-analyzer/wiki)** · **[Dashboard](https://rma-dashboard.bukhari-kibuka7.workers.dev)** · **[Issues](https://github.com/bumahkib7/rust-monorepo-analyzer/issues)**
+**[Documentation](https://github.com/bumahkib7/qryon/wiki)** · **[Dashboard](https://rma-dashboard.bukhari-kibuka7.workers.dev)** · **[Issues](https://github.com/bumahkib7/qryon/issues)**
 
 Made with Rust
 

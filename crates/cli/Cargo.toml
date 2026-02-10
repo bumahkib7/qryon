@@ -1,18 +1,18 @@
 [package]
 name = "rma-cli"
-description = "Static security analyzer for polyglot projects (JS/TS, Python, Rust, Go, Java)"
+description = "Qryon - Ultra-fast code intelligence and security analyzer for polyglot projects"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-repository = "https://github.com/bumahkib7/rust-monorepo-analyzer"
-homepage = "https://github.com/bumahkib7/rust-monorepo-analyzer"
-documentation = "https://github.com/bumahkib7/rust-monorepo-analyzer#readme"
+repository = "https://github.com/bumahkib7/qryon"
+homepage = "https://github.com/bumahkib7/qryon"
+documentation = "https://github.com/bumahkib7/qryon#readme"
 readme = "../../README.md"
 keywords = ["security", "static-analysis", "linter", "sast"]
 categories = ["development-tools", "command-line-utilities"]
 
 [[bin]]
-name = "rma"
+name = "qryon"
 path = "src/main.rs"
 
 [features]

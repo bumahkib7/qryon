@@ -34,20 +34,20 @@ jobs:
           # Download macOS assets
           gh release download "$RELEASE_TAG" \
             --repo ${{ github.repository }} \
-            --pattern "rma-*-apple-darwin.tar.gz" \
+            --pattern "qryon-*-apple-darwin.tar.gz" \
             --dir .
 
           # Download Linux assets
           gh release download "$RELEASE_TAG" \
             --repo ${{ github.repository }} \
-            --pattern "rma-*-linux-gnu.tar.gz" \
+            --pattern "qryon-*-linux-gnu.tar.gz" \
             --dir .
 
           # Compute SHA256 hashes
-          echo "SHA256_MACOS_ARM=$(shasum -a 256 rma-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
-          echo "SHA256_MACOS_INTEL=$(shasum -a 256 rma-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
-          echo "SHA256_LINUX_ARM=$(shasum -a 256 rma-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
-          echo "SHA256_LINUX_INTEL=$(shasum -a 256 rma-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA256_MACOS_ARM=$(shasum -a 256 qryon-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA256_MACOS_INTEL=$(shasum -a 256 qryon-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA256_LINUX_ARM=$(shasum -a 256 qryon-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA256_LINUX_INTEL=$(shasum -a 256 qryon-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
@@ -58,58 +58,58 @@ jobs:
 
       - name: Update formula
         run: |
-          cat > homebrew-tap/Formula/rma.rb << 'FORMULA'
-          class Rma < Formula
+          cat > homebrew-tap/Formula/qryon.rb << 'FORMULA'
+          class Qryon < Formula
             desc "Ultra-fast Rust-native code intelligence and security analyzer"
-            homepage "https://github.com/bumahkib7/rust-monorepo-analyzer"
+            homepage "https://github.com/bumahkib7/qryon"
             version "VERSION_PLACEHOLDER"
             license any_of: ["MIT", "Apache-2.0"]
 
             on_macos do
               on_arm do
-                url "https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/TAG_PLACEHOLDER/rma-aarch64-apple-darwin.tar.gz"
+                url "https://github.com/bumahkib7/qryon/releases/download/TAG_PLACEHOLDER/qryon-aarch64-apple-darwin.tar.gz"
                 sha256 "SHA256_MACOS_ARM_PLACEHOLDER"
               end
               on_intel do
-                url "https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/TAG_PLACEHOLDER/rma-x86_64-apple-darwin.tar.gz"
+                url "https://github.com/bumahkib7/qryon/releases/download/TAG_PLACEHOLDER/qryon-x86_64-apple-darwin.tar.gz"
                 sha256 "SHA256_MACOS_INTEL_PLACEHOLDER"
               end
             end
 
             on_linux do
               on_arm do
-                url "https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/TAG_PLACEHOLDER/rma-aarch64-unknown-linux-gnu.tar.gz"
+                url "https://github.com/bumahkib7/qryon/releases/download/TAG_PLACEHOLDER/qryon-aarch64-unknown-linux-gnu.tar.gz"
                 sha256 "SHA256_LINUX_ARM_PLACEHOLDER"
               end
               on_intel do
-                url "https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/TAG_PLACEHOLDER/rma-x86_64-unknown-linux-gnu.tar.gz"
+                url "https://github.com/bumahkib7/qryon/releases/download/TAG_PLACEHOLDER/qryon-x86_64-unknown-linux-gnu.tar.gz"
                 sha256 "SHA256_LINUX_INTEL_PLACEHOLDER"
               end
             end
 
             def install
-              bin.install "rma"
-              generate_completions_from_executable(bin/"rma", "completions")
+              bin.install "qryon"
+              generate_completions_from_executable(bin/"qryon", "completions")
             end
 
             test do
-              assert_match version.to_s, shell_output("#{bin}/rma --version")
+              assert_match version.to_s, shell_output("#{bin}/qryon --version")
 
               # Test scanning a simple Rust file
               (testpath/"test.rs").write('fn main() { println!("hello"); }')
-              output = shell_output("#{bin}/rma scan #{testpath} --format json 2>&1")
+              output = shell_output("#{bin}/qryon scan #{testpath} --format json 2>&1")
               assert_match "findings", output
             end
           end
           FORMULA
 
           # Replace placeholders with validated values
-          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" homebrew-tap/Formula/rma.rb
-          sed -i "s/TAG_PLACEHOLDER/${RELEASE_TAG}/g" homebrew-tap/Formula/rma.rb
-          sed -i "s/SHA256_MACOS_ARM_PLACEHOLDER/${SHA256_MACOS_ARM}/g" homebrew-tap/Formula/rma.rb
-          sed -i "s/SHA256_MACOS_INTEL_PLACEHOLDER/${SHA256_MACOS_INTEL}/g" homebrew-tap/Formula/rma.rb
-          sed -i "s/SHA256_LINUX_ARM_PLACEHOLDER/${SHA256_LINUX_ARM}/g" homebrew-tap/Formula/rma.rb
-          sed -i "s/SHA256_LINUX_INTEL_PLACEHOLDER/${SHA256_LINUX_INTEL}/g" homebrew-tap/Formula/rma.rb
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" homebrew-tap/Formula/qryon.rb
+          sed -i "s/TAG_PLACEHOLDER/${RELEASE_TAG}/g" homebrew-tap/Formula/qryon.rb
+          sed -i "s/SHA256_MACOS_ARM_PLACEHOLDER/${SHA256_MACOS_ARM}/g" homebrew-tap/Formula/qryon.rb
+          sed -i "s/SHA256_MACOS_INTEL_PLACEHOLDER/${SHA256_MACOS_INTEL}/g" homebrew-tap/Formula/qryon.rb
+          sed -i "s/SHA256_LINUX_ARM_PLACEHOLDER/${SHA256_LINUX_ARM}/g" homebrew-tap/Formula/qryon.rb
+          sed -i "s/SHA256_LINUX_INTEL_PLACEHOLDER/${SHA256_LINUX_INTEL}/g" homebrew-tap/Formula/qryon.rb
 
       - name: Commit and push
         working-directory: homebrew-tap
@@ -117,6 +117,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add Formula/rma.rb
-          git diff --staged --quiet || git commit -m "Update rma to ${VERSION}"
+          git add Formula/qryon.rb
+          git diff --staged --quiet || git commit -m "Update qryon to ${VERSION}"
           git push

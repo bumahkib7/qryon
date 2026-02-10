@@ -60,7 +60,7 @@ fn print_summary_box(summary: &AnalysisSummary, duration: Duration, results: &[F
 
     println!();
     println!("{}", format_box_top(width).cyan());
-    println!("{}", format_box_line("  RMA Scan Complete", width).cyan());
+    println!("{}", format_box_line("  Qryon Scan Complete", width).cyan());
     println!("{}", format_box_separator(width).cyan());
 
     // Files scanned | Time | Rules

@@ -1,6 +1,6 @@
 [package]
 name = "rma-indexer"
-description = "Tantivy/Sled based indexing for Rust Monorepo Analyzer"
+description = "Tantivy/Sled based indexing for Qryon"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

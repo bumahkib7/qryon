@@ -2,9 +2,9 @@
 name = "rma-rules"
 version = "0.19.0"
 edition = "2021"
-description = "Rule engine for RMA - loads and executes security rules from YAML (Semgrep-compatible)"
+description = "Rule engine for Qryon - loads and executes security rules from YAML (Semgrep-compatible)"
 license = "MIT"
-repository = "https://github.com/bumahkib7/rust-monorepo-analyzer"
+repository = "https://github.com/bumahkib7/qryon"
 build = "build.rs"
 include = ["src/**/*", "Cargo.toml", "build.rs", "rules/**/*"]
 

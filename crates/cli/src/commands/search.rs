@@ -19,14 +19,14 @@ pub struct SearchArgs {
 }
 
 pub fn run(args: SearchArgs) -> Result<()> {
-    let index_path = args.repo.join(".rma/index");
+    let index_path = args.repo.join(".qryon/index");
     let index_config = IndexConfig {
         index_path: index_path.clone(),
         ..Default::default()
     };
 
     let indexer = IndexerEngine::new(index_config)
-        .context("Failed to open index. Run 'rma scan' first to build the index.")?;
+        .context("Failed to open index. Run 'qryon scan' first to build the index.")?;
 
     let results = indexer
         .search(&args.query, args.limit)
@@ -56,7 +56,7 @@ fn output_text(args: &SearchArgs, results: &[rma_indexer::SearchResult]) {
         println!("  {} No results found", Theme::info_mark());
         println!();
         println!(
-            "  {} Try a different search term or run 'rma scan' to update the index",
+            "  {} Try a different search term or run 'qryon scan' to update the index",
             "hint:".dimmed()
         );
     } else {

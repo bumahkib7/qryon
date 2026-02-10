@@ -63,11 +63,11 @@ fn validate_config() -> Result<()> {
             println!("{} No configuration file found", Theme::warning_mark());
             println!();
             println!("  Looking for:");
-            println!("    {} rma.toml", Theme::bullet());
-            println!("    {} .rma/rma.toml", Theme::bullet());
-            println!("    {} .rma.toml", Theme::bullet());
+            println!("    {} qryon.toml", Theme::bullet());
+            println!("    {} .qryon/qryon.toml", Theme::bullet());
+            println!("    {} .qryon.toml", Theme::bullet());
             println!();
-            println!("  Run {} to create one", "rma init".yellow());
+            println!("  Run {} to create one", "qryon init".yellow());
             return Ok(());
         }
     };
@@ -190,7 +190,7 @@ fn set_config(key: &str, value: &str) -> Result<()> {
     let cwd = std::env::current_dir()?;
 
     let (config_path, mut config) = RmaTomlConfig::discover(&cwd)
-        .ok_or_else(|| anyhow::anyhow!("No configuration found. Run 'rma init' first."))?;
+        .ok_or_else(|| anyhow::anyhow!("No configuration found. Run 'qryon init' first."))?;
 
     let mut json = serde_json::to_value(&config)?;
 
@@ -224,7 +224,7 @@ fn list_config() -> Result<()> {
         Some((path, cfg)) => (path, cfg),
         None => {
             println!("{} No configuration found", Theme::warning_mark());
-            println!("  Run {} to create one", "rma init".yellow());
+            println!("  Run {} to create one", "qryon init".yellow());
             return Ok(());
         }
     };
@@ -280,7 +280,7 @@ fn edit_config() -> Result<()> {
         Some((path, _)) => path,
         None => {
             // Create default config
-            let default_path = cwd.join("rma.toml");
+            let default_path = cwd.join("qryon.toml");
             let default_config = RmaTomlConfig::default_toml(rma_common::Profile::Balanced);
             std::fs::write(&default_path, default_config)?;
             default_path
@@ -335,7 +335,7 @@ fn show_config_path() -> Result<()> {
         Some((path, _)) => println!("{}", path.display()),
         None => {
             // Show where config would be created
-            let default_path = cwd.join("rma.toml");
+            let default_path = cwd.join("qryon.toml");
             println!("{} (not found)", default_path.display());
         }
     }
@@ -345,7 +345,7 @@ fn show_config_path() -> Result<()> {
 
 fn reset_config(force: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
-    let config_path = cwd.join("rma.toml");
+    let config_path = cwd.join("qryon.toml");
 
     if !force {
         println!(

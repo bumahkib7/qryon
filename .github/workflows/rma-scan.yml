@@ -1,4 +1,4 @@
-name: RMA Security Scan
+name: Qryon Security Scan
 
 on:
   push:
@@ -12,23 +12,23 @@ permissions:
   security-events: write
 
 jobs:
-  rma-scan:
-    name: RMA Security Scan
+  qryon-scan:
+    name: Qryon Security Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download RMA binary
+      - name: Download Qryon binary
         run: |
           # Get latest release or fallback to building
-          LATEST=$(curl -s https://api.github.com/repos/bumahkib7/rust-monorepo-analyzer/releases/latest | jq -r '.tag_name // empty')
+          LATEST=$(curl -s https://api.github.com/repos/bumahkib7/qryon/releases/latest | jq -r '.tag_name // empty')
 
           if [ -n "$LATEST" ]; then
-            echo "Downloading RMA $LATEST..."
-            curl -sL "https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/${LATEST}/rma-x86_64-unknown-linux-gnu.tar.gz" | tar -xz
-            chmod +x rma
-            ./rma --version
+            echo "Downloading Qryon $LATEST..."
+            curl -sL "https://github.com/bumahkib7/qryon/releases/download/${LATEST}/qryon-x86_64-unknown-linux-gnu.tar.gz" | tar -xz
+            chmod +x qryon
+            ./qryon --version
           else
             echo "No release found, will build from source"
             echo "BUILD_FROM_SOURCE=true" >> $GITHUB_ENV
@@ -47,15 +47,15 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: rma-scan-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: qryon-scan-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build RMA (if needed)
+      - name: Build Qryon (if needed)
         if: env.BUILD_FROM_SOURCE == 'true'
         run: |
           cargo build --release --package rma-cli
-          cp target/release/rma ./rma
+          cp target/release/qryon ./qryon
 
-      - name: Run RMA scan
+      - name: Run Qryon scan
         id: scan
         run: |
           # Note: Excluding crypto/secret rules because rule definition files
@@ -63,9 +63,9 @@ jobs:
           # Excluding external/ and rules/ dirs which contain third-party code
           # and intentional vulnerable-pattern examples.
           # Severity warning+ to stay under GitHub's 5000 alert SARIF limit.
-          ./rma scan . \
+          ./qryon scan . \
             --format sarif \
-            --output rma-results.sarif \
+            --output qryon-results.sarif \
             --severity warning \
             --skip-tests-all \
             --exclude-rules "generic/hardcoded-secret,generic/insecure-crypto,generic/crypto-typestate" \
@@ -74,21 +74,21 @@ jobs:
 
           echo "Scan complete."
 
-          if [ -f rma-results.sarif ]; then
-            RESULT_COUNT=$(jq '[.runs[].results[]] | length' rma-results.sarif 2>/dev/null || echo "unknown")
+          if [ -f qryon-results.sarif ]; then
+            RESULT_COUNT=$(jq '[.runs[].results[]] | length' qryon-results.sarif 2>/dev/null || echo "unknown")
             echo "SARIF results: ${RESULT_COUNT}"
             if [ "${RESULT_COUNT}" != "unknown" ] && [ "${RESULT_COUNT}" -gt 5000 ]; then
               echo "::warning::SARIF has ${RESULT_COUNT} results (GitHub limit is 5000). Truncating."
-              jq '.runs[0].results = (.runs[0].results[:5000])' rma-results.sarif > rma-results-truncated.sarif
-              mv rma-results-truncated.sarif rma-results.sarif
+              jq '.runs[0].results = (.runs[0].results[:5000])' qryon-results.sarif > qryon-results-truncated.sarif
+              mv qryon-results-truncated.sarif qryon-results.sarif
             fi
-            echo "sarif-file=rma-results.sarif" >> "$GITHUB_OUTPUT"
-            jq -r '.runs[0].invocations[0].properties.metrics // "No metrics"' rma-results.sarif || true
+            echo "sarif-file=qryon-results.sarif" >> "$GITHUB_OUTPUT"
+            jq -r '.runs[0].invocations[0].properties.metrics // "No metrics"' qryon-results.sarif || true
           fi
 
       - name: Upload SARIF to GitHub Code Scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: rma-results.sarif
-          category: rma-security-scan
+          sarif_file: qryon-results.sarif
+          category: qryon-security-scan

@@ -1,4 +1,4 @@
-//! Tree-sitter based polyglot parser for Rust Monorepo Analyzer
+//! Tree-sitter based polyglot parser for Qryon
 //!
 //! This crate provides high-performance parallel parsing of source code
 //! using tree-sitter grammars for multiple languages.

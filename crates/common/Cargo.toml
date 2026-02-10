@@ -1,6 +1,6 @@
 [package]
 name = "rma-common"
-description = "Common types and utilities for Rust Monorepo Analyzer"
+description = "Common types and utilities for Qryon"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

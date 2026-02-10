@@ -1,6 +1,6 @@
 //! LSP Backend implementation
 //!
-//! This module implements the Language Server Protocol backend for RMA,
+//! This module implements the Language Server Protocol backend for Qryon,
 //! providing real-time code analysis feedback to editors.
 //!
 //! # Performance Design
@@ -30,7 +30,7 @@ struct DocumentState {
     findings: Vec<Finding>,
 }
 
-/// RMA Language Server Backend
+/// Qryon Language Server Backend
 ///
 /// Uses `DashMap` for lock-free concurrent access to document state,
 /// enabling parallel analysis without blocking the main LSP event loop.
@@ -134,7 +134,7 @@ impl RmaBackend {
 #[tower_lsp::async_trait]
 impl LanguageServer for RmaBackend {
     async fn initialize(&self, _params: InitializeParams) -> LspResult<InitializeResult> {
-        info!("RMA LSP initializing");
+        info!("Qryon LSP initializing");
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -162,7 +162,7 @@ impl LanguageServer for RmaBackend {
                 )),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                     DiagnosticOptions {
-                        identifier: Some("rma".to_string()),
+                        identifier: Some("qryon".to_string()),
                         inter_file_dependencies: false,
                         workspace_diagnostics: false,
                         work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -171,21 +171,21 @@ impl LanguageServer for RmaBackend {
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
-                name: "RMA Language Server".to_string(),
+                name: "Qryon Language Server".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
         })
     }
 
     async fn initialized(&self, _params: InitializedParams) {
-        info!("RMA LSP initialized");
+        info!("Qryon LSP initialized");
         self.client
-            .log_message(MessageType::INFO, "RMA Language Server ready")
+            .log_message(MessageType::INFO, "Qryon Language Server ready")
             .await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
-        info!("RMA LSP shutting down");
+        info!("Qryon LSP shutting down");
         Ok(())
     }
 
@@ -299,7 +299,7 @@ impl LanguageServer for RmaBackend {
             .context
             .diagnostics
             .iter()
-            .filter(|d| d.source.as_deref() == Some("rma"))
+            .filter(|d| d.source.as_deref() == Some("qryon"))
             .filter(|d| {
                 // Check if diagnostic overlaps with requested range
                 !(d.range.end.line < range.start.line || d.range.start.line > range.end.line)

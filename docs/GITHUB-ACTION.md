@@ -1,6 +1,6 @@
-# RMA GitHub Action
+# Qryon GitHub Action
 
-Run RMA security scans in your CI/CD pipeline with automatic SARIF upload to GitHub Security tab.
+Run Qryon security scans in your CI/CD pipeline with automatic SARIF upload to GitHub Security tab.
 
 ## Features
 
@@ -15,7 +15,7 @@ Run RMA security scans in your CI/CD pipeline with automatic SARIF upload to Git
 
 ### Using the Reusable Workflow
 
-The simplest way to integrate RMA into your CI/CD:
+The simplest way to integrate Qryon into your CI/CD:
 
 ```yaml
 name: Security Scan
@@ -28,7 +28,7 @@ on:
 
 jobs:
   security-scan:
-    uses: bumahkib7/rust-monorepo-analyzer/.github/workflows/rma-scan-reusable.yml@master
+    uses: bumahkib7/qryon/.github/workflows/qryon-scan-reusable.yml@master
     permissions:
       contents: read
       security-events: write
@@ -57,9 +57,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run RMA Security Scan
-        id: rma
-        uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+      - name: Run Qryon Security Scan
+        id: qryon
+        uses: bumahkib7/qryon/.github/actions/qryon-scan@master
         with:
           path: './src'
           format: 'sarif'
@@ -68,7 +68,7 @@ jobs:
 
       - name: Check findings
         run: |
-          echo "Found ${{ steps.rma.outputs.findings-count }} issues"
+          echo "Found ${{ steps.qryon.outputs.findings-count }} issues"
 ```
 
 ## Inputs
@@ -77,14 +77,14 @@ jobs:
 |-------|------|----------|---------|-------------|
 | `path` | string | No | `.` | Path to scan (relative to repo root) |
 | `format` | string | No | `sarif` | Output format: `text`, `json`, `sarif`, `compact`, `markdown` |
-| `output-file` | string | No | `rma-results.sarif` | Output file path |
+| `output-file` | string | No | `qryon-results.sarif` | Output file path |
 | `severity` | string | No | `warning` | Minimum severity: `info`, `warning`, `error`, `critical` |
 | `languages` | string | No | (all) | Comma-separated languages: `rust,python,javascript,typescript,go,java` |
 | `ai` | boolean | No | `false` | Enable AI-powered vulnerability analysis |
 | `verbose` | boolean | No | `false` | Enable verbose output |
 | `incremental` | boolean | No | `false` | Only scan changed files |
 | `extra-args` | string | No | | Additional CLI arguments |
-| `version` | string | No | `latest` | RMA version (e.g., `v0.1.0`, `latest`) |
+| `version` | string | No | `latest` | Qryon version (e.g., `v0.1.0`, `latest`) |
 | `upload-sarif` | boolean | No | `true` | Upload SARIF to GitHub Security tab |
 | `fail-on-findings` | boolean | No | `false` | Fail the action if findings are detected |
 | `token` | string | No | `${{ github.token }}` | GitHub token for API access |
@@ -95,14 +95,14 @@ jobs:
 |--------|-------------|
 | `sarif-file` | Path to the generated SARIF file |
 | `findings-count` | Total number of security findings detected |
-| `exit-code` | Exit code from RMA scan |
+| `exit-code` | Exit code from Qryon scan |
 
 ## Examples
 
 ### Basic Security Scan
 
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/qryon/.github/actions/qryon-scan@master
   with:
     path: '.'
 ```
@@ -110,7 +110,7 @@ jobs:
 ### Scan Specific Languages
 
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/qryon/.github/actions/qryon-scan@master
   with:
     path: './backend'
     languages: 'rust,python'
@@ -120,7 +120,7 @@ jobs:
 ### AI-Powered Analysis
 
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/qryon/.github/actions/qryon-scan@master
   with:
     path: '.'
     ai: 'true'
@@ -131,7 +131,7 @@ jobs:
 ### Fail on Critical Findings
 
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/qryon/.github/actions/qryon-scan@master
   with:
     path: '.'
     severity: 'critical'
@@ -141,7 +141,7 @@ jobs:
 ### JSON Output for Custom Processing
 
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/qryon/.github/actions/qryon-scan@master
   id: scan
   with:
     path: '.'
@@ -157,7 +157,7 @@ jobs:
 ### Pin to Specific Version
 
 ```yaml
-- uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+- uses: bumahkib7/qryon/.github/actions/qryon-scan@master
   with:
     version: 'v0.1.0'
 ```
@@ -170,7 +170,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: bumahkib7/rust-monorepo-analyzer/.github/actions/rma-scan@master
+      - uses: bumahkib7/qryon/.github/actions/qryon-scan@master
 ```
 
 ## Viewing Results
@@ -180,7 +180,7 @@ After the action runs:
 1. Go to your repository on GitHub
 2. Click the **Security** tab
 3. Click **Code scanning alerts**
-4. View and manage RMA findings
+4. View and manage Qryon findings
 
 ## Permissions
 
@@ -232,4 +232,4 @@ env:
 
 ## Contributing
 
-Issues and PRs welcome at [rust-monorepo-analyzer](https://github.com/bumahkib7/rust-monorepo-analyzer).
+Issues and PRs welcome at [qryon](https://github.com/bumahkib7/qryon).

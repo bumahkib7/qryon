@@ -1,7 +1,7 @@
 //! Semgrep rule integration
 //!
 //! This module provides integration with the Semgrep rule format,
-//! allowing RMA to use the thousands of community-vetted rules from
+//! allowing Qryon to use the thousands of community-vetted rules from
 //! the semgrep-rules repository.
 //!
 //! # Usage

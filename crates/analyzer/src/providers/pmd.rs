@@ -5,9 +5,9 @@
 //! quality rules.
 //!
 //! This provider shells out to the PMD CLI and parses its XML output,
-//! converting findings to RMA's unified Finding format.
+//! converting findings to Qryon's unified Finding format.
 //!
-//! # PMD Priority to RMA Severity Mapping
+//! # PMD Priority to Qryon Severity Mapping
 //!
 //! PMD uses priority levels 1-5 (1 = highest):
 //! - Priority 1: Critical

@@ -1,7 +1,7 @@
-//! Enterprise configuration system for RMA
+//! Enterprise configuration system for Qryon
 //!
 //! Supports:
-//! - Local config file: rma.toml in repo root or .rma/rma.toml
+//! - Local config file: qryon.toml in repo root or .qryon/qryon.toml (falls back to rma.toml/.rma/)
 //! - Profiles: fast, balanced, strict
 //! - Rule enable/disable, severity overrides, threshold overrides
 //! - Path-specific overrides
@@ -547,7 +547,7 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
-    /// Built-in RMA rules (always available)
+    /// Built-in Qryon rules (always available)
     Rma,
     /// PMD for Java analysis (optional)
     Pmd,
@@ -676,7 +676,7 @@ pub struct PmdProviderConfig {
     #[serde(default = "default_pmd_exclude_patterns")]
     pub exclude_patterns: Vec<String>,
 
-    /// Severity mapping from PMD priority to RMA severity
+    /// Severity mapping from PMD priority to Qryon severity
     /// Keys: "1", "2", "3", "4", "5" (PMD priorities)
     /// Values: "critical", "error", "warning", "info"
     #[serde(default = "default_pmd_severity_map")]
@@ -921,7 +921,7 @@ pub struct OsvProviderConfig {
     #[serde(default)]
     pub offline: bool,
 
-    /// Custom cache directory (default: .rma/cache)
+    /// Custom cache directory (default: .qryon/cache)
     #[serde(default)]
     pub cache_dir: Option<PathBuf>,
 }
@@ -968,7 +968,7 @@ pub struct BaselineConfig {
 }
 
 fn default_baseline_file() -> PathBuf {
-    PathBuf::from(".rma/baseline.json")
+    PathBuf::from(".qryon/baseline.json")
 }
 
 // =============================================================================
@@ -1012,7 +1012,7 @@ impl Default for SuppressionConfig {
 }
 
 fn default_suppression_database() -> PathBuf {
-    PathBuf::from(".rma/suppressions.db")
+    PathBuf::from(".qryon/suppressions.db")
 }
 
 fn default_expiration() -> String {
@@ -1045,7 +1045,7 @@ pub fn parse_expiration_days(s: &str) -> Option<u32> {
 /// Current supported config version
 pub const CURRENT_CONFIG_VERSION: u32 = 1;
 
-/// Complete RMA TOML configuration
+/// Complete Qryon TOML configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RmaTomlConfig {
     /// Config format version (for future compatibility)
@@ -1132,7 +1132,7 @@ impl RmaTomlConfig {
             Some(CURRENT_CONFIG_VERSION) => Ok(None),
             Some(version) if version > CURRENT_CONFIG_VERSION => Err(format!(
                 "Unsupported config version: {}. Maximum supported version is {}. \
-                     Please upgrade RMA or use a compatible config format.",
+                     Please upgrade Qryon or use a compatible config format.",
                 version, CURRENT_CONFIG_VERSION
             )),
             Some(version) => {
@@ -1160,9 +1160,15 @@ impl RmaTomlConfig {
         self.config_version.unwrap_or(CURRENT_CONFIG_VERSION)
     }
 
-    /// Find and load configuration from standard locations
+    /// Find and load configuration from standard locations.
+    /// Checks for Qryon config files first, then falls back to legacy RMA config files.
     pub fn discover(start_path: &Path) -> Option<(PathBuf, Self)> {
         let candidates = [
+            // New Qryon config paths (checked first)
+            start_path.join("qryon.toml"),
+            start_path.join(".qryon/qryon.toml"),
+            start_path.join(".qryon.toml"),
+            // Legacy RMA config paths (fallback)
             start_path.join("rma.toml"),
             start_path.join(".rma/rma.toml"),
             start_path.join(".rma.toml"),
@@ -1180,11 +1186,14 @@ impl RmaTomlConfig {
         let mut current = start_path.to_path_buf();
         for _ in 0..5 {
             if let Some(parent) = current.parent() {
-                let config_path = parent.join("rma.toml");
-                if config_path.exists()
-                    && let Ok(config) = Self::load(&config_path)
-                {
-                    return Some((config_path, config));
+                // Check qryon.toml first, then fall back to rma.toml
+                for name in &["qryon.toml", "rma.toml"] {
+                    let config_path = parent.join(name);
+                    if config_path.exists()
+                        && let Ok(config) = Self::load(&config_path)
+                    {
+                        return Some((config_path, config));
+                    }
                 }
                 current = parent.to_path_buf();
             } else {
@@ -1463,8 +1472,8 @@ impl RmaTomlConfig {
         let thresholds = ProfileThresholds::for_profile(profile);
 
         format!(
-            r#"# RMA Configuration
-# Documentation: https://github.com/bumahkib7/rust-monorepo-analyzer
+            r#"# Qryon Configuration
+# Documentation: https://github.com/bumahkib7/qryon
 
 # Config format version (required for future compatibility)
 config_version = 1
@@ -1561,19 +1570,20 @@ approved_secrets = []
 
 [baseline]
 # Baseline file for tracking legacy issues
-file = ".rma/baseline.json"
+file = ".qryon/baseline.json"
 # Mode: "all" or "new-only"
 mode = "all"
 
 # =============================================================================
 # ANALYSIS PROVIDERS
 # =============================================================================
-# RMA supports external analysis providers for extended language coverage.
+# Qryon supports external analysis providers for extended language coverage.
 # Providers can be enabled/disabled individually.
 
 [providers]
 # List of enabled providers
 # Default: ["rma", "oxc"] - built-in rules + native JS/TS linting
+# Note: "qryon" is accepted as an alias for "rma"
 enabled = ["rma", "oxc"]
 # To add PMD for Java: enabled = ["rma", "oxc", "pmd"]
 # To add external Oxlint: enabled = ["rma", "oxc", "oxlint"]
@@ -1601,7 +1611,7 @@ enabled = ["rma", "oxc"]
 # extra_args = []                       # Additional PMD CLI arguments
 
 # [providers.pmd.severity_map]
-# # Map PMD priority (1-5) to RMA severity
+# # Map PMD priority (1-5) to Qryon severity
 # "1" = "critical"
 # "2" = "error"
 # "3" = "warning"
@@ -1639,7 +1649,7 @@ pub enum AllowType {
 pub enum ConfigSource {
     /// Built-in default value
     Default,
-    /// From rma.toml configuration file
+    /// From qryon.toml configuration file
     ConfigFile,
     /// From CLI flag or environment variable
     CliFlag,
@@ -1659,7 +1669,7 @@ impl std::fmt::Display for ConfigSource {
 ///
 /// Precedence order (highest to lowest):
 /// 1. CLI flags (--config, --profile, --baseline-mode)
-/// 2. rma.toml in repo root (or explicit --config path)
+/// 2. qryon.toml in repo root (or explicit --config path)
 /// 3. Built-in defaults
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectiveConfig {

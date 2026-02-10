@@ -1,6 +1,6 @@
 [package]
 name = "rma-ai"
-description = "AI-powered vulnerability detection for RMA"
+description = "AI-powered vulnerability detection for Qryon"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

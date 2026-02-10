@@ -1,4 +1,4 @@
-# RMA - Rust Monorepo Analyzer
+# Qryon
 
 Ultra-fast Rust-native code intelligence and security analysis platform for large enterprise monorepos.
 
@@ -12,16 +12,16 @@ npm install -g rma-cli
 
 ```bash
 # Scan current directory
-rma scan .
+qryon scan .
 
 # Scan with AI-powered analysis
-rma scan ./src --ai
+qryon scan ./src --ai
 
 # Watch mode for continuous analysis
-rma watch .
+qryon watch .
 
 # Generate SARIF output for CI/CD
-rma scan . --output sarif -f results.sarif
+qryon scan . --output sarif -f results.sarif
 ```
 
 ## Alternative Installation
@@ -33,15 +33,15 @@ If npm installation fails, try:
 cargo install rma-cli
 
 # Shell script (Linux/macOS)
-curl -fsSL https://raw.githubusercontent.com/anthropics/rma/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 
 # Homebrew (macOS/Linux)
-brew install anthropics/tap/rma
+brew install bumahkib7/tap/qryon
 ```
 
 ## Documentation
 
-Full documentation: https://github.com/anthropics/rma
+Full documentation: https://github.com/bumahkib7/qryon
 
 ## License
 

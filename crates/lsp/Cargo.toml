@@ -1,6 +1,6 @@
 [package]
 name = "rma-lsp"
-description = "Language Server Protocol implementation for RMA - provides IDE integration for security analysis"
+description = "Language Server Protocol implementation for Qryon - provides IDE integration for security analysis"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

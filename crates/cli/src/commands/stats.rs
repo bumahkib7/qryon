@@ -20,7 +20,7 @@ pub struct StatsArgs {
 
 pub fn run(args: StatsArgs) -> Result<()> {
     // Try to get stats from index first
-    let index_path = args.path.join(".rma/index");
+    let index_path = args.path.join(".qryon/index");
     let index_config = IndexConfig {
         index_path: index_path.clone(),
         ..Default::default()

@@ -1,5 +1,5 @@
-name: 'RMA Security Scan'
-description: 'Run Rust Monorepo Analyzer for security scanning and code analysis with SARIF output'
+name: 'Qryon Security Scan'
+description: 'Run Qryon for security scanning and code analysis with SARIF output'
 author: 'bumahkib7'
 
 branding:
@@ -22,7 +22,7 @@ inputs:
   output-file:
     description: 'Output file path for results'
     required: false
-    default: 'rma-results.sarif'
+    default: 'qryon-results.sarif'
   severity:
     description: 'Minimum severity to report: info, warning, error, critical'
     required: false
@@ -56,11 +56,11 @@ inputs:
     required: false
     default: 'false'
   extra-args:
-    description: 'Additional arguments to pass to rma scan'
+    description: 'Additional arguments to pass to qryon scan'
     required: false
     default: ''
   version:
-    description: 'RMA version to use (e.g., v0.1.0, latest)'
+    description: 'Qryon version to use (e.g., v0.1.0, latest)'
     required: false
     default: 'latest'
   upload-sarif:
@@ -84,7 +84,7 @@ outputs:
     description: 'Total number of findings detected'
     value: ${{ steps.scan.outputs.findings-count }}
   exit-code:
-    description: 'Exit code from RMA scan'
+    description: 'Exit code from Qryon scan'
     value: ${{ steps.scan.outputs.exit-code }}
 
 runs:
@@ -124,44 +124,44 @@ runs:
         echo "ext=$EXT" >> $GITHUB_OUTPUT
         echo "::notice::Detected platform: $PLATFORM"
 
-    - name: Install RMA
+    - name: Install Qryon
       id: install
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
-        RMA_VERSION: ${{ inputs.version }}
+        QRYON_VERSION: ${{ inputs.version }}
       run: |
         PLATFORM="${{ steps.platform.outputs.platform }}"
         EXT="${{ steps.platform.outputs.ext }}"
 
-        if [ "$RMA_VERSION" = "latest" ]; then
-          DOWNLOAD_URL="https://github.com/bumahkib7/rust-monorepo-analyzer/releases/latest/download/rma-${PLATFORM}.${EXT}"
+        if [ "$QRYON_VERSION" = "latest" ]; then
+          DOWNLOAD_URL="https://github.com/bumahkib7/qryon/releases/latest/download/qryon-${PLATFORM}.${EXT}"
         else
-          DOWNLOAD_URL="https://github.com/bumahkib7/rust-monorepo-analyzer/releases/download/${RMA_VERSION}/rma-${PLATFORM}.${EXT}"
+          DOWNLOAD_URL="https://github.com/bumahkib7/qryon/releases/download/${QRYON_VERSION}/qryon-${PLATFORM}.${EXT}"
         fi
 
-        echo "::notice::Downloading RMA from: $DOWNLOAD_URL"
+        echo "::notice::Downloading Qryon from: $DOWNLOAD_URL"
 
         # Download and extract
-        curl -fsSL "$DOWNLOAD_URL" -o rma-archive.tar.gz
-        tar -xzf rma-archive.tar.gz
-        chmod +x rma
+        curl -fsSL "$DOWNLOAD_URL" -o qryon-archive.tar.gz
+        tar -xzf qryon-archive.tar.gz
+        chmod +x qryon
 
         # Move to a location in PATH
-        sudo mv rma /usr/local/bin/rma || mv rma $HOME/.local/bin/rma
+        sudo mv qryon /usr/local/bin/qryon || mv qryon $HOME/.local/bin/qryon
 
         # Verify installation
-        RMA_PATH=$(which rma)
-        RMA_VER=$(rma --version)
-        echo "::notice::RMA installed: $RMA_VER at $RMA_PATH"
-        echo "rma-path=$RMA_PATH" >> $GITHUB_OUTPUT
+        QRYON_PATH=$(which qryon)
+        QRYON_VER=$(qryon --version)
+        echo "::notice::Qryon installed: $QRYON_VER at $QRYON_PATH"
+        echo "qryon-path=$QRYON_PATH" >> $GITHUB_OUTPUT
 
-    - name: Run RMA Scan
+    - name: Run Qryon Scan
       id: scan
       shell: bash
       run: |
         # Build command
-        CMD="rma scan ${{ inputs.path }}"
+        CMD="qryon scan ${{ inputs.path }}"
         CMD="$CMD --format ${{ inputs.format }}"
         CMD="$CMD --output ${{ inputs.output-file }}"
         CMD="$CMD --severity ${{ inputs.severity }}"
@@ -199,7 +199,7 @@ runs:
           CMD="$CMD ${{ inputs.extra-args }}"
         fi
 
-        echo "::group::Running RMA Scan"
+        echo "::group::Running Qryon Scan"
         echo "Command: $CMD"
 
         # Run scan and capture exit code
@@ -225,7 +225,7 @@ runs:
 
         # Handle failure
         if [ "${{ inputs.fail-on-findings }}" = "true" ] && [ "$EXIT_CODE" -ne 0 ]; then
-          echo "::error::RMA scan found issues (exit code: $EXIT_CODE)"
+          echo "::error::Qryon scan found issues (exit code: $EXIT_CODE)"
           exit $EXIT_CODE
         fi
 
@@ -234,7 +234,7 @@ runs:
       shell: bash
       run: |
         # Run scan again with github format to show annotations in PR/commit
-        rma scan ${{ inputs.path }} \
+        qryon scan ${{ inputs.path }} \
           --format github \
           --severity ${{ inputs.severity }} \
           --profile ${{ inputs.profile }} \
@@ -246,4 +246,4 @@ runs:
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ inputs.output-file }}
-        category: 'rma-security-scan'
+        category: 'qryon-security-scan'

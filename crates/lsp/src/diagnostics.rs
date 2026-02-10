@@ -1,6 +1,6 @@
-//! Conversion from RMA findings to LSP diagnostics
+//! Conversion from Qryon findings to LSP diagnostics
 //!
-//! This module handles the translation between RMA's internal `Finding` type
+//! This module handles the translation between Qryon's internal `Finding` type
 //! and the Language Server Protocol's `Diagnostic` type.
 
 use rma_common::{Confidence, Finding, Severity};
@@ -40,7 +40,7 @@ pub fn finding_to_diagnostic(finding: &Finding) -> Diagnostic {
         severity: Some(severity),
         code: Some(NumberOrString::String(finding.rule_id.clone())),
         code_description: code_description(&finding.rule_id),
-        source: Some("rma".to_string()),
+        source: Some("qryon".to_string()),
         message,
         related_information: related_info(finding),
         tags,
@@ -185,7 +185,7 @@ mod tests {
             diagnostic.code,
             Some(NumberOrString::String("rust/unsafe-block".to_string()))
         );
-        assert_eq!(diagnostic.source, Some("rma".to_string()));
+        assert_eq!(diagnostic.source, Some("qryon".to_string()));
     }
 
     #[test]

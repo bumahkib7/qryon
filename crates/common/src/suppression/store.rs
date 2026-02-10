@@ -149,11 +149,11 @@ impl SuppressionStore {
 
     /// Open or create a suppression store for a project
     ///
-    /// Uses `.rma/suppressions.db` within the project root
+    /// Uses `.qryon/suppressions.db` within the project root
     pub fn open_project(project_root: impl AsRef<Path>) -> Result<Self> {
-        let db_path = project_root.as_ref().join(".rma").join("suppressions.db");
+        let db_path = project_root.as_ref().join(".qryon").join("suppressions.db");
 
-        // Create .rma directory if it doesn't exist
+        // Create .qryon directory if it doesn't exist
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory {:?}", parent))?;

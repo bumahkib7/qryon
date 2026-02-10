@@ -103,7 +103,7 @@ pub fn run(args: SuppressArgs) -> Result<()> {
     let db_path = toml_config
         .as_ref()
         .map(|(_, c)| project_root.join(&c.suppressions.database))
-        .unwrap_or_else(|| project_root.join(".rma/suppressions.db"));
+        .unwrap_or_else(|| project_root.join(".qryon/suppressions.db"));
 
     // Ensure parent directory exists
     if let Some(parent) = db_path.parent() {

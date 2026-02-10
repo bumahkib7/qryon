@@ -1,4 +1,4 @@
-//! Cache command - manage RMA cache (OSV vulnerability data, etc.)
+//! Cache command - manage Qryon cache (OSV vulnerability data, etc.)
 //!
 //! The cache system includes:
 //! - **OSV Local Database**: Full vulnerability database downloaded from GCS (recommended)
@@ -18,8 +18,8 @@ use std::path::PathBuf;
 /// Get the default OSV cache directory
 pub fn get_osv_cache_dir() -> PathBuf {
     dirs::cache_dir()
-        .map(|d| d.join("rma").join("osv"))
-        .unwrap_or_else(|| PathBuf::from(".rma/cache/osv"))
+        .map(|d| d.join("qryon").join("osv"))
+        .unwrap_or_else(|| PathBuf::from(".qryon/cache/osv"))
 }
 
 /// Get cache statistics
@@ -85,7 +85,7 @@ pub fn run(action: CacheAction) -> Result<()> {
 
 fn show_status() -> Result<()> {
     println!();
-    println!("{}", "📦 RMA Cache Status".cyan().bold());
+    println!("{}", "📦 Qryon Cache Status".cyan().bold());
     println!("{}", Theme::separator(60));
 
     // OSV Local Database (primary - high performance)
@@ -178,7 +178,7 @@ fn show_status() -> Result<()> {
         println!(
             "    {} Run {} to download vulnerability databases",
             Theme::info_mark(),
-            "rma cache update".cyan()
+            "qryon cache update".cyan()
         );
     }
 
@@ -210,7 +210,7 @@ fn show_status() -> Result<()> {
     }
 
     // Local project cache
-    let local_cache = PathBuf::from(".rma/cache/osv");
+    let local_cache = PathBuf::from(".qryon/cache/osv");
     if local_cache.exists() {
         let local_stats = CacheStats::gather(&local_cache);
         if local_stats.entry_count > 0 {
@@ -230,12 +230,12 @@ fn show_status() -> Result<()> {
     println!(
         "  {} {} - Download OSV databases for offline scanning",
         Theme::info_mark(),
-        "rma cache update".cyan()
+        "qryon cache update".cyan()
     );
     println!(
         "  {} {} - Remove all cached data",
         Theme::info_mark(),
-        "rma cache clear".cyan()
+        "qryon cache clear".cyan()
     );
     println!();
 
@@ -350,7 +350,7 @@ fn update_database(ecosystems: Option<Vec<String>>, _force: bool) -> Result<()> 
 fn get_osv_db_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("rma")
+        .join("qryon")
         .join("osv-db")
 }
 
@@ -369,7 +369,7 @@ fn format_duration_ago(secs: u64) -> String {
 
 fn clear_cache(force: bool) -> Result<()> {
     let osv_cache_dir = get_osv_cache_dir();
-    let local_cache_dir = PathBuf::from(".rma/cache/osv");
+    let local_cache_dir = PathBuf::from(".qryon/cache/osv");
 
     let mut paths_to_clear = Vec::new();
 

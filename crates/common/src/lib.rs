@@ -1,7 +1,7 @@
-//! Common types and utilities for Rust Monorepo Analyzer (RMA)
+//! Common types and utilities for Qryon
 //!
 //! This crate provides shared data structures, error types, and utilities
-//! used across all RMA components.
+//! used across all Qryon components.
 
 pub mod config;
 pub mod suppression;

@@ -606,7 +606,7 @@ fn print_line(s: &str) {
 
 fn print_header(args: &WatchArgs, debounce_ms: u64) {
     print_line("");
-    print_line(&format!("{}", "👁  RMA Watch Mode".cyan().bold()));
+    print_line(&format!("{}", "👁  Qryon Watch Mode".cyan().bold()));
     print_line(&Theme::separator(60));
     print_line(&format!(
         "  {} {}",

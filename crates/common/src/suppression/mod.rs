@@ -5,7 +5,7 @@
 //!
 //! ## Features
 //!
-//! - **Persistent Storage**: Suppressions stored in `.rma/suppressions.db`
+//! - **Persistent Storage**: Suppressions stored in `.qryon/suppressions.db`
 //! - **Audit Trail**: Full history of who, when, and why for each suppression
 //! - **Team Sharing**: Export to JSON for version control
 //! - **Staleness Detection**: Detect when suppressed code has changed
@@ -36,7 +36,7 @@
 //!
 //! // Export for team sharing
 //! let json = store.export()?;
-//! std::fs::write(".rma/suppressions.json", json)?;
+//! std::fs::write(".qryon/suppressions.json", json)?;
 //! ```
 
 mod audit;
@@ -51,10 +51,10 @@ pub use entry::{
 pub use store::{StoreStats, SuppressionExport, SuppressionFilter, SuppressionStore};
 
 /// Default path for the suppression database within a project
-pub const DEFAULT_DB_PATH: &str = ".rma/suppressions.db";
+pub const DEFAULT_DB_PATH: &str = ".qryon/suppressions.db";
 
 /// Default path for exported suppressions JSON
-pub const DEFAULT_EXPORT_PATH: &str = ".rma/suppressions.json";
+pub const DEFAULT_EXPORT_PATH: &str = ".qryon/suppressions.json";
 
 /// Default expiration period for suppressions (90 days)
 pub const DEFAULT_EXPIRATION_DAYS: u32 = 90;

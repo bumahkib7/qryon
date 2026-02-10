@@ -121,8 +121,8 @@ pub fn output(
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "RMA",
-                    "fullName": "Rust Monorepo Analyzer",
+                    "name": "Qryon",
+                    "fullName": "Qryon Code Analyzer",
                     "version": env!("CARGO_PKG_VERSION"),
                     "informationUri": "https://github.com/bumahkib7/rust-monorepo-analyzer",
                     "rules": rules,
@@ -284,7 +284,7 @@ pub fn output(
                 }).collect::<Vec<_>>()
             }).collect::<Vec<_>>(),
             "automationDetails": {
-                "id": format!("rma-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"))
+                "id": format!("qryon-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"))
             }
         }]
     });

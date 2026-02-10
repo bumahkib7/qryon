@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers all installation methods for RMA (Rust Monorepo Analyzer).
+This guide covers all installation methods for Qryon.
 
 ## Quick Install (Recommended)
 
@@ -9,7 +9,7 @@ This guide covers all installation methods for RMA (Rust Monorepo Analyzer).
 Run this single command in your terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 ```
 
 This will:
@@ -24,7 +24,7 @@ This will:
 Run in PowerShell (as Administrator recommended):
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/bumahkib7/qryon/master/install.ps1 | iex
 ```
 
 This will:
@@ -46,33 +46,33 @@ cargo install rma-cli
 ### Cargo (from GitHub)
 
 ```bash
-cargo install --git https://github.com/bumahkib7/rust-monorepo-analyzer rma-cli
+cargo install --git https://github.com/bumahkib7/qryon rma-cli
 ```
 
 ### Docker
 
 ```bash
 # Pull the image
-docker pull ghcr.io/bumahkib7/rust-monorepo-analyzer:latest
+docker pull ghcr.io/bumahkib7/qryon:latest
 
 # Run a scan
-docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rust-monorepo-analyzer scan /workspace
+docker run -v $(pwd):/workspace ghcr.io/bumahkib7/qryon scan /workspace
 
 # Run with options
-docker run -v $(pwd):/workspace ghcr.io/bumahkib7/rust-monorepo-analyzer scan /workspace --output json
+docker run -v $(pwd):/workspace ghcr.io/bumahkib7/qryon scan /workspace --output json
 ```
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/bumahkib7/rust-monorepo-analyzer.git
-cd rust-monorepo-analyzer
+git clone https://github.com/bumahkib7/qryon.git
+cd qryon
 
 # Build release binary
 cargo build --release -p rma-cli
 
-# Binary is at: target/release/rma
+# Binary is at: target/release/qryon
 
 # Or install directly
 cargo install --path crates/cli
@@ -81,8 +81,8 @@ cargo install --path crates/cli
 ### Makefile
 
 ```bash
-git clone https://github.com/bumahkib7/rust-monorepo-analyzer.git
-cd rust-monorepo-analyzer
+git clone https://github.com/bumahkib7/qryon.git
+cd qryon
 make install
 ```
 
@@ -90,21 +90,21 @@ make install
 
 | Platform | Architecture | Binary |
 |----------|-------------|--------|
-| Linux | x86_64 (glibc) | rma-x86_64-unknown-linux-gnu |
-| Linux | x86_64 (musl) | rma-x86_64-unknown-linux-musl |
-| Linux | ARM64 | rma-aarch64-unknown-linux-gnu |
-| macOS | Intel | rma-x86_64-apple-darwin |
-| macOS | Apple Silicon | rma-aarch64-apple-darwin |
-| Windows | x86_64 | rma-x86_64-pc-windows-msvc |
+| Linux | x86_64 (glibc) | qryon-x86_64-unknown-linux-gnu |
+| Linux | x86_64 (musl) | qryon-x86_64-unknown-linux-musl |
+| Linux | ARM64 | qryon-aarch64-unknown-linux-gnu |
+| macOS | Intel | qryon-x86_64-apple-darwin |
+| macOS | Apple Silicon | qryon-aarch64-apple-darwin |
+| Windows | x86_64 | qryon-x86_64-pc-windows-msvc |
 
 ## Custom Install Location
 
 ### Linux/macOS
 
-Set the `RMA_INSTALL_DIR` environment variable before running the install script:
+Set the `QRYON_INSTALL_DIR` environment variable before running the install script:
 
 ```bash
-RMA_INSTALL_DIR=/opt/bin curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+QRYON_INSTALL_DIR=/opt/bin curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 ```
 
 ### Windows
@@ -114,7 +114,7 @@ Edit the `$installDir` variable in the PowerShell script.
 ## Verifying Installation
 
 ```bash
-rma --version
+qryon --version
 ```
 
 Expected output:
@@ -128,17 +128,17 @@ After installation, generate shell completions:
 
 ```bash
 # Bash
-rma completions bash > ~/.local/share/bash-completion/completions/rma
+qryon completions bash > ~/.local/share/bash-completion/completions/qryon
 
 # Zsh (add to ~/.zshrc: fpath=(~/.zfunc $fpath))
 mkdir -p ~/.zfunc
-rma completions zsh > ~/.zfunc/_rma
+qryon completions zsh > ~/.zfunc/_qryon
 
 # Fish
-rma completions fish > ~/.config/fish/completions/rma.fish
+qryon completions fish > ~/.config/fish/completions/qryon.fish
 
 # PowerShell (add to profile)
-rma completions powershell >> $PROFILE
+qryon completions powershell >> $PROFILE
 ```
 
 ## Updating
@@ -148,7 +148,7 @@ rma completions powershell >> $PROFILE
 Re-run the install script - it will overwrite the existing binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bumahkib7/rust-monorepo-analyzer/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bumahkib7/qryon/master/install.sh | bash
 ```
 
 ### Cargo
@@ -160,7 +160,7 @@ cargo install rma-cli --force
 ### Docker
 
 ```bash
-docker pull ghcr.io/bumahkib7/rust-monorepo-analyzer:latest
+docker pull ghcr.io/bumahkib7/qryon:latest
 ```
 
 ## Uninstalling
@@ -168,17 +168,17 @@ docker pull ghcr.io/bumahkib7/rust-monorepo-analyzer:latest
 ### Linux/macOS
 
 ```bash
-rm ~/.local/bin/rma
+rm ~/.local/bin/qryon
 # Optionally remove config
-rm -rf ~/.config/rma
+rm -rf ~/.config/qryon
 ```
 
 ### Windows
 
 ```powershell
-Remove-Item "$env:USERPROFILE\.local\bin\rma.exe"
+Remove-Item "$env:USERPROFILE\.local\bin\qryon.exe"
 # Optionally remove config
-Remove-Item -Recurse "$env:USERPROFILE\.config\rma"
+Remove-Item -Recurse "$env:USERPROFILE\.config\qryon"
 ```
 
 ### Cargo
@@ -205,7 +205,7 @@ Then restart your terminal or run `source ~/.bashrc`.
 Make the binary executable:
 
 ```bash
-chmod +x ~/.local/bin/rma
+chmod +x ~/.local/bin/qryon
 ```
 
 ### SSL/TLS Errors on Linux
@@ -217,7 +217,7 @@ If using the musl binary and encountering SSL errors, try the glibc binary or in
 If macOS blocks the binary:
 
 ```bash
-xattr -d com.apple.quarantine ~/.local/bin/rma
+xattr -d com.apple.quarantine ~/.local/bin/qryon
 ```
 
 Or go to System Preferences > Security & Privacy and click "Allow Anyway".
