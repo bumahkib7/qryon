@@ -587,6 +587,15 @@ pub struct Finding {
     /// Additional line numbers when occurrence_count > 1
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub additional_locations: Option<Vec<usize>>,
+    /// AI triage verdict: "true_positive", "false_positive", or "needs_review"
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ai_verdict: Option<String>,
+    /// AI explanation of the finding
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ai_explanation: Option<String>,
+    /// AI confidence in its verdict (0.0-1.0)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ai_confidence: Option<f32>,
 }
 
 impl Finding {

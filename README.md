@@ -55,6 +55,17 @@ qryon scan . --output sarif -f results.sarif
 
 # Watch mode - re-scan on file changes
 qryon watch .
+
+# AI-powered finding triage (triages static findings with AI)
+export ANTHROPIC_API_KEY=sk-ant-...
+qryon scan . --ai
+
+# Use OpenAI instead
+export OPENAI_API_KEY=sk-...
+qryon scan . --ai --ai-provider openai
+
+# Use local Ollama (free, no API key)
+qryon scan . --ai --ai-provider local
 ```
 
 <details>

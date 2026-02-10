@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-02-10
+
+### Added
+
+#### AI-Powered Finding Triage (`--ai`)
+- **`qryon scan --ai`** now triages static analysis findings using AI instead of doing nothing
+- Each security-relevant finding is sent to the AI with ~30 lines of surrounding code context for triage
+- AI returns a verdict (`true_positive`, `false_positive`, `needs_review`), confidence score, explanation, and fix suggestion
+- High-confidence false positives (>=0.8) are automatically removed from results
+- New `TriageResult` struct with `triage_finding()` and `extract_code_context()` in the AI engine
+- Three AI providers supported: Claude (Anthropic), OpenAI, and local Ollama
+- Retry with exponential backoff (2s/4s/8s) on rate-limited API responses
+- Caps at 50 findings per scan by default to control cost
+
+#### Finding AI Fields
+- `ai_verdict`, `ai_explanation`, `ai_confidence` fields on `Finding` struct (optional, serde-skipped when None)
+- Automatically included in JSON and SARIF output when `--ai` is used
+
+#### TOML Configuration for AI
+- New `[ai]` section in `qryon.toml`: `enabled`, `provider`, `model`, `max_findings`
+- CLI args (`--ai-provider`, `--ai-model`) override TOML config
+
+### Fixed
+- Anthropic API version updated from `2023-06-01` to `2025-01-01`
+- JSON extraction from AI responses now validates parsed JSON before returning (prevents mismatched brace errors)
+- All three AI providers (Claude, OpenAI, Local) now respect triage system prompts via `request.context`
+- Helpful error message with setup instructions when `--ai` is used without an API key
+
+### Changed
+- AI analysis approach: finding-based triage (send findings + code context) instead of whole-file scanning
+- Security finding selection broadened to include rule ID pattern matching (security, injection, xss, etc.) and severity-based selection
+
+## [0.19.1] - 2026-02-08
+
+### Fixed
+- npm package references updated from `rma-cli` to `qryon`
+
+## [0.19.0] - 2026-02-08
+
+### Changed
+- **Rebranded from RMA to Qryon** — binary name, CLI output, config files, documentation all updated
+
 ## [0.18.1] - 2026-02-06
 
 ### Fixed

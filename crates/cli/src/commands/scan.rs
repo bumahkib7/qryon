@@ -12,12 +12,14 @@ use rma_analyzer::{
     AnalyzerEngine, diff,
     project::{ProjectAnalysisResult, ProjectAnalyzer},
 };
+use rma_ai::{AiConfig, AiEngine, AiProvider, extract_code_context};
 use rma_common::{
-    Baseline, BaselineMode, Language, Profile, ProviderType, ProvidersConfig, RmaConfig,
-    RmaTomlConfig, Severity, SuppressionEngine, parse_inline_suppressions,
+    Baseline, BaselineMode, FindingCategory, Language, Profile, ProviderType, ProvidersConfig,
+    RmaConfig, RmaTomlConfig, Severity, SuppressionEngine, parse_inline_suppressions,
 };
 use rma_indexer::{IndexConfig, IndexerEngine};
-use rma_parser::ParserEngine;
+use rma_parser::{ParsedFile, ParserEngine};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -383,7 +385,7 @@ pub fn run(args: ScanArgs) -> Result<()> {
     // Phase 3: AI Analysis (optional)
     if args.ai_analysis {
         let ai_start = Instant::now();
-        run_ai_phase(&args, &mut results)?;
+        run_ai_phase(&args, &parsed_files, &mut results, toml_config.as_ref().map(|(_, c)| c))?;
         timings.push(("AI Analysis", ai_start.elapsed()));
     }
 
@@ -1065,6 +1067,9 @@ fn run_cross_file_phase(
             properties: None,
             occurrence_count: None,
             additional_locations: None,
+            ai_verdict: None,
+            ai_explanation: None,
+            ai_confidence: None,
         };
 
         // Find or create the file result
@@ -1104,21 +1109,251 @@ fn run_cross_file_phase(
     Ok(Some(project_result))
 }
 
-fn run_ai_phase(args: &ScanArgs, _results: &mut [rma_analyzer::FileAnalysis]) -> Result<()> {
+fn run_ai_phase(
+    args: &ScanArgs,
+    parsed_files: &[ParsedFile],
+    results: &mut [rma_analyzer::FileAnalysis],
+    toml_config: Option<&RmaTomlConfig>,
+) -> Result<()> {
+    // Determine provider from CLI arg, toml config, or default
+    let provider_str = if args.ai_provider != "claude" {
+        args.ai_provider.clone()
+    } else if let Some(cfg) = toml_config.and_then(|c| c.ai.as_ref()) {
+        cfg.provider.clone().unwrap_or_else(|| "claude".to_string())
+    } else {
+        "claude".to_string()
+    };
+
+    let provider = match provider_str.to_lowercase().as_str() {
+        "openai" => AiProvider::OpenAi,
+        "local" | "ollama" => AiProvider::Local,
+        _ => AiProvider::Claude,
+    };
+
+    // Determine model from toml config or provider defaults
+    let model = toml_config
+        .and_then(|c| c.ai.as_ref())
+        .and_then(|ai| ai.model.clone())
+        .unwrap_or_else(|| match provider {
+            AiProvider::Claude => "claude-sonnet-4-20250514".to_string(),
+            AiProvider::OpenAi => "gpt-4o".to_string(),
+            AiProvider::Local => "qwen2.5-coder:7b".to_string(),
+        });
+
+    let max_findings = toml_config
+        .and_then(|c| c.ai.as_ref())
+        .and_then(|ai| ai.max_findings)
+        .unwrap_or(50);
+
+    // Build AI config
+    let ai_config = AiConfig {
+        provider,
+        api_key: None, // AiEngine::new() reads from env vars
+        model,
+        max_tokens: 4096,
+        temperature: 0.0,
+        enabled: true,
+        max_file_size: 100_000,
+    };
+
+    // Create tokio runtime for async AI calls
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {}", e))?;
+
+    // Try to create the AI engine — provide helpful error if API key is missing
+    let engine = match rt.block_on(AiEngine::new(ai_config)) {
+        Ok(engine) => engine,
+        Err(e) => {
+            let err_msg = e.to_string();
+            if err_msg.contains("API_KEY") || err_msg.contains("not set") {
+                let (env_var, example_key) = match provider {
+                    AiProvider::Claude => ("ANTHROPIC_API_KEY", "sk-ant-..."),
+                    AiProvider::OpenAi => ("OPENAI_API_KEY", "sk-..."),
+                    AiProvider::Local => ("QRYON_LOCAL_AI_ENDPOINT", "http://localhost:11434"),
+                };
+                eprintln!();
+                eprintln!(
+                    "{}\n\n  Provider: {}\n  Set:      export {}={}\n\n  \
+                     Or use a different provider:\n    \
+                     --ai-provider openai   (needs OPENAI_API_KEY)\n    \
+                     --ai-provider local    (needs Ollama at localhost:11434)\n\n  \
+                     Tip: Run 'qryon init --with-ai' to configure in qryon.toml",
+                    "Error: AI analysis requires an API key.".red().bold(),
+                    provider_str,
+                    env_var,
+                    example_key
+                );
+                return Err(anyhow::anyhow!(
+                    "AI analysis requires {} to be set",
+                    env_var
+                ));
+            }
+            return Err(e);
+        }
+    };
+
+    // Build source lookup: path -> source content
+    let source_map: HashMap<String, &str> = parsed_files
+        .iter()
+        .map(|pf| {
+            let key = pf.path.to_string_lossy().to_string();
+            (key, pf.content.as_str())
+        })
+        .collect();
+
+    // Collect security-relevant findings across all results.
+    // Check both the category enum AND rule_id path for security rules,
+    // since many builtin rules have security-related rule_ids but default
+    // to Quality category.
+    let mut finding_refs: Vec<(usize, usize)> = Vec::new(); // (result_idx, finding_idx)
+    for (ri, result) in results.iter().enumerate() {
+        for (fi, finding) in result.findings.iter().enumerate() {
+            let is_security = finding.category == FindingCategory::Security
+                || finding.rule_id.contains("security")
+                || finding.rule_id.contains("injection")
+                || finding.rule_id.contains("xss")
+                || finding.rule_id.contains("secret")
+                || finding.rule_id.contains("crypto")
+                || finding.rule_id.contains("cookie")
+                || finding.rule_id.contains("unsafe")
+                || finding.rule_id.contains("defused")
+                || finding.rule_id.contains("debugger")
+                || finding.severity == Severity::Error
+                || finding.severity == Severity::Critical;
+            if is_security {
+                finding_refs.push((ri, fi));
+            }
+        }
+    }
+
+    if finding_refs.is_empty() {
+        if !args.quiet && args.format == OutputFormat::Text {
+            println!(
+                "  {} No security findings to triage with AI",
+                Theme::info_mark()
+            );
+        }
+        return Ok(());
+    }
+
+    // Cap at max_findings to limit cost
+    let total_to_triage = finding_refs.len().min(max_findings);
+    finding_refs.truncate(total_to_triage);
+
     let spinner = if !args.quiet && args.format == OutputFormat::Text {
-        let s = progress::create_spinner("Running AI analysis...");
+        let s = progress::create_spinner(&format!(
+            "AI triaging {} security findings (provider: {})...",
+            total_to_triage, provider_str
+        ));
         Some(s)
     } else {
         None
     };
 
-    // Note: AI analysis would be integrated here
-    // For now, we just simulate the phase
+    let mut confirmed = 0usize;
+    let mut false_positives = 0usize;
+    let mut needs_review = 0usize;
+    let mut errors = 0usize;
+
+    for (idx, &(ri, fi)) in finding_refs.iter().enumerate() {
+        if let Some(ref s) = spinner {
+            s.set_message(format!(
+                "AI triaging [{}/{}] findings...",
+                idx + 1,
+                total_to_triage
+            ));
+        }
+
+        let finding = &results[ri].findings[fi];
+        let file_path_str = finding.location.file.to_string_lossy().to_string();
+        let language = finding.language;
+
+        // Look up source code
+        let code_context = if let Some(source) = source_map.get(&file_path_str) {
+            extract_code_context(
+                source,
+                finding.location.start_line,
+                finding.location.end_line,
+                30,
+            )
+        } else {
+            // Try matching by filename suffix
+            let mut found_ctx = String::new();
+            for (path, src) in &source_map {
+                if path.ends_with(&file_path_str) || file_path_str.ends_with(path.as_str()) {
+                    found_ctx = extract_code_context(
+                        src,
+                        finding.location.start_line,
+                        finding.location.end_line,
+                        30,
+                    );
+                    break;
+                }
+            }
+            found_ctx
+        };
+
+        if code_context.is_empty() {
+            continue;
+        }
+
+        // Call AI triage
+        match rt.block_on(engine.triage_finding(finding, &code_context, language)) {
+            Ok(triage) => {
+                let finding_mut = &mut results[ri].findings[fi];
+                finding_mut.ai_verdict = Some(triage.verdict.clone());
+                finding_mut.ai_explanation = Some(triage.explanation.clone());
+                finding_mut.ai_confidence = Some(triage.confidence);
+
+                if triage.verdict == "true_positive" {
+                    if let Some(fix) = &triage.fix_suggestion {
+                        let existing = finding_mut.suggestion.clone().unwrap_or_default();
+                        finding_mut.suggestion = Some(if existing.is_empty() {
+                            format!("[AI] {}", fix)
+                        } else {
+                            format!("{}\n[AI] {}", existing, fix)
+                        });
+                    }
+                    confirmed += 1;
+                } else if triage.verdict == "false_positive" {
+                    false_positives += 1;
+                } else {
+                    needs_review += 1;
+                }
+            }
+            Err(e) => {
+                tracing::debug!("AI triage failed for {}: {}", file_path_str, e);
+                errors += 1;
+            }
+        }
+    }
+
+    // Remove findings the AI is highly confident are false positives
+    // Iterate in reverse to preserve indices
+    for &(ri, fi) in finding_refs.iter().rev() {
+        if fi < results[ri].findings.len() {
+            let finding = &results[ri].findings[fi];
+            if finding.ai_verdict.as_deref() == Some("false_positive")
+                && finding.ai_confidence.unwrap_or(0.0) >= 0.8
+            {
+                results[ri].findings.remove(fi);
+            }
+        }
+    }
+
     if let Some(s) = spinner {
         s.finish_with_message(format!(
-            "{} AI analysis complete (provider: {})",
+            "{} AI triaged {} findings: {} confirmed, {} false positives removed, {} needs review{}",
             Theme::success_mark(),
-            args.ai_provider.dimmed()
+            total_to_triage,
+            confirmed.to_string().red(),
+            false_positives.to_string().green(),
+            needs_review.to_string().yellow(),
+            if errors > 0 {
+                format!(", {} errors", errors.to_string().dimmed())
+            } else {
+                String::new()
+            }
         ));
     }
 

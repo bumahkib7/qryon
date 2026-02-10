@@ -1091,6 +1091,27 @@ pub struct RmaTomlConfig {
     /// Suppression database configuration
     #[serde(default)]
     pub suppressions: SuppressionConfig,
+
+    /// AI analysis configuration
+    #[serde(default)]
+    pub ai: Option<AiTomlConfig>,
+}
+
+/// AI analysis configuration from qryon.toml
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AiTomlConfig {
+    /// Enable/disable AI analysis
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// AI provider: "claude", "openai", or "local"
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Model name override
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Maximum findings to triage per scan (default: 50)
+    #[serde(default)]
+    pub max_findings: Option<usize>,
 }
 
 /// Result of loading a config file

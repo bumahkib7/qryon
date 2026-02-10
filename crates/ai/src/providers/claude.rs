@@ -54,8 +54,17 @@ struct ClaudeContent {
 #[async_trait]
 impl AiAnalyzer for ClaudeProvider {
     async fn analyze(&self, request: AnalysisRequest) -> Result<AnalysisResponse, AiError> {
-        let system_prompt = prompts::security_analysis_system_prompt();
-        let user_prompt = prompts::format_analysis_prompt(&request);
+        // Use context as system prompt if provided (triage mode), otherwise default
+        let system_prompt = request
+            .context
+            .clone()
+            .unwrap_or_else(|| prompts::security_analysis_system_prompt());
+        // Use source_code directly if context is set (triage mode), otherwise format
+        let user_prompt = if request.context.is_some() {
+            request.source_code.clone()
+        } else {
+            prompts::format_analysis_prompt(&request)
+        };
 
         let claude_request = ClaudeRequest {
             model: self.model.clone(),
@@ -73,7 +82,7 @@ impl AiAnalyzer for ClaudeProvider {
             .client
             .post(CLAUDE_API_URL)
             .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-version", "2025-01-01")
             .header("content-type", "application/json")
             .json(&claude_request)
             .send()
@@ -113,7 +122,7 @@ impl AiAnalyzer for ClaudeProvider {
             .client
             .get("https://api.anthropic.com/v1/models")
             .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-version", "2025-01-01")
             .send()
             .await?;
 

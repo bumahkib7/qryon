@@ -811,6 +811,9 @@ mod tests {
             properties: None,
             occurrence_count: None,
             additional_locations: None,
+            ai_verdict: None,
+            ai_explanation: None,
+            ai_confidence: None,
         }
     }
 

@@ -1067,6 +1067,9 @@ impl OsvProvider {
                         properties: Some(properties),
                         occurrence_count: None,
                         additional_locations: None,
+                        ai_verdict: None,
+                        ai_explanation: None,
+                        ai_confidence: None,
                     };
                     finding.compute_fingerprint();
                     findings.push(finding);

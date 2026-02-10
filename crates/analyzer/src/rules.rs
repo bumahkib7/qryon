@@ -363,6 +363,9 @@ pub fn create_finding_at_line(
         properties: None,
         occurrence_count: None,
         additional_locations: None,
+        ai_verdict: None,
+        ai_explanation: None,
+        ai_confidence: None,
     };
     finding.compute_fingerprint();
     finding
@@ -411,6 +414,9 @@ pub fn create_finding(
         properties: None,
         occurrence_count: None,
         additional_locations: None,
+        ai_verdict: None,
+        ai_explanation: None,
+        ai_confidence: None,
     };
     finding.compute_fingerprint();
     finding

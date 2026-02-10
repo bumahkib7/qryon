@@ -38,8 +38,15 @@ struct OllamaResponse {
 #[async_trait]
 impl AiAnalyzer for LocalProvider {
     async fn analyze(&self, request: AnalysisRequest) -> Result<AnalysisResponse, AiError> {
-        let system_prompt = prompts::security_analysis_system_prompt();
-        let user_prompt = prompts::format_analysis_prompt(&request);
+        let system_prompt = request
+            .context
+            .clone()
+            .unwrap_or_else(|| prompts::security_analysis_system_prompt());
+        let user_prompt = if request.context.is_some() {
+            request.source_code.clone()
+        } else {
+            prompts::format_analysis_prompt(&request)
+        };
 
         let full_prompt = format!(
             "System: {}\n\nUser: {}\n\nAssistant:",

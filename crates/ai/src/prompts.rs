@@ -1,6 +1,7 @@
 //! Prompts for AI security analysis
 
 use crate::{AiError, AnalysisRequest, AnalysisResponse};
+use rma_common::{Finding, Language};
 
 /// System prompt for security analysis
 pub fn security_analysis_system_prompt() -> String {
@@ -104,14 +105,84 @@ fn extract_json(text: &str) -> String {
         return content[json_start..].trim().to_string();
     }
 
-    // Try to find raw JSON object
+    // Try to find raw JSON object — validate it parses to avoid matching wrong braces
     if let Some(start) = text.find('{')
         && let Some(end) = text.rfind('}')
     {
-        return text[start..=end].to_string();
+        let candidate = text[start..=end].to_string();
+        if serde_json::from_str::<serde_json::Value>(&candidate).is_ok() {
+            return candidate;
+        }
     }
 
     text.to_string()
+}
+
+/// System prompt for finding triage analysis
+pub fn triage_system_prompt() -> String {
+    r#"You are a security engineer reviewing static analysis findings. Your job is to triage each finding — determine if it's a real vulnerability or a false positive.
+
+For the finding presented, provide your analysis as JSON:
+{
+  "findings": [
+    {
+      "rule_id": "triage",
+      "title": "verdict: true_positive|false_positive|needs_review",
+      "description": "Your detailed explanation of why this is or isn't exploitable",
+      "severity": "critical|high|medium|low",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "security",
+      "cwe_id": null,
+      "fix_suggestion": "Concrete code fix if true positive, null if false positive",
+      "confidence": 0.0
+    }
+  ],
+  "summary": "Brief verdict explanation",
+  "confidence": 0.0
+}
+
+Guidelines:
+- confidence >= 0.7 means you're fairly certain of your verdict
+- For true positives: explain the attack scenario and provide a concrete fix
+- For false positives: explain why it can't be exploited in this context
+- Consider the language, framework, and surrounding code context
+- If the finding is in test code or example code, note that but still assess the pattern
+- Return EMPTY findings array if this is clearly a false positive with high confidence
+
+If no issues are found, return {"findings": [], "summary": "False positive - [reason]", "confidence": 0.9}"#.to_string()
+}
+
+/// Format a triage prompt for a specific finding with code context
+pub fn format_triage_prompt(finding: &Finding, code_context: &str, language: Language) -> String {
+    let file_path = finding.location.file.display();
+    let start_line = finding.location.start_line;
+
+    format!(
+        r#"Triage this static analysis finding:
+
+Rule: {} — {}
+Severity: {:?}
+Category: {:?}
+File: {}:{}
+Language: {}
+
+Code context:
+```{}
+{}
+```
+
+Is this a true positive or false positive? Respond with JSON."#,
+        finding.rule_id,
+        finding.message,
+        finding.severity,
+        finding.category,
+        file_path,
+        start_line,
+        language,
+        language.to_string().to_lowercase(),
+        code_context,
+    )
 }
 
 #[cfg(test)]

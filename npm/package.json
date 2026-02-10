@@ -1,6 +1,6 @@
 {
   "name": "qryon",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "Qryon - Ultra-fast code intelligence and security analyzer for polyglot projects",
   "keywords": [
     "security",
@@ -27,7 +27,7 @@
   "license": "MIT OR Apache-2.0",
   "author": "bumahkib7",
   "bin": {
-    "qryon": "./bin/qryon-wrapper.js"
+    "qryon": "bin/qryon-wrapper.js"
   },
   "scripts": {
     "postinstall": "node install.js",

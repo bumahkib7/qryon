@@ -71,6 +71,57 @@ qryon scan . -i
 qryon scan . -j 4
 ```
 
+### AI Analysis
+
+When you use `--ai`, Qryon triages static analysis findings with AI rather than scanning raw files. Each security finding is sent to the AI with surrounding code context, and the AI determines whether it's a true positive, false positive, or needs manual review.
+
+**How it works:**
+1. Static analysis runs first (as normal)
+2. Security findings are extracted with ~30 lines of surrounding code
+3. Each finding is sent to the AI for triage (up to 50 findings per scan)
+4. AI confirms/rejects each finding and adds explanations
+5. High-confidence false positives are automatically removed
+
+**Provider setup:**
+
+| Provider | Env Var | Default Model |
+|----------|---------|---------------|
+| `claude` (default) | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 |
+| `openai` | `OPENAI_API_KEY` | gpt-4o |
+| `local` | `QRYON_LOCAL_AI_ENDPOINT` | Ollama localhost:11434 |
+
+**Examples:**
+```bash
+# Triage findings with Claude (default)
+export ANTHROPIC_API_KEY=sk-ant-...
+qryon scan . --ai
+
+# Use OpenAI
+export OPENAI_API_KEY=sk-...
+qryon scan . --ai --ai-provider openai
+
+# Use local Ollama (free, private)
+qryon scan . --ai --ai-provider local
+```
+
+**Configuration in `qryon.toml`:**
+```toml
+[ai]
+enabled = true
+provider = "claude"
+model = "claude-sonnet-4-20250514"
+max_findings = 50
+```
+
+CLI arguments override TOML settings. Only security findings are triaged to limit cost.
+
+**Output fields:** When `--ai` is used, findings may include:
+- `ai_verdict`: "true_positive", "false_positive", or "needs_review"
+- `ai_explanation`: AI's reasoning about the finding
+- `ai_confidence`: 0.0-1.0 confidence score
+
+These appear in JSON and SARIF output. High-confidence false positives (>=0.8) are automatically filtered.
+
 ### watch
 
 Watch for file changes and re-analyze in real-time.
@@ -343,7 +394,9 @@ qryon completions fish > ~/.config/fish/completions/qryon.fish
 | `QRYON_CONFIG` | Path to configuration file | `.qryon/config.json` |
 | `QRYON_LOG` | Log level | `info` |
 | `QRYON_NO_COLOR` | Disable colors | (unset) |
-| `OPENAI_API_KEY` | API key for AI analysis | (required for --ai) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for `--ai` with Claude | (required for --ai --ai-provider claude) |
+| `OPENAI_API_KEY` | OpenAI API key for `--ai` with OpenAI | (required for --ai --ai-provider openai) |
+| `QRYON_LOCAL_AI_ENDPOINT` | Local AI endpoint for `--ai` with Ollama | `http://localhost:11434` |
 | `QRYON_CACHE_DIR` | Cache directory | `~/.cache/qryon` |
 
 ## Exit Codes

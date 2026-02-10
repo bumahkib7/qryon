@@ -257,6 +257,9 @@ impl CompiledRule {
             properties: if props.is_empty() { None } else { Some(props) },
             occurrence_count: None,
             additional_locations: None,
+            ai_verdict: None,
+            ai_explanation: None,
+            ai_confidence: None,
         };
 
         // Default subcategory for builtin findings missing it

@@ -12,7 +12,7 @@ use rma_common::{Finding, Language, Severity, SourceLocation};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Errors from AI analysis
 #[derive(Error, Debug)]
@@ -82,7 +82,7 @@ pub enum AiProvider {
 }
 
 /// Request sent to AI for analysis
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisRequest {
     pub source_code: String,
     pub file_path: String,
@@ -158,6 +158,9 @@ impl AiFinding {
             properties: None,
             occurrence_count: None,
             additional_locations: None,
+            ai_verdict: None,
+            ai_explanation: None,
+            ai_confidence: None,
         };
         finding.compute_fingerprint();
         finding
@@ -276,6 +279,140 @@ impl AiEngine {
     pub fn provider_name(&self) -> &str {
         self.provider.provider_name()
     }
+
+    /// Triage a single static analysis finding using AI
+    ///
+    /// Sends the finding + surrounding code context to the AI provider
+    /// and asks it to confirm/reject the finding with an explanation.
+    pub async fn triage_finding(
+        &self,
+        finding: &Finding,
+        code_context: &str,
+        language: Language,
+    ) -> Result<TriageResult, AiError> {
+        let system_prompt = prompts::triage_system_prompt();
+        let user_prompt = prompts::format_triage_prompt(finding, code_context, language);
+
+        let request = AnalysisRequest {
+            source_code: user_prompt,
+            file_path: finding.location.file.to_string_lossy().to_string(),
+            language: language.to_string(),
+            context: Some(system_prompt.clone()),
+        };
+
+        // Retry with exponential backoff on rate limiting
+        let mut attempt = 0;
+        let max_retries = 3;
+        let base_delay = std::time::Duration::from_secs(2);
+
+        loop {
+            match self.provider.analyze(request.clone()).await {
+                Ok(response) => {
+                    break Ok(TriageResult::from_analysis_response(&response));
+                }
+                Err(AiError::RateLimited) if attempt < max_retries => {
+                    attempt += 1;
+                    let delay = base_delay * 2u32.pow(attempt as u32 - 1);
+                    warn!(
+                        "Rate limited, retrying in {:?} (attempt {}/{})",
+                        delay, attempt, max_retries
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => break Err(e),
+            }
+        }
+    }
+}
+
+/// Result of AI triage on a single static analysis finding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriageResult {
+    /// "true_positive", "false_positive", or "needs_review"
+    pub verdict: String,
+    /// AI's confidence in its verdict (0.0-1.0)
+    pub confidence: f32,
+    /// Explanation of why the finding is/isn't a real issue
+    pub explanation: String,
+    /// Concrete fix suggestion (if true positive)
+    pub fix_suggestion: Option<String>,
+    /// Severity adjustment if the static tool's severity is wrong
+    pub severity_adjustment: Option<String>,
+}
+
+impl TriageResult {
+    /// Build a TriageResult from the AnalysisResponse returned by providers.
+    ///
+    /// When we send a triage prompt, the AI may still return an AnalysisResponse
+    /// format. We interpret it:
+    /// - If findings are empty → false_positive
+    /// - If findings exist with high confidence → true_positive
+    /// - Otherwise → needs_review
+    pub fn from_analysis_response(response: &AnalysisResponse) -> Self {
+        if response.findings.is_empty() {
+            return Self {
+                verdict: "false_positive".to_string(),
+                confidence: response.confidence,
+                explanation: response
+                    .summary
+                    .clone()
+                    .unwrap_or_else(|| "AI determined this is likely a false positive.".to_string()),
+                fix_suggestion: None,
+                severity_adjustment: None,
+            };
+        }
+
+        let finding = &response.findings[0];
+        let verdict = if finding.confidence >= 0.7 {
+            "true_positive"
+        } else if finding.confidence >= 0.4 {
+            "needs_review"
+        } else {
+            "false_positive"
+        };
+
+        Self {
+            verdict: verdict.to_string(),
+            confidence: finding.confidence,
+            explanation: finding.description.clone(),
+            fix_suggestion: finding.fix_suggestion.clone(),
+            severity_adjustment: Some(finding.severity.clone()),
+        }
+    }
+}
+
+/// Extract code context around a finding location.
+///
+/// Returns `context_lines` lines above and below the finding, with line numbers.
+pub fn extract_code_context(
+    source: &str,
+    start_line: usize,
+    end_line: usize,
+    context_lines: usize,
+) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    let total = lines.len();
+    let ctx_start = start_line.saturating_sub(context_lines).max(1);
+    let ctx_end = (end_line + context_lines).min(total);
+
+    let mut result = String::with_capacity(2048);
+    for (idx, line) in lines.iter().enumerate() {
+        let line_num = idx + 1;
+        if line_num >= ctx_start && line_num <= ctx_end {
+            // Mark the finding lines with an arrow
+            let marker = if line_num >= start_line && line_num <= end_line {
+                ">>>"
+            } else {
+                "   "
+            };
+            result.push_str(&format!("{} {:>4} | {}\n", marker, line_num, line));
+        }
+    }
+    result
 }
 
 #[cfg(test)]

@@ -14,8 +14,13 @@ npm install -g qryon
 # Scan current directory
 qryon scan .
 
-# Scan with AI-powered analysis
-qryon scan ./src --ai
+# AI-powered finding triage (triages static findings with AI)
+export ANTHROPIC_API_KEY=sk-ant-...
+qryon scan . --ai
+
+# Use OpenAI or local Ollama instead
+qryon scan . --ai --ai-provider openai
+qryon scan . --ai --ai-provider local
 
 # Watch mode for continuous analysis
 qryon watch .
